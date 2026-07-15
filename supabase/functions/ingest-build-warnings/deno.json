@@ -1,0 +1,6 @@
+{
+  "imports": {
+    "supabase-js": "npm:@supabase/supabase-js@2"
+  },
+  "_deploy_note": "Always deploy with --no-verify-jwt. This function uses its own BUILD_WARNINGS_INGEST_TOKEN bearer auth (CI -> server pipe), not Supabase's JWT layer."
+}

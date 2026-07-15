@@ -26,7 +26,8 @@ if ! echo "${MAPLE_PARALLEL_WARN:-}" | grep -qiE '^(off|0|false)$'; then
 fi
 
 # Migration filename validation: YYYYMMDDHHMMSS_description.sql
-MIGRATIONS=$(git diff --cached --name-only | grep 'supabase/migrations/' || true)
+# (.sql files only — the directory's README documenting the convention is fine)
+MIGRATIONS=$(git diff --cached --name-only | grep 'supabase/migrations/.*\.sql$' || true)
 if [ -n "$MIGRATIONS" ]; then
   for f in $MIGRATIONS; do
     base=$(basename "$f")

@@ -1,0 +1,40 @@
+# Supabase local-dev configuration (partial — the CLI fills in defaults).
+# Reference: https://supabase.com/docs/guides/local-development/cli/config
+#
+# project_id is a LITERAL (not env()) so this project's local stack always
+# has a unique container/network name and can never collide with another
+# local project's default "supabase" stack. Rename it when instantiating
+# (see README "Instantiate a new project").
+project_id = "your-project-local"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+# Limits payload size for accidental or malicious requests.
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 17
+
+[db.migrations]
+enabled = true
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:3000"
+additional_redirect_urls = ["https://127.0.0.1:3000"]
+
+[edge_runtime]
+enabled = true

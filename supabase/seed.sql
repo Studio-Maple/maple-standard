@@ -1,0 +1,4 @@
+-- Local-dev seed data. Runs after migrations on `supabase db reset`.
+-- Keep it minimal and deterministic — the RLS test suite
+-- (supabase/tests/) relies on whatever you seed here existing on every
+-- fresh reset. Empty by default.
