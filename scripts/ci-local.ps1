@@ -59,7 +59,9 @@ function Run-Fast {
 
 function Stack-Up {
     try {
-        & supabase status -o env *> $null
+        # pnpm exec — a bare `supabase` resolves to whatever global CLI is on
+        # PATH, which can be older than the project's and fail parsing config.toml.
+        & pnpm exec supabase status -o env *> $null
         return ($LASTEXITCODE -eq 0)
     } catch { return $false }
 }

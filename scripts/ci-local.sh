@@ -54,7 +54,9 @@ run_fast() {
 }
 
 stack_up() {
-  supabase status -o env >/dev/null 2>&1
+  # pnpm exec — a bare `supabase` resolves to whatever global CLI is on
+  # PATH, which can be older than the project's and fail parsing config.toml.
+  pnpm exec supabase status -o env >/dev/null 2>&1
 }
 
 require_stack() {

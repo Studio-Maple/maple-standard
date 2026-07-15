@@ -38,3 +38,17 @@ additional_redirect_urls = ["https://127.0.0.1:3000"]
 
 [edge_runtime]
 enabled = true
+
+# ── Multi-project machines: give each project its own port block ─────────
+# Only project_id is namespaced — the 543xx default ports above are NOT,
+# and collide the moment a second local stack runs on the same machine.
+# When instantiating, move the whole stack to a unique block (e.g. 563xx):
+# [api].port, [db].port, [db].shadow_port, [studio].port above, PLUS the
+# services below, which default into 543xx even without a section here.
+#
+# [analytics]
+# enabled = true
+# port = 54327
+#
+# [inbucket]
+# port = 54324
