@@ -1,0 +1,25 @@
+{
+  "_comment": "Copy to .claude/settings.local.json (gitignored) and adjust for your project. This is the personal/local overlay on top of .claude/settings.json — permissions you grant on your own machine, not project policy.",
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Read",
+      "Read(*)",
+      "Task",
+      "WebFetch(domain:vercel.com)",
+      "WebFetch(domain:supabase.com)",
+      "WebFetch(domain:nextjs.org)",
+      "WebFetch(domain:docs.sentry.io)",
+      "mcp__supabase__list_tables",
+      "mcp__supabase__list_migrations",
+      "mcp__supabase__get_advisors",
+      "mcp__supabase__get_logs",
+      "mcp__playwright__*"
+    ],
+    "deny": [],
+    "ask": []
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": ["supabase", "playwright"],
+  "outputStyle": "default"
+}

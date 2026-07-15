@@ -1,0 +1,95 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"Branch: $(git branch --show-current)\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node .claude/hooks/parallel-session-warn.js",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/eslint-fix.js",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "node .claude/hooks/size-warning.js",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node .claude/hooks/build-counter.js",
+            "timeout": 45
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Read|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/scrub-secrets.mjs",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/deny-credential-paths.mjs",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/ask-gate.mjs",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/dirty-tree-guard.js",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node .claude/hooks/docs-sync-reminder.js",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node .claude/hooks/decision-reminder.js",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

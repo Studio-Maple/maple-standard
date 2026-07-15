@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "app",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "supabase-local",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["supabase", "start"],
+      "port": 55321
+    }
+  ]
+}
