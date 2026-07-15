@@ -50,5 +50,5 @@ enabled = true
 # enabled = true
 # port = 54327
 #
-# [inbucket]
+# [local_smtp]   # named [inbucket] in older CLI versions (deprecation WARN)
 # port = 54324
