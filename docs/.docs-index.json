@@ -1,0 +1,90 @@
+{
+  "generated": "2026-07-15",
+  "generator": "scripts/generate-docs-index.mjs",
+  "description": "Machine-readable map of docs/**/*.md preambles. Regenerate after any preamble change: node scripts/generate-docs-index.mjs (or check-docs-drift.mjs --fix).",
+  "files": [
+    {
+      "path": "docs/decisions.md",
+      "title": "Decisions",
+      "topic": "root",
+      "audience": "agents + owner. Read before asking; cite before asserting",
+      "authoritative_for": [
+        "every settled call. Newest first"
+      ],
+      "anchor_type": "updated_by",
+      "anchor_paths": [
+        "node scripts/next-task-id.mjs --add --decision --title \"...\" --body \"...\""
+      ],
+      "related": []
+    },
+    {
+      "path": "docs/gaps.md",
+      "title": "Gaps",
+      "topic": "root",
+      "audience": "agents — check at session start",
+      "authoritative_for": [
+        "things the owner flagged as missing",
+        "wrong",
+        "or unresolved"
+      ],
+      "anchor_type": "updated_by",
+      "anchor_paths": [],
+      "related": [
+        "decisions"
+      ]
+    },
+    {
+      "path": "docs/log.md",
+      "title": "Session log",
+      "topic": "root",
+      "audience": "owner + future sessions (history scan)",
+      "authoritative_for": [
+        "what happened when. Append-only",
+        "newest first"
+      ],
+      "anchor_type": "updated_by",
+      "anchor_paths": [
+        "node scripts/next-task-id.mjs --add --session --title \"...\" --body \"...\""
+      ],
+      "related": []
+    },
+    {
+      "path": "docs/quality.md",
+      "title": "Quality — the enforcement matrix",
+      "topic": "root",
+      "audience": "anyone asking \"what stops bad code from landing here?\"",
+      "authoritative_for": [
+        "the gate/hook/CI inventory and its philosophy"
+      ],
+      "anchor_type": "code",
+      "anchor_paths": [
+        "scripts/ci-local.sh",
+        "scripts/ci-local.ps1",
+        ".husky/pre-commit",
+        ".husky/pre-push",
+        "eslint.config.mjs",
+        ".dependency-cruiser.cjs",
+        "knip.json",
+        "scripts/check-docs-drift.mjs",
+        "scripts/check-types-fresh.mjs"
+      ],
+      "related": [
+        "../CLAUDE.md"
+      ]
+    },
+    {
+      "path": "docs/tasks.md",
+      "title": "Tasks",
+      "topic": "root",
+      "audience": "agents + owner. Open work only — sweep done entries",
+      "authoritative_for": [
+        "tracked future work (`#T###`)"
+      ],
+      "anchor_type": "updated_by",
+      "anchor_paths": [
+        "node scripts/next-task-id.mjs --add --section \"Inbox\" --title \"...\" --body \"...\""
+      ],
+      "related": []
+    }
+  ]
+}
