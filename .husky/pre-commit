@@ -1,0 +1,67 @@
+#!/bin/sh
+
+# Pre-commit: staged-scope validation. Fast checks only — the full gate runs
+# pre-push (see .husky/pre-push). Sized for a single-package
+# Next.js repo.
+
+echo "Pre-commit: checking staged files..."
+
+# Parallel-session collision WARN (non-blocking, default-on, opt-out).
+# Committing from a shared main checkout while other git worktrees are active
+# risks a whole-index commit sweeping in another session's staged files.
+# Warn; never block. Silence: MAPLE_PARALLEL_WARN=off.
+if ! echo "${MAPLE_PARALLEL_WARN:-}" | grep -qiE '^(off|0|false)$'; then
+  GITDIR=$(git rev-parse --absolute-git-dir 2>/dev/null || echo "")
+  case "$GITDIR" in
+    */worktrees/*) : ;;  # already isolated in a worktree — no warning
+    *)
+      WT_TOTAL=$(git worktree list 2>/dev/null | wc -l | tr -d ' ')
+      if [ "${WT_TOTAL:-1}" -gt 1 ]; then
+        echo "  WARN: $((WT_TOTAL - 1)) parallel git worktree(s) active — committing from the MAIN tree."
+        echo "    A whole-index commit can sweep in another session's staged files. Scope it: git commit -- <paths>."
+        echo "    (warning only — silence with MAPLE_PARALLEL_WARN=off)"
+      fi
+      ;;
+  esac
+fi
+
+# Migration filename validation: YYYYMMDDHHMMSS_description.sql
+MIGRATIONS=$(git diff --cached --name-only | grep 'supabase/migrations/' || true)
+if [ -n "$MIGRATIONS" ]; then
+  for f in $MIGRATIONS; do
+    base=$(basename "$f")
+    if ! echo "$base" | grep -qE '^[0-9]{14}_[a-z0-9_]+\.sql$'; then
+      echo "ERROR: Migration file '$base' does not match naming convention: YYYYMMDDHHMMSS_description.sql"
+      exit 1
+    fi
+  done
+  echo "  Migration file naming: OK"
+fi
+
+# Staged-scope lint + whole-project typecheck when TS/TSX files are staged.
+STAGED_TS=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(ts|tsx)$' || true)
+if [ -n "$STAGED_TS" ]; then
+  echo "  TS files staged — running lint (staged scope) + typecheck..."
+  # shellcheck disable=SC2086  # word-split is the point: one arg per file
+  pnpm exec eslint --cache --quiet $STAGED_TS || exit 1
+  pnpm exec tsc --noEmit --pretty || exit 1
+  echo "  Lint + typecheck: OK"
+fi
+
+# Edge Functions are Deno — typecheck staged ones if the Deno toolchain is
+# present (skipped silently otherwise so non-Deno boxes still commit).
+FUNCS=$(git diff --cached --name-only --diff-filter=ACMR | grep '^supabase/functions/.*\.ts$' || true)
+if [ -n "$FUNCS" ] && command -v deno >/dev/null 2>&1; then
+  echo "  Edge Function files staged — deno check..."
+  for f in $FUNCS; do
+    FUNC_DIR=$(dirname "$f")
+    if [ -f "$FUNC_DIR/deno.json" ]; then
+      deno check --config "$FUNC_DIR/deno.json" "$f" || exit 1
+    else
+      deno check "$f" || exit 1
+    fi
+  done
+  echo "  Edge Function typecheck: OK"
+fi
+
+echo "Pre-commit checks passed!"

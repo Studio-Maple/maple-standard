@@ -1,0 +1,4 @@
+# ZAP baseline rule tuning — one rule per line, TAB-separated:
+#   <plugin-id>	<IGNORE|WARN|FAIL>	<comment>
+# Add entries here to silence known false positives surfaced by the weekly
+# zap.yml scan. Keep every IGNORE justified with a comment.

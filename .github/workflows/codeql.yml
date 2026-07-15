@@ -1,0 +1,107 @@
+name: CodeQL
+
+# GitHub-native SAST. Catches: XSS sinks, prototype pollution, hardcoded
+# secrets, SQL injection, path traversal, command injection, insecure regex,
+# deprecated cryptography, and ~150 other CWE patterns across JS/TS.
+#
+# For PUBLIC repos, GitHub Code Scanning is free — findings land in the
+# Security tab via the default `upload`. For PRIVATE repos without GHAS,
+# flip `upload: false` and rely on the ingest-sarif path below (Supabase
+# `sarif_findings` table), the pattern this template ships tables for.
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+    branches: [main, development]
+  schedule:
+    # Weekly baseline scan: Monday 03:00 UTC (staggered before Snyk + ZAP).
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      security-events: write
+      packages: read
+      actions: read
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: javascript-typescript
+            build-mode: none
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # security-extended adds rules for less-common but still relevant
+          # vulnerabilities. security-and-quality also includes quality issues
+          # but generates more noise.
+          queries: security-extended
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
+          # Also write SARIF to disk so the optional ingest step below can
+          # POST it to your own sarif_findings pipeline (dashboard/delta
+          # tracking), independent of GitHub's Security tab.
+          output: ${{ runner.temp }}/codeql-results
+
+      # POST the SARIF to the Supabase ingest-sarif Edge Function, which
+      # parses + upserts findings into `sarif_findings` with delta tracking.
+      # Best-effort: skips gracefully when the secrets aren't configured.
+      #
+      # Per-project setup: deploy supabase/functions/ingest-sarif, then set
+      # repo secrets SARIF_INGEST_TOKEN + SARIF_INGEST_URL
+      # (https://<ref>.supabase.co/functions/v1/ingest-sarif).
+      - name: Ingest SARIF to observability tables (optional)
+        if: always()
+        continue-on-error: true
+        env:
+          SARIF_INGEST_TOKEN: ${{ secrets.SARIF_INGEST_TOKEN }}
+          SARIF_INGEST_URL: ${{ secrets.SARIF_INGEST_URL }}
+        run: |
+          set -u
+          if [ -z "${SARIF_INGEST_TOKEN:-}" ] || [ -z "${SARIF_INGEST_URL:-}" ]; then
+            echo "::notice::SARIF_INGEST_TOKEN/URL not set — skipping ingest"
+            exit 0
+          fi
+          SARIF_FILE="${RUNNER_TEMP}/codeql-results/${{ matrix.language }}.sarif"
+          if [ ! -f "$SARIF_FILE" ]; then
+            # Synthesize an empty SARIF so the ingest function still runs the
+            # mark-resolved pass — keeps the dashboard consistent if a later
+            # scan finds nothing where the previous one had findings.
+            echo '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"CodeQL","rules":[]}},"results":[]}]}' > "${RUNNER_TEMP}/empty.sarif"
+            SARIF_FILE="${RUNNER_TEMP}/empty.sarif"
+            echo "No SARIF produced — sending empty payload to clear stale findings"
+          fi
+          jq -nc \
+            --arg scanner "codeql" \
+            --arg branch "${GITHUB_REF_NAME}" \
+            --arg commit_sha "${GITHUB_SHA}" \
+            --argjson run_id "${GITHUB_RUN_ID}" \
+            --slurpfile sarif "$SARIF_FILE" \
+            '{scanner: $scanner, branch: $branch, commit_sha: $commit_sha, run_id: $run_id, sarif: $sarif[0]}' \
+            > /tmp/ingest-payload.json
+          HTTP_CODE=$(curl -sS -o /tmp/ingest-response.json -w '%{http_code}' \
+            -X POST "$SARIF_INGEST_URL" \
+            -H "Authorization: Bearer $SARIF_INGEST_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data @/tmp/ingest-payload.json) || HTTP_CODE=000
+          echo "Response ($HTTP_CODE): $(cat /tmp/ingest-response.json)"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::warning::ingest-sarif returned HTTP $HTTP_CODE — check function logs"
+          fi

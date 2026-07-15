@@ -1,0 +1,106 @@
+name: Dependabot Auto-merge
+
+# Integrates Dependabot into daily work. Two jobs:
+#   validate  — proves the bumped lockfile installs + typechecks. Runs on
+#               `pull_request` with a READ-ONLY token and NO secrets, so the
+#               untrusted install scripts can't exfiltrate anything. This is
+#               the cloud "green" for Dependabot branches (which never run
+#               the local pre-push gate).
+#   automerge — needs(validate). Never checks out PR code. Reads the update
+#               metadata and either enables auto-merge (safe classes) or
+#               labels for human review.
+#
+# Auto-merge policy:
+#   - dev/tooling deps (any patch+minor)            -> auto
+#   - runtime patch bumps                           -> auto
+#   - transitive bumps                              -> auto
+#   - runtime MINOR, majors                         -> label for review
+#
+# Auto-merge only completes once branch-protection's required checks are
+# green — `gh pr merge --auto` waits for them. Requires repo settings:
+# "Allow auto-merge" + "Allow GitHub Actions to create and approve pull
+# requests".
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependabot-automerge-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate dependency update
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install + typecheck
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm run typecheck
+
+  automerge:
+    name: Auto-merge or escalate
+    needs: validate
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Fetch update metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Decide auto-merge vs escalate
+        id: decide
+        env:
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+          DEP_TYPE: ${{ steps.meta.outputs.dependency-type }}
+          GHSA: ${{ steps.meta.outputs.ghsa-id }}
+        run: |
+          set -euo pipefail
+          automerge=false
+          # dev/tooling (direct dev or transitive) OR any patch bump -> safe
+          if [ "$DEP_TYPE" = "direct:development" ] || [ "$DEP_TYPE" = "indirect" ]; then
+            automerge=true
+          elif [ "$UPDATE_TYPE" = "version-update:semver-patch" ]; then
+            automerge=true
+          fi
+          echo "automerge=$automerge" >> "$GITHUB_OUTPUT"
+          if [ -n "${GHSA:-}" ]; then echo "security=true" >> "$GITHUB_OUTPUT"; else echo "security=false" >> "$GITHUB_OUTPUT"; fi
+          echo "Decision: automerge=$automerge security=${GHSA:+yes} ($DEP_TYPE / $UPDATE_TYPE)"
+
+      - name: Enable auto-merge (safe classes)
+        if: steps.decide.outputs.automerge == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge --auto --squash "${{ github.event.pull_request.html_url }}"
+
+      - name: Escalate for review (runtime-minor / major)
+        if: steps.decide.outputs.automerge == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          label="needs-review"
+          if [ "${{ steps.decide.outputs.security }}" = "true" ]; then label="priority-security"; fi
+          gh pr edit "${{ github.event.pull_request.html_url }}" --add-label "$label"
+          echo "Escalated with label '$label'."

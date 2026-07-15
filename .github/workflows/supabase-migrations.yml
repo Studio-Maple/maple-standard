@@ -1,0 +1,75 @@
+name: Supabase Migrations
+
+# Validates that committed migrations apply cleanly to a fresh database and
+# that the generated database types are in sync. Production-vs-migrations
+# drift is a separate concern, handled by drift-sentinel.yml.
+
+on:
+  push:
+    branches: [main, development]
+    paths:
+      - "supabase/**"
+      - "src/types/database.types.ts"
+  pull_request:
+    paths:
+      - "supabase/**"
+      - "src/types/database.types.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  migrations:
+    runs-on: ubuntu-latest
+    name: Validate Supabase Migrations
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start local Supabase
+        run: supabase start
+
+      - name: Lint SQL migrations
+        run: supabase db lint
+
+      - name: Apply all migrations
+        # `db reset` runs all committed migrations against a fresh local DB
+        # and exits non-zero if any fails. This is the actual validation for
+        # "do migrations apply cleanly".
+        run: supabase db reset
+
+      - name: Verify migrations applied cleanly
+        run: supabase migration list --db-url "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+
+      - name: Verify generated types are fresh (database.types.ts)
+        # The typed Supabase clients are only as honest as
+        # src/types/database.types.ts. Regenerate from this fresh
+        # migration-built DB — the source of truth — and fail on any diff so
+        # the generated types can't silently go stale after a migration.
+        # This is the CI backstop for scripts/check-types-fresh.mjs (pre-push).
+        run: |
+          set -euo pipefail
+          # Skip on a migration-less template clone — the committed placeholder
+          # types intentionally differ from generated-empty-schema output. The
+          # gate arms itself the moment the first real migration lands.
+          if ! ls supabase/migrations/*.sql >/dev/null 2>&1; then
+            echo "No migrations yet — skipping types-freshness diff (placeholder types are fine until the first migration)."
+            exit 0
+          fi
+          supabase gen types typescript --local > /tmp/database.types.generated.ts
+          if ! git diff --no-index --quiet src/types/database.types.ts /tmp/database.types.generated.ts; then
+            echo "::error title=Stale database.types.ts::src/types/database.types.ts is out of sync with the migrations. Run 'pnpm supabase:types' and commit."
+            git --no-pager diff --no-index src/types/database.types.ts /tmp/database.types.generated.ts || true
+            exit 1
+          fi
+          echo "database.types.ts matches the migration schema."
+
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop

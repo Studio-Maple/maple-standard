@@ -1,0 +1,37 @@
+# gitleaks allowlist — suppresses false positives for fixtures that LOOK
+# like secrets but are public test values or documented placeholders.
+#
+# Real secrets must NEVER be added here. Add only:
+#   - Test fixtures (clearly fake values committed for unit tests)
+#   - Example placeholders in .env.example / docs
+#
+# Format: https://github.com/gitleaks/gitleaks#configuration
+
+title = "maple-standard gitleaks config"
+
+# Inherit the default upstream ruleset; only override the allowlist below.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures and example placeholders"
+paths = [
+  # Test fixture: fake Supabase anon key used to satisfy env checks in vitest.
+  # Real anon keys never live in source.
+  '''vitest\.config\.ts''',
+  # MSW handlers + setup files reference fake Supabase URLs.
+  '''src/test/.*''',
+  # Placeholder values documented for humans.
+  '''\.env\.example''',
+]
+# Supabase anon keys are JWTs beginning with this Base64 prefix
+# ("{"alg":"HS256","typ":"JWT"}.{"iss":"supabase"...) — gitleaks' generic
+# rules may flag them. Anon keys are public by design (RLS enforces auth
+# server-side), so any literal beginning with this prefix is
+# documented-public, not a secret. Service-role keys share the prefix but
+# must never be committed regardless — the deny-credential-paths hook and
+# code review are the guards there; don't rely on this allowlist to
+# distinguish them.
+regexes = [
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.eyJpc3MiOiJzdXBhYmFzZSI''',
+]

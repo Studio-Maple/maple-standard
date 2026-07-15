@@ -1,0 +1,203 @@
+name: ZAP DAST
+
+# OWASP ZAP Baseline (Dynamic Application Security Testing).
+#
+# Why DAST in addition to SAST (CodeQL + Snyk + gitleaks)?
+#   - SAST reads the source. DAST hits the running app and observes responses.
+#   - DAST catches things SAST cannot: missing/weak security headers, cookie
+#     flags on real responses, server misconfig, exposed debug endpoints,
+#     broken redirects.
+#   - The baseline scan is PASSIVE — it spiders the public surface and
+#     analyzes responses. It does NOT actively attack (no SQLi/XSS payloads).
+#     Safe to run against a live deployment.
+#
+# Why weekly + on-demand only (no push/PR)?
+#   - Baseline scan takes ~5 min. Fine weekly, painful per-PR.
+#   - SAST already runs PR-time and covers code-level issues.
+#   - Staggered after CodeQL (Mon 03:00) and Snyk (daily 04:00).
+#
+# Per-project setup: replace the placeholder URL below with your staging
+# deployment (Vercel preview/staging domain). Prefer staging over production
+# — production is behind real users, and even passive scans can trip
+# WAF/rate limits and skew analytics.
+#
+# Failure policy: informational for now. Review findings, fix or
+# rule-ignore via .zap/rules.tsv, then ratchet by setting fail_action: true
+# once findings are at zero.
+
+on:
+  schedule:
+    # Mondays 05:00 UTC — staggered after CodeQL (03:00) and Snyk (04:00).
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Target URL to scan"
+        required: true
+        default: "https://staging.your-project.example.com/"
+
+permissions:
+  contents: read
+  security-events: write
+  # The action asks for issues:write even with allow_issue_writing: false.
+  issues: write
+
+jobs:
+  zap-baseline:
+    name: ZAP Baseline scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Resolve target URL
+        id: target
+        run: |
+          if [ -n "${{ github.event.inputs.target }}" ]; then
+            echo "url=${{ github.event.inputs.target }}" >> "$GITHUB_OUTPUT"
+          else
+            # PLACEHOLDER — set your staging URL here for scheduled scans.
+            echo "url=https://staging.your-project.example.com/" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout (for .zap/rules.tsv)
+        uses: actions/checkout@v4
+
+      - name: ZAP Baseline scan
+        uses: zaproxy/action-baseline@v0.15.0
+        continue-on-error: true
+        with:
+          target: ${{ steps.target.outputs.url }}
+          # -a = ascending alert mode (include INFO + LOW findings)
+          # -j = use the AJAX spider for client-routed pages
+          # -T 5 = 5-minute max total scan time
+          cmd_options: "-a -j -T 5"
+          rules_file_name: ".zap/rules.tsv"
+          allow_issue_writing: false
+          fail_action: false
+
+      # The baseline action does NOT emit SARIF natively — convert its JSON
+      # report inline (no third-party converter dependency) so findings show
+      # up in the GitHub Security tab next to CodeQL/Snyk.
+      - name: Convert ZAP JSON to SARIF
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          src = "report_json.json"
+          dst = "zap-results.sarif"
+
+          if not os.path.exists(src):
+              empty = {
+                  "version": "2.1.0",
+                  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+                  "runs": [{"tool": {"driver": {"name": "OWASP ZAP", "rules": []}}, "results": []}],
+              }
+              with open(dst, "w") as fh:
+                  json.dump(empty, fh)
+              print("report_json.json missing — wrote empty SARIF")
+              raise SystemExit(0)
+
+          with open(src) as fh:
+              data = json.load(fh)
+
+          # ZAP risk codes: 0=Info, 1=Low, 2=Medium, 3=High
+          risk_to_level = {"0": "note", "1": "note", "2": "warning", "3": "error"}
+
+          rules = {}
+          results = []
+
+          for site in data.get("site", []):
+              for alert in site.get("alerts", []):
+                  rule_id = str(alert.get("pluginid", "0"))
+                  if rule_id not in rules:
+                      rules[rule_id] = {
+                          "id": rule_id,
+                          "name": alert.get("alert", "ZAP Alert"),
+                          "shortDescription": {"text": alert.get("alert", "ZAP Alert")},
+                          "fullDescription": {"text": (alert.get("desc") or "").strip()[:1000]},
+                          "helpUri": alert.get("reference", "").split("\n")[0].strip() or "https://www.zaproxy.org/",
+                          "help": {"text": (alert.get("solution") or "").strip()[:1000]},
+                          "properties": {
+                              "tags": ["security", "dast", "zap"],
+                              "cwe": alert.get("cweid"),
+                              "wasc": alert.get("wascid"),
+                          },
+                      }
+                  level = risk_to_level.get(str(alert.get("riskcode", "0")), "note")
+                  for instance in alert.get("instances", []):
+                      uri = instance.get("uri", "")
+                      results.append({
+                          "ruleId": rule_id,
+                          "level": level,
+                          "message": {"text": f"{alert.get('alert', '')} at {uri}"},
+                          "locations": [{
+                              "physicalLocation": {
+                                  "artifactLocation": {"uri": uri or "unknown"},
+                                  "region": {"startLine": 1},
+                              },
+                          }],
+                      })
+
+          sarif = {
+              "version": "2.1.0",
+              "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+              "runs": [{
+                  "tool": {"driver": {
+                      "name": "OWASP ZAP",
+                      "informationUri": "https://www.zaproxy.org/",
+                      "rules": list(rules.values()),
+                  }},
+                  "results": results,
+              }],
+          }
+
+          with open(dst, "w") as fh:
+              json.dump(sarif, fh)
+          print(f"Wrote {len(results)} results across {len(rules)} rules to {dst}")
+          PY
+
+      - name: Upload ZAP SARIF to Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        with:
+          sarif_file: zap-results.sarif
+          category: zap-baseline
+
+      # Optional: ingest to the Supabase sarif_findings pipeline.
+      - name: Ingest ZAP SARIF to observability tables (optional)
+        if: always()
+        continue-on-error: true
+        env:
+          SARIF_INGEST_TOKEN: ${{ secrets.SARIF_INGEST_TOKEN }}
+          SARIF_INGEST_URL: ${{ secrets.SARIF_INGEST_URL }}
+        run: |
+          set -u
+          if [ -z "${SARIF_INGEST_TOKEN:-}" ] || [ -z "${SARIF_INGEST_URL:-}" ]; then
+            echo "::notice::SARIF_INGEST_TOKEN/URL not set — skipping ingest"
+            exit 0
+          fi
+          SARIF_FILE="zap-results.sarif"
+          if [ ! -f "$SARIF_FILE" ]; then
+            echo '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"OWASP ZAP","rules":[]}},"results":[]}]}' > /tmp/empty.sarif
+            SARIF_FILE="/tmp/empty.sarif"
+          fi
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          jq -nc \
+            --arg scanner "zap" \
+            --arg branch "$BRANCH" \
+            --arg commit_sha "${GITHUB_SHA}" \
+            --argjson run_id "${GITHUB_RUN_ID}" \
+            --slurpfile sarif "$SARIF_FILE" \
+            '{scanner: $scanner, branch: $branch, commit_sha: $commit_sha, run_id: $run_id, sarif: $sarif[0]}' \
+            > /tmp/zap-payload.json
+          HTTP_CODE=$(curl -sS -o /tmp/zap-response.json -w '%{http_code}' \
+            -X POST "$SARIF_INGEST_URL" \
+            -H "Authorization: Bearer $SARIF_INGEST_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data @/tmp/zap-payload.json) || HTTP_CODE=000
+          echo "Response ($HTTP_CODE): $(cat /tmp/zap-response.json)"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::warning::ingest-sarif returned HTTP $HTTP_CODE for ZAP"
+          fi

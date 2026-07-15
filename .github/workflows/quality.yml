@@ -1,0 +1,139 @@
+name: Quality Gates
+
+# Always-run cheap quality checks (lint + typecheck + dead-code + arch +
+# unit tests + build). No `paths:` filter, so this check can be made
+# REQUIRED in branch protection — path-filtered workflows are simply absent
+# (not passing) on non-matching PRs, which blocks the merge button.
+#
+# Triggers are ENABLED on purpose
+# (the reference codebase ran local-CI-only due to Actions quota; this template assumes
+# full cloud CI from day one).
+
+on:
+  push:
+    branches: [main, development]
+  pull_request:
+  schedule:
+    # Daily baseline at 05:00 UTC — catches dep advisories and toolchain
+    # drift that land outside a PR window.
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    name: Lint, Typecheck, Dead-code, Arch & Test
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: TypeScript type-check
+        id: tsc
+        run: |
+          set +e
+          pnpm run typecheck > /tmp/tsc-output.txt 2>&1
+          TSC_EXIT=$?
+          cat /tmp/tsc-output.txt
+          TSC_ERRORS=$(grep -cE ' error TS[0-9]+' /tmp/tsc-output.txt || true)
+          echo "errors=$TSC_ERRORS" >> "$GITHUB_OUTPUT"
+          echo "warnings=0" >> "$GITHUB_OUTPUT"
+          exit $TSC_EXIT
+
+      - name: Lint (eslint --max-warnings=0, incl. eslint-plugin-security)
+        id: lint
+        run: |
+          set +e
+          pnpm run lint:ci
+          LINT_EXIT=$?
+          # Second pass with --format json for aggregate counts (ingest step).
+          pnpm exec eslint --format json . > /tmp/eslint.json 2>/dev/null || true
+          if [ -s /tmp/eslint.json ]; then
+            ESLINT_ERRORS=$(node -e "const r=require('/tmp/eslint.json');console.log(r.reduce((a,f)=>a+(f.errorCount||0),0))")
+            ESLINT_WARNINGS=$(node -e "const r=require('/tmp/eslint.json');console.log(r.reduce((a,f)=>a+(f.warningCount||0),0))")
+          else
+            ESLINT_ERRORS=0
+            ESLINT_WARNINGS=0
+          fi
+          echo "errors=$ESLINT_ERRORS" >> "$GITHUB_OUTPUT"
+          echo "warnings=$ESLINT_WARNINGS" >> "$GITHUB_OUTPUT"
+          exit $LINT_EXIT
+
+      - name: Knip (dead code — fails on regressions)
+        run: pnpm run knip
+
+      - name: dependency-cruiser (architecture rules)
+        run: pnpm run depcruise
+
+      - name: Unit + component tests
+        run: pnpm run test
+
+      - name: Build (next build)
+        run: pnpm run build
+
+      - name: Docs drift gate
+        run: node scripts/check-docs-drift.mjs
+
+      # Persist eslint + tsc counts to your observability tables so a
+      # dashboard can show whether warnings are trending up. Best-effort:
+      # failure of this step must NOT fail the workflow. Skips gracefully
+      # when the secret isn't configured (fresh clone).
+      #
+      # Per-project setup: deploy supabase/functions/ingest-build-warnings,
+      # then set repo secrets BUILD_WARNINGS_INGEST_TOKEN +
+      # BUILD_WARNINGS_INGEST_URL (https://<ref>.supabase.co/functions/v1/ingest-build-warnings).
+      - name: Ingest build warnings (optional dashboard)
+        if: always()
+        continue-on-error: true
+        env:
+          BUILD_WARNINGS_INGEST_TOKEN: ${{ secrets.BUILD_WARNINGS_INGEST_TOKEN }}
+          BUILD_WARNINGS_INGEST_URL: ${{ secrets.BUILD_WARNINGS_INGEST_URL }}
+          ESLINT_ERRORS: ${{ steps.lint.outputs.errors }}
+          ESLINT_WARNINGS: ${{ steps.lint.outputs.warnings }}
+          TSC_ERRORS: ${{ steps.tsc.outputs.errors }}
+          TSC_WARNINGS: ${{ steps.tsc.outputs.warnings }}
+        run: |
+          set -u
+          if [ -z "${BUILD_WARNINGS_INGEST_TOKEN:-}" ] || [ -z "${BUILD_WARNINGS_INGEST_URL:-}" ]; then
+            echo "::notice::BUILD_WARNINGS_INGEST_TOKEN/URL not set — skipping dashboard ingest"
+            exit 0
+          fi
+          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          : "${ESLINT_ERRORS:=0}"; : "${ESLINT_WARNINGS:=0}"; : "${TSC_ERRORS:=0}"; : "${TSC_WARNINGS:=0}"
+          jq -nc \
+            --arg run_id "${GITHUB_RUN_ID}" \
+            --arg branch "$BRANCH" \
+            --arg commit_sha "${GITHUB_SHA}" \
+            --argjson eslint_errors "$ESLINT_ERRORS" \
+            --argjson eslint_warnings "$ESLINT_WARNINGS" \
+            --argjson tsc_errors "$TSC_ERRORS" \
+            --argjson tsc_warnings "$TSC_WARNINGS" \
+            '{
+              run_id: $run_id,
+              branch: $branch,
+              commit_sha: $commit_sha,
+              results: [
+                { kind: "eslint", error_count: $eslint_errors, warning_count: $eslint_warnings },
+                { kind: "tsc", error_count: $tsc_errors, warning_count: $tsc_warnings }
+              ]
+            }' > /tmp/build-warnings-payload.json
+          HTTP_CODE=$(curl -sS -o /tmp/build-warnings-response.json -w '%{http_code}' \
+            -X POST "$BUILD_WARNINGS_INGEST_URL" \
+            -H "Authorization: Bearer $BUILD_WARNINGS_INGEST_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data @/tmp/build-warnings-payload.json) || HTTP_CODE=000
+          echo "Response ($HTTP_CODE): $(cat /tmp/build-warnings-response.json)"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::warning::ingest-build-warnings returned HTTP $HTTP_CODE"
+          fi

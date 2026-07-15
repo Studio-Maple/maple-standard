@@ -1,0 +1,69 @@
+# Dependabot config — auto-PRs for vulnerable / outdated deps.
+# Docs: https://docs.github.com/en/code-security/dependabot
+#
+# Design (runtime/tooling split, proven in production):
+#   - Groups split by *does it ship to prod*: `runtime` (production deps — a
+#     human looks at minors) vs `tooling` (dev deps — the auto-merge workflow
+#     handles them on green CI). A CVE in vitest's transitive dep is a
+#     dev-machine issue, not a prod incident.
+#   - `security-updates` always gets its own grouped PR (high signal, fires
+#     on-advisory regardless of the monthly schedule).
+#   - Major versions stay ignored (human review, deliberate upgrades). The
+#     auto-merge decision is made by dependabot-automerge.yml from
+#     fetch-metadata (update-type + dependency-type), NOT from these group
+#     names — so naming stays free.
+#   - Monthly cadence + grouping keeps a month to ~a handful of PRs. Each PR
+#     still triggers validate + CodeQL + gitleaks.
+
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 10
+    labels: ["dependencies"]
+    groups:
+      # Security updates always go in their own PR — high signal.
+      security-updates:
+        applies-to: security-updates
+        patterns: ["*"]
+      # Production deps (patch + minor) — these ship; a human reviews minors.
+      runtime:
+        applies-to: version-updates
+        dependency-type: "production"
+        update-types: ["patch", "minor"]
+      # Dev deps (patch + minor) — lower stakes; auto-merge on green.
+      tooling:
+        applies-to: version-updates
+        dependency-type: "development"
+        update-types: ["patch", "minor"]
+      # Sub-package families move in lockstep — group to avoid PR storms.
+      supabase:
+        applies-to: version-updates
+        patterns: ["@supabase/*", "supabase"]
+      sentry:
+        applies-to: version-updates
+        patterns: ["@sentry/*"]
+      testing:
+        applies-to: version-updates
+        patterns: ["@testing-library/*", "vitest", "@vitejs/*", "msw", "jsdom", "@playwright/*"]
+    ignore:
+      # Majors need human review; keep them out of auto-PRs.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # GitHub Actions — keep CI dependencies current.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "ci"]
+    groups:
+      ci-actions:
+        applies-to: version-updates
+        patterns: ["*"]

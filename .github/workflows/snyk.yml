@@ -1,0 +1,173 @@
+name: Snyk
+
+# Snyk Code (SAST) + Open Source (SCA).
+#
+# Why both Snyk and CodeQL?
+#   - CodeQL: GitHub-native, unlimited, deep semantic analysis, slower CVE coverage.
+#   - Snyk: faster CVE database updates, better supply-chain signals, but the
+#     free tier caps Snyk Code at 100 tests/month.
+#   - Run multiple SAST tools in parallel, take the union of findings — each
+#     catches what the other misses.
+#
+# Quota strategy (free tier — production-proven):
+#   - Snyk Code: 100 tests/month. One `snyk code test .` = 1 test regardless
+#     of scope/severity, so scope is free; only run COUNT costs quota.
+#   - Snyk OSS: 400 tests/month, counted PER MANIFEST.
+#   - Cadence: daily scheduled scan of the default branch only (~30 Code +
+#     ~30 OSS tests/month for a single-manifest repo). workflow_dispatch for
+#     pre-release scans of other branches.
+#   - No push/pull_request triggers — those burn the quota in days. CodeQL
+#     is unlimited and runs every push/PR for fast feedback.
+#
+# Setup (one-time): create a Snyk account (free), generate a PAT at
+# https://app.snyk.io/account, add it as repo secret SNYK_TOKEN.
+# Without the token this workflow no-ops gracefully (does not fail CI).
+
+on:
+  schedule:
+    # Daily 04:00 UTC scan of the default branch.
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to scan (defaults to the default branch)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  snyk-test:
+    name: Snyk Code + OSS scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip if SNYK_TOKEN not configured
+        id: check
+        run: |
+          if [ -z "${{ secrets.SNYK_TOKEN }}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::SNYK_TOKEN not configured — skipping Snyk scan. Add it under repo Settings -> Secrets -> Actions to enable."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve checkout ref
+        if: steps.check.outputs.skip == 'false'
+        id: ref
+        run: |
+          if [ -n "${{ github.event.inputs.branch }}" ]; then
+            echo "ref=${{ github.event.inputs.branch }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout (${{ steps.ref.outputs.ref }})
+        if: steps.check.outputs.skip == 'false'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.ref }}
+
+      - uses: pnpm/action-setup@v4
+        if: steps.check.outputs.skip == 'false'
+
+      - name: Set up Node
+        if: steps.check.outputs.skip == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install deps
+        if: steps.check.outputs.skip == 'false'
+        run: pnpm install --frozen-lockfile
+
+      # Snyk Open Source — scans every committed manifest + lockfile for
+      # vulnerable deps. No severity threshold: ingest ALL severities so the
+      # dashboard matches the IDE.
+      - name: Snyk OSS test (all manifests)
+        if: steps.check.outputs.skip == 'false'
+        uses: snyk/actions/node@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --all-projects --exclude=e2e --detection-depth=4 --sarif-file-output=snyk-oss.sarif
+
+      # Snyk Code — SAST across the WHOLE repo. One scan = 1 test regardless
+      # of scope, so scan everything at all severities.
+      - name: Snyk Code test (whole repo)
+        if: steps.check.outputs.skip == 'false'
+        uses: snyk/actions/node@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          command: code
+          args: test . --sarif-file-output=snyk-code.sarif
+
+      # Upload findings to the GitHub Security tab so they appear alongside
+      # CodeQL. Category includes the branch so findings don't collide.
+      - name: Upload Snyk OSS SARIF
+        if: steps.check.outputs.skip == 'false' && always()
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        with:
+          sarif_file: snyk-oss.sarif
+          category: snyk-oss-${{ steps.ref.outputs.ref }}
+
+      - name: Upload Snyk Code SARIF
+        if: steps.check.outputs.skip == 'false' && always()
+        uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
+        with:
+          sarif_file: snyk-code.sarif
+          category: snyk-code-${{ steps.ref.outputs.ref }}
+
+      # Ingest both SARIF files into the Supabase `sarif_findings` table
+      # (delta tracking / dashboard). Optional — skips without the secrets.
+      - name: Ingest Snyk SARIF to observability tables (optional)
+        if: steps.check.outputs.skip == 'false' && always()
+        continue-on-error: true
+        env:
+          SARIF_INGEST_TOKEN: ${{ secrets.SARIF_INGEST_TOKEN }}
+          SARIF_INGEST_URL: ${{ secrets.SARIF_INGEST_URL }}
+          BRANCH_REF: ${{ steps.ref.outputs.ref }}
+        run: |
+          set -u
+          if [ -z "${SARIF_INGEST_TOKEN:-}" ] || [ -z "${SARIF_INGEST_URL:-}" ]; then
+            echo "::notice::SARIF_INGEST_TOKEN/URL not set — skipping ingest"
+            exit 0
+          fi
+          ingest_one() {
+            local file="$1"
+            local scanner="$2"
+            local sarif_input="$file"
+            if [ ! -f "$file" ]; then
+              echo '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"'"$scanner"'","rules":[]}},"results":[]}]}' > /tmp/empty-sarif.json
+              sarif_input="/tmp/empty-sarif.json"
+              echo "No SARIF for $scanner — sending empty payload to clear stale findings"
+            fi
+            jq -nc \
+              --arg scanner "$scanner" \
+              --arg branch "$BRANCH_REF" \
+              --arg commit_sha "${GITHUB_SHA}" \
+              --argjson run_id "${GITHUB_RUN_ID}" \
+              --slurpfile sarif "$sarif_input" \
+              '{scanner: $scanner, branch: $branch, commit_sha: $commit_sha, run_id: $run_id, sarif: $sarif[0]}' \
+              > /tmp/snyk-payload.json
+            local code
+            code=$(curl -sS -o /tmp/snyk-response.json -w '%{http_code}' \
+              -X POST "$SARIF_INGEST_URL" \
+              -H "Authorization: Bearer $SARIF_INGEST_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data @/tmp/snyk-payload.json) || code=000
+            echo "$scanner response ($code): $(cat /tmp/snyk-response.json)"
+            if [ "$code" != "200" ]; then
+              echo "::warning::ingest-sarif returned HTTP $code for $scanner"
+            fi
+          }
+          ingest_one snyk-oss.sarif snyk-oss
+          ingest_one snyk-code.sarif snyk-code

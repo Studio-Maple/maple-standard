@@ -1,0 +1,21 @@
+#!/bin/sh
+
+# Pre-push GATE: fast checks + Supabase RLS suite + @smoke E2E. You cannot
+# push red code — the gate is the enforcement, not trust (see CLAUDE.md
+# "No bypass").
+#
+# The live half needs the local Supabase stack up (Docker):
+#   pnpm supabase:start && pnpm supabase:reset
+#
+# Genuine no-Docker box only (NOT --no-verify, which is forbidden):
+#   SKIP_LIVE_GATE=1 git push
+# runs the fast tier only and records that the live gate was skipped.
+
+echo "Pre-push: running local CI gate (fast + RLS + @smoke)..."
+bash scripts/ci-local.sh gate || {
+  echo ""
+  echo "Pre-push BLOCKED — gate failed. Fix it, or for a no-Docker box:"
+  echo "  SKIP_LIVE_GATE=1 git push"
+  exit 1
+}
+echo "Pre-push gate passed."

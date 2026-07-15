@@ -1,0 +1,98 @@
+name: gitleaks
+
+# Secret scanning — catches API keys, tokens, credentials accidentally
+# committed. Backup to GitHub's native Push Protection (which blocks at
+# push time but only for known providers' patterns).
+#
+# Strategy:
+#   - On PRs: scan only the diff (fast, seconds)
+#   - Weekly: scan full history (catches anything that snuck in via a
+#     force-push or a missed PR)
+#
+# To allowlist a specific finding (false positive), add a rule to
+# .gitleaks.toml at the repo root. NEVER allowlist a real secret — rotate it.
+
+on:
+  pull_request:
+  push:
+    branches: [main, development]
+  schedule:
+    # Weekly deep history scan: Sunday 06:00 UTC.
+    - cron: "0 6 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  scan:
+    name: Scan for secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history needed so push/schedule scans cover everything;
+          # PRs only need the diff.
+          fetch-depth: ${{ github.event_name == 'pull_request' && 1 || 0 }}
+
+      - name: Run gitleaks
+        id: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        continue-on-error: true
+        env:
+          # GitHub token gives the action permission to comment on PRs with
+          # findings (helpful UX). Free for personal accounts and OSS.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "true"
+
+      # Optional: push gitleaks findings to the Supabase sarif_findings
+      # pipeline (same ingest function as CodeQL/Snyk). Skips without secrets.
+      - name: Ingest gitleaks SARIF to observability tables (optional)
+        if: always()
+        continue-on-error: true
+        env:
+          SARIF_INGEST_TOKEN: ${{ secrets.SARIF_INGEST_TOKEN }}
+          SARIF_INGEST_URL: ${{ secrets.SARIF_INGEST_URL }}
+        run: |
+          set -u
+          if [ -z "${SARIF_INGEST_TOKEN:-}" ] || [ -z "${SARIF_INGEST_URL:-}" ]; then
+            echo "::notice::SARIF_INGEST_TOKEN/URL not set — skipping ingest"
+            exit 0
+          fi
+          SARIF_FILE="results.sarif"
+          if [ ! -f "$SARIF_FILE" ]; then
+            echo '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"gitleaks","rules":[]}},"results":[]}]}' > /tmp/empty.sarif
+            SARIF_FILE="/tmp/empty.sarif"
+            echo "No SARIF (clean run) — sending empty payload to clear stale findings"
+          fi
+          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          jq -nc \
+            --arg scanner "gitleaks" \
+            --arg branch "$BRANCH" \
+            --arg commit_sha "${GITHUB_SHA}" \
+            --argjson run_id "${GITHUB_RUN_ID}" \
+            --slurpfile sarif "$SARIF_FILE" \
+            '{scanner: $scanner, branch: $branch, commit_sha: $commit_sha, run_id: $run_id, sarif: $sarif[0]}' \
+            > /tmp/gitleaks-payload.json
+          HTTP_CODE=$(curl -sS -o /tmp/gitleaks-response.json -w '%{http_code}' \
+            -X POST "$SARIF_INGEST_URL" \
+            -H "Authorization: Bearer $SARIF_INGEST_TOKEN" \
+            -H "Content-Type: application/json" \
+            --data @/tmp/gitleaks-payload.json) || HTTP_CODE=000
+          echo "Response ($HTTP_CODE): $(cat /tmp/gitleaks-response.json)"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::warning::ingest-sarif returned HTTP $HTTP_CODE for gitleaks"
+          fi
+
+      # If gitleaks itself failed (real exit code — leaks found or scanner
+      # error), surface that as a workflow failure. Skip for Dependabot PRs:
+      # gitleaks-action exits 1 there because the read-only GITHUB_TOKEN
+      # can't post the result comment, but Dependabot PRs don't introduce
+      # source code so leak risk is nil.
+      - name: Re-raise gitleaks failure
+        if: steps.gitleaks.outcome == 'failure' && github.actor != 'dependabot[bot]'
+        run: |
+          echo "::error::gitleaks step reported failure — see logs above"
+          exit 1
