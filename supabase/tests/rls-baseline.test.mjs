@@ -50,7 +50,8 @@ async function assertStackReachable() {
         `  Is the local stack up? \`pnpm supabase:start\` (Docker required).\n` +
         `  Underlying error: ${err instanceof Error ? err.message : String(err)}`
     );
-    process.exit(1);
+    process.exitCode = 1;
+    throw new Error("local Supabase stack unreachable — aborting this test file");
   }
 }
 
@@ -68,10 +69,13 @@ async function main() {
 
   const failed = results.filter((r) => !r.passed).length;
   console.log(`\n${results.length - failed}/${results.length} assertions passed.`);
-  process.exit(failed > 0 ? 1 : 0);
+  // exitCode (not process.exit): a forced exit aborts mid-teardown of
+  // undici keep-alive handles and crashes libuv on Windows (async.c:76),
+  // which the runner then counts as a file failure.
+  process.exitCode = failed > 0 ? 1 : 0;
 }
 
 main().catch((err) => {
   console.error("Unhandled test error:", err);
-  process.exit(1);
+  process.exitCode = 1;
 });
