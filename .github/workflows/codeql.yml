@@ -4,10 +4,11 @@ name: CodeQL
 # secrets, SQL injection, path traversal, command injection, insecure regex,
 # deprecated cryptography, and ~150 other CWE patterns across JS/TS.
 #
-# For PUBLIC repos, GitHub Code Scanning is free — findings land in the
-# Security tab via the default `upload`. For PRIVATE repos without GHAS,
-# flip `upload: false` and rely on the ingest-sarif path below (Supabase
-# `sarif_findings` table), the pattern this template ships tables for.
+# Findings go to the ingest-sarif path below (Supabase `sarif_findings`
+# table — the pattern this template ships tables for), NOT to GitHub Code
+# Scanning: uploading requires GitHub Advanced Security on every private
+# repo (org- or personal-owned). On a PUBLIC repo, Code Scanning is free —
+# delete the `upload: never` line to also get the Security tab.
 
 on:
   push:
@@ -55,9 +56,11 @@ jobs:
         uses: github/codeql-action/analyze@v3
         with:
           category: "/language:${{ matrix.language }}"
-          # Also write SARIF to disk so the optional ingest step below can
-          # POST it to your own sarif_findings pipeline (dashboard/delta
-          # tracking), independent of GitHub's Security tab.
+          # No upload to GitHub code scanning: that path requires GitHub
+          # Advanced Security on private repos. SARIF is written to disk
+          # and shipped to your own sarif_findings pipeline below instead
+          # (dashboard/delta tracking).
+          upload: never
           output: ${{ runner.temp }}/codeql-results
 
       # POST the SARIF to the Supabase ingest-sarif Edge Function, which
