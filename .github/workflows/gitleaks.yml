@@ -37,15 +37,21 @@ jobs:
           # PRs only need the diff.
           fetch-depth: ${{ github.event_name == 'pull_request' && 1 || 0 }}
 
+      # Direct CLI, not gitleaks/gitleaks-action: the ACTION requires a paid
+      # license key when the repo owner is a GitHub organization; the CLI
+      # itself is MIT and does the same scan.
       - name: Run gitleaks
         id: gitleaks
-        uses: gitleaks/gitleaks-action@v2
         continue-on-error: true
-        env:
-          # GitHub token gives the action permission to comment on PRs with
-          # findings (helpful UX). Free for personal accounts and OSS.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "true"
+        run: |
+          set -u
+          VERSION="8.24.3"
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /tmp gitleaks
+          # Full history scan (young repo — seconds). .gitleaks.toml at the
+          # repo root is picked up automatically for allowlisting.
+          /tmp/gitleaks git . --redact --exit-code 1 \
+            --report-format sarif --report-path results.sarif
 
       # Optional: push gitleaks findings to the Supabase sarif_findings
       # pipeline (same ingest function as CodeQL/Snyk). Skips without secrets.
@@ -87,12 +93,10 @@ jobs:
           fi
 
       # If gitleaks itself failed (real exit code — leaks found or scanner
-      # error), surface that as a workflow failure. Skip for Dependabot PRs:
-      # gitleaks-action exits 1 there because the read-only GITHUB_TOKEN
-      # can't post the result comment, but Dependabot PRs don't introduce
-      # source code so leak risk is nil.
+      # error), surface that as a workflow failure after the ingest step
+      # had its chance to ship the SARIF.
       - name: Re-raise gitleaks failure
-        if: steps.gitleaks.outcome == 'failure' && github.actor != 'dependabot[bot]'
+        if: steps.gitleaks.outcome == 'failure'
         run: |
-          echo "::error::gitleaks step reported failure — see logs above"
+          echo "::error::gitleaks found leaks or failed — see logs above"
           exit 1
