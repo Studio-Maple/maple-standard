@@ -1,0 +1,37 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": ["scripts/**/*.{js,mjs,cjs,ts}"],
+  "project": ["src/**/*.{ts,tsx}"],
+  "ignore": [
+    // Vendored/generated primitives — swap for your design system freely.
+    // (supabase/functions, supabase/tests, e2e need no entries here — they
+    // are outside `project` already.)
+    "src/components/ui/**",
+    // ── STARTER API SURFACE ──────────────────────────────────────────────
+    // Shipped unconsumed so your first feature has typed Supabase clients
+    // and an error-tracking entry point ready. Remove each entry the moment
+    // real code imports it, so knip guards it like everything else.
+    "src/types/database.types.ts",
+    "src/services/supabase/client.ts",
+    "src/services/supabase/server.ts",
+    "src/services/supabase/middleware.ts",
+    "src/lib/errorTracking.ts"
+  ],
+  // Consumed only by the ignored starter files above — drop these entries
+  // together with theirs.
+  "ignoreDependencies": ["@supabase/ssr", "@supabase/supabase-js"],
+  "rules": {
+    // Dead files + unlisted/unused dependencies stay "error" (knip default —
+    // blocking). Export-surface findings are advisory: a template/library
+    // legitimately exports things no internal code consumes yet.
+    "exports": "warn",
+    "types": "warn",
+    "nsExports": "warn",
+    "nsTypes": "warn",
+    "enumMembers": "warn"
+  },
+  "vitest": {
+    "config": ["vitest.config.ts"],
+    "entry": ["src/**/*.{test,spec}.{ts,tsx}"]
+  }
+}
