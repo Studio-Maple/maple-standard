@@ -6,7 +6,9 @@ import { expect, test } from "@playwright/test";
 test.describe("smoke @smoke", () => {
   test("home page renders", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: "maple-standard" })).toBeVisible();
+    // level: 1 — without it, strict mode matches every heading rank that
+    // carries the app name (the page h1 AND e.g. a card h2) and fails.
+    await expect(page.getByRole("heading", { level: 1, name: "maple-standard" })).toBeVisible();
   });
 
   test("health endpoint responds ok", async ({ request }) => {

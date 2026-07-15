@@ -19,6 +19,11 @@ export default defineConfig([
     "build/**",
     "next-env.d.ts",
     "coverage/**",
+    // Playwright output — generated bundles/reports, never source.
+    "playwright-report/**",
+    "test-results/**",
+    "e2e/playwright-report/**",
+    "e2e/test-results/**",
     // Claude Code hook scripts — tiny CJS infra, not app code. They must
     // stay dependency-free and require()-based so they run before any
     // install step; linting them with app rules is noise.

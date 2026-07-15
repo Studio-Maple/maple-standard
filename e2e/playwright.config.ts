@@ -32,7 +32,9 @@ export default defineConfig({
   webServer: isExternalServer
     ? undefined
     : {
-        command: "pnpm build && pnpm start -- --port " + port,
+        // pnpm 9+ passes a literal `--` through to the script, which Next
+        // then misreads as its [directory] positional — use `pnpm exec`.
+        command: `pnpm build && pnpm exec next start --port ${port}`,
         cwd: "..",
         url: baseURL,
         reuseExistingServer: !process.env.CI,
