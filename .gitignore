@@ -30,8 +30,9 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files — .env.example is the committed shape; everything else stays local
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -39,3 +40,23 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# claude code — personal/local overlay (the .example is committed)
+.claude/settings.local.json
+
+# playwright
+/e2e/playwright-report/
+/e2e/test-results/
+/playwright-report/
+/test-results/
+
+# supabase local state
+/supabase/.branches
+/supabase/.temp
+
+# tool caches / reports
+.eslintcache
+depcruise-report.html
+
+# docs lockfiles (next-task-id.mjs mutex leftovers after a crash)
+docs/*.lock
