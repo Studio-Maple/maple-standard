@@ -14,6 +14,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D011 | 2026-07-25 | MapleLens lives in its own top-level repo, published private
+C:/Projects/MapleLens is a standalone git repo, not a maple-standard package - a deployable product with its own release cadence; per-app instances pin versions of it. Published to github.com/maayanmar/MapleLens as PRIVATE until deployed and hardened; open-sourcing is a deliberate later call. Extraction from VeHagita is read-only on VeHagita and MapleLens stays independent of the plugin for now.
+
 ## D010 | 2026-07-25 | Docs system aligns with Google OKF v0.1
 Full alignment: YAML frontmatter replaces the prose preamble (type/title/description/tags/timestamp + custom audience/authoritative_for/code fields), docs tooling reads frontmatter, index.md catalog is generated from description fields. Drift gate validates both wikilinks and markdown links. Scope: plugin docs tooling (#T13), VeHagita page migration (folded into #T5), MapleLens docs OKF-style from day one. Client-handoff use: not adopted for now.
 
