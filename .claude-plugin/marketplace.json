@@ -1,0 +1,13 @@
+{
+  "name": "maple-standard",
+  "owner": {
+    "name": "Maayan Margolin"
+  },
+  "plugins": [
+    {
+      "name": "maple-standard",
+      "source": "./plugin",
+      "description": "Studio Maple's AI-workflow standard: worktree lifecycle, safety hooks, docs gate, self-healing, and the dev-burner loop pack."
+    }
+  ]
+}

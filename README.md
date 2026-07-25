@@ -38,6 +38,24 @@ a convention someone has to remember.
   tool output is secret-scrubbed, gitleaks runs on every PR, `.env.example`
   is the only env file that's ever committed.
 
+## Already have a project? Use the plugin, skip the clone
+
+Everything above is for starting a **new** project from this template. If
+you have an **existing** project and just want the stack-agnostic parts —
+parallel-session worktrees, the safety/hygiene hooks, the docs-drift
+executor, self-healing error triage, and the budget-bounded loop pack —
+this repo also ships a Claude Code **plugin** (`plugin/`) that installs
+into any project via the marketplace, no cloning required:
+
+```
+/plugin marketplace add C:\Projects\Studio-Maple\maple-standard
+/plugin install maple-standard@maple-standard
+/adopt-standard   # from inside the target project — stamps config + docs
+```
+
+Full schema, install details, and the layer map (plugin vs. this template
+vs. what gets generated per-project) live in [`plugin/README.md`](plugin/README.md).
+
 ## Quick start (evaluate the template itself)
 
 ```sh
@@ -145,11 +163,13 @@ pnpm dev            # http://localhost:3000
 
 ```
 .claude/            agent hooks + settings (the always-on enforcement layer)
+.claude-plugin/      marketplace manifest (makes this repo a plugin marketplace)
 .github/            cloud CI workflows + dependabot
 .husky/             pre-commit (staged lint+tsc, migration naming) · pre-push (gate tier)
 docs/               project knowledge base — index, decisions, tasks, gaps, log, quality
 e2e/                Playwright config + @smoke specs (local-first)
 eslint-rules/       require-database-generic (custom rule)
+plugin/             the maple-standard Claude Code plugin — see plugin/README.md
 scripts/            tiered CI (sh+ps1) · docs tooling (drift gate, index, BM25 search, ID allocator) · types-freshness
 src/                app/ components/ ui/ hooks/ services/ lib/ test/ types/ (+ Sentry configs)
 supabase/           config · migrations (empty, convention-documented) · observability starters · ingest edge functions · live RLS tests

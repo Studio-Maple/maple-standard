@@ -1,0 +1,17 @@
+{
+  "name": "maple-standard",
+  "version": "0.1.0",
+  "description": "Studio Maple's AI-workflow standard: worktree lifecycle, safety hooks, docs gate, self-healing, and the dev-burner loop pack.",
+  "author": {
+    "name": "Maayan Margolin"
+  },
+  "license": "MIT",
+  "keywords": [
+    "worktree",
+    "docs-gate",
+    "self-healing",
+    "loop-pack",
+    "studio-maple"
+  ],
+  "hooks": "./hooks/hooks.json"
+}

@@ -1,0 +1,6 @@
+# Shell scripts must stay LF — the plugin's scripts/agent-wt/*.sh run via
+# git-bash on Windows and (for adopting projects) Linux CI runners. A CRLF
+# leak on Windows checkout breaks them with `\r` parse errors. Pin LF so
+# core.autocrlf=true can't rewrite them. (Mirrors the same fix in VeHagita's
+# .gitattributes, the source this plugin's worktree scripts were ported from.)
+*.sh text eol=lf

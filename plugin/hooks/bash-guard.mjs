@@ -1,0 +1,95 @@
+#!/usr/bin/env node
+// PreToolUse hook for Bash — two deterministic guards for shared-shell hazards.
+// Part of the maple-standard plugin (plugin/hooks/hooks.json). Ported +
+// generalized from VeHagita's .claude/hooks/bash-guard.mjs.
+//
+// Exit code 2 signals "block this tool invocation". Exit 0 = allow.
+//
+// Guard 1 (cwd): the Bash tool's working directory persists across calls,
+// including PARALLEL calls in one message — a package-manager command
+// without its own absolute `cd` can silently run in a sibling workspace.
+// Scoped to mutating, cwd-fragile invocations (npm/npx/yarn/pnpm) so
+// git/cat/etc. stay unguarded and noise stays near zero.
+//
+// Guard 2 (push): a project's pre-push gate can reliably outlive the
+// 2-minute default tool timeout — a foreground `git push` gets SIGTERM'd
+// mid-gate. Require run_in_background (preferred) or an explicit timeout
+// above the configured minimum. Off by default assumption of WHICH gate
+// runs (that's project-specific); only the existence of *some* slow gate is
+// assumed, and even that is configurable off.
+//
+// maple.config.json keys (all optional):
+//   hooks.bashGuard.cwdGuardEnabled        default true
+//   hooks.bashGuard.pushGuardEnabled       default true
+//   hooks.bashGuard.pushGuardMinTimeoutMs  default 600000 (10 min)
+//
+// PROJECT ROOT for config lookup: the hook payload's own `cwd` field
+// (falling back to $CLAUDE_PROJECT_DIR, then process.cwd()) — not this
+// script's own location, which lives under the plugin's install directory.
+
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import process from 'node:process';
+
+function loadMapleConfig(root) {
+  try {
+    return JSON.parse(readFileSync(join(root, 'maple.config.json'), 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+const ABS_CD = /(?:^|&&|\|\||;)\s*cd\s+(?:"?\/[a-z]\/|"?[A-Za-z]:[\\/]|"?\/(?:home|tmp|mnt|Users)\b)/;
+const ABS_PREFIX = /--prefix[= ]+"?(?:\/[a-z]\/|[A-Za-z]:[\\/])/;
+const PKG_MANAGER = /(?:^|&&|\|\||;|\$\()\s*(?:npm|npx|yarn|pnpm)\s/;
+const GIT_PUSH = /(?:^|&&|\|\||;)\s*git\s+push\b/;
+const DEFAULT_PUSH_MIN_TIMEOUT_MS = 600_000;
+
+let raw = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => { raw += chunk; });
+process.stdin.on('end', () => {
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    // Can't parse — allow through (hook errors must not break tool routing).
+    process.exit(0);
+  }
+
+  const input = payload?.tool_input ?? payload?.input ?? {};
+  const command = typeof input.command === 'string' ? input.command : '';
+  if (!command) process.exit(0);
+
+  const root = payload?.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  const cfg = loadMapleConfig(root)?.hooks?.bashGuard ?? {};
+  const cwdGuardEnabled = cfg.cwdGuardEnabled !== false;
+  const pushGuardEnabled = cfg.pushGuardEnabled !== false;
+  const pushMinTimeoutMs = Number(cfg.pushGuardMinTimeoutMs) || DEFAULT_PUSH_MIN_TIMEOUT_MS;
+
+  if (cwdGuardEnabled && PKG_MANAGER.test(command) && !ABS_CD.test(command) && !ABS_PREFIX.test(command)) {
+    process.stderr.write(
+      'BLOCKED (cwd-guard): package-manager commands must anchor their own directory — ' +
+      'the shell cwd persists across calls (parallel calls included) and may not be where you think. ' +
+      'Re-issue as `cd <absolute path> && ' + command.slice(0, 60).trim() + ' …`.\n',
+    );
+    process.exit(2);
+  }
+
+  if (pushGuardEnabled && GIT_PUSH.test(command)) {
+    const inBackground = input.run_in_background === true;
+    const timeoutOk = typeof input.timeout === 'number' && input.timeout >= pushMinTimeoutMs;
+    if (!inBackground && !timeoutOk) {
+      process.stderr.write(
+        `BLOCKED (push-guard): this project's pre-push gate can reliably outlive the 2-minute ` +
+        `default timeout and the push gets killed mid-gate. Re-issue with run_in_background: true ` +
+        `(preferred — you are notified on completion) or timeout: ${pushMinTimeoutMs}. ` +
+        `(Disable via maple.config.json hooks.bashGuard.pushGuardEnabled=false if this project's ` +
+        `push has no slow gate.)\n`,
+      );
+      process.exit(2);
+    }
+  }
+
+  process.exit(0);
+});
