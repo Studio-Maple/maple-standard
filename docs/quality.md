@@ -1,8 +1,14 @@
+---
+type: guide
+title: Quality — the enforcement matrix
+description: the enforcement matrix: every gate/hook, what it enforces, where it runs.
+tags: [quality, ci, gates]
+timestamp: 2026-07-25
+audience: anyone asking "what stops bad code from landing here?"
+authoritative_for: [the gate/hook/CI inventory and its philosophy]
+code: [scripts/ci-local.sh, scripts/ci-local.ps1, .husky/pre-commit, .husky/pre-push, eslint.config.mjs, .dependency-cruiser.cjs, knip.jsonc, scripts/check-docs-drift.mjs, scripts/check-types-fresh.mjs]
+---
 # Quality — the enforcement matrix
-
-> **Audience:** anyone asking "what stops bad code from landing here?"
-> **Authoritative for:** the gate/hook/CI inventory and its philosophy.
-> **Code:** `scripts/ci-local.sh` `scripts/ci-local.ps1` `.husky/pre-commit` `.husky/pre-push` `eslint.config.mjs` `.dependency-cruiser.cjs` `knip.jsonc` `scripts/check-docs-drift.mjs` `scripts/check-types-fresh.mjs`
 
 **Enforce by mechanism, not by trust.** Discipline drifts; a CI check, a
 hook, or a compile error doesn't. Every rule in [[../CLAUDE.md|CLAUDE.md]]

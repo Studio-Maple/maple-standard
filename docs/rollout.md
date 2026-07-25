@@ -1,8 +1,16 @@
+---
+type: spec
+title: Rollout — ordered plan from plugin v1 to loops live everywhere
+description: "ordered rollout plan (plugin v1 → EasyCaller → VeHagita → MapleLens → loops live) with per-step verification."
+tags: [rollout, plan]
+timestamp: 2026-07-25
+audience: whoever is executing or checking progress on the standard's rollout
+authoritative_for: [step order, and what "adopted correctly" means at each step]
+code: []
+reference_for: rollout execution across VeHagita / Caller / Caller-development — no owned code paths in this repo
+---
 # Rollout — ordered plan from plugin v1 to loops live everywhere
 
-> **Audience:** whoever is executing or checking progress on the standard's rollout.
-> **Authoritative for:** step order, and what "adopted correctly" means at each step.
-> **Reference for:** rollout execution across VeHagita / Caller / Caller-development — no owned code paths in this repo.
 > **Status:** Approved 2026-07-25 (owner sign-off). Spec for plugin v1 — implementation tracked in [[tasks]] and [[decisions]].
 > **Related:** [[standard-architecture]] · [[loop-pack]] · [[maplelens]]
 

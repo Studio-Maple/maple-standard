@@ -1,223 +1,24 @@
 #!/usr/bin/env node
-// BM25 chunk-level search over docs/ — powers the ask-gate hook + manual
-// lookups. Generic BM25 over markdown (no
-// project-specific logic).
+// Thin delegate — the canonical implementation lives in
+// plugin/scripts/docs/doc-search/search.mjs, bundled into the
+// maple-standard plugin (the ask-gate hook's optional BM25 signal depends
+// on this doc-search shape too). See docs/decisions.md D010,
+// docs/tasks.md #T13.
 //
-// Live-chunks the corpus on every index build (no stored index file, so
-// nothing can go stale); fast for a docs/ folder of this size. Fail-open by
-// design: every consumer (hooks, manual CLI) treats any error as "no
-// retrieval" and falls back to plain Read/Grep — the searcher is an
-// accelerant, never a dependency.
-//
-// Chunking: H1-H3 heading sections everywhere; docs/tasks.md + docs/gaps.md
-// additionally split per top-level bullet (one chunk per #T/gap entry).
-// decisions.md (## D###) and log.md (## S###) are already heading-shaped.
-//
-// CLI: node scripts/doc-search/search.mjs "your question" [-k 6] [--json]
-import { readFileSync, readdirSync } from "node:fs";
-import { statSync } from "node:fs";
-import { join, relative, basename } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+// Re-exports everything so `import` callers (e.g. plugin/hooks/ask-gate.mjs
+// via its configured docs.searchScript) keep working unchanged, and runs
+// the CLI (`node scripts/doc-search/search.mjs "query"` / `pnpm
+// docs:search`) against THIS template repo's own root regardless of
+// invocation cwd.
+import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
-const ROOT = join(fileURLToPath(import.meta.url), "..", "..", "..");
-const DOCS = join(ROOT, "docs");
+export * from "../../plugin/scripts/docs/doc-search/search.mjs";
+import { search, buildIndex, chunkDocs } from "../../plugin/scripts/docs/doc-search/search.mjs";
 
-const STOP = new Set(
-  ("a an and are as at be but by can do does for from has have how i if in is it its no not of on or so that the " +
-    "their there they this to was we what when where which who why will with would you your").split(" "),
-);
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-export function tokenize(s) {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9#]+/g, " ")
-    .split(" ")
-    .filter((t) => t && !STOP.has(t) && (t.length >= 3 || /\d/.test(t)));
-}
-
-function* walkMd(dir) {
-  for (const e of readdirSync(dir, { withFileTypes: true })) {
-    if (e.name.startsWith(".")) continue;
-    const p = join(dir, e.name);
-    if (e.isDirectory()) yield* walkMd(p);
-    else if (e.name.endsWith(".md")) yield p;
-  }
-}
-
-// Cheap freshness stamp so long-lived consumers know when to re-chunk: file
-// count + max mtime across the corpus.
-export function corpusStamp() {
-  let max = 0;
-  let n = 0;
-  for (const f of walkMd(DOCS)) {
-    n++;
-    const m = statSync(f).mtimeMs;
-    if (m > max) max = m;
-  }
-  return `${n}:${max}`;
-}
-
-export function chunkDocs() {
-  const chunks = [];
-  for (const file of walkMd(DOCS)) {
-    const doc = relative(ROOT, file).replace(/\\/g, "/");
-    const lines = readFileSync(file, "utf8").split(/\r?\n/);
-    const splitBullets = /^docs\/(tasks|gaps)\.md$/.test(doc);
-    const trail = []; // active heading stack [{level, text}]
-    let cur = null;
-    const flush = (endLine) => {
-      if (cur && cur.lines.join("\n").trim()) {
-        chunks.push({
-          doc,
-          trail: cur.trail,
-          startLine: cur.start,
-          endLine,
-          text: cur.lines.join("\n").trim(),
-        });
-      }
-      cur = null;
-    };
-    lines.forEach((line, i) => {
-      const h = line.match(/^(#{1,6})\s+(.*)$/);
-      if (h && h[1].length <= 3) {
-        flush(i);
-        const level = h[1].length;
-        while (trail.length && trail[trail.length - 1].level >= level) trail.pop();
-        trail.push({ level, text: h[2].trim() });
-        cur = { start: i + 1, trail: trail.map((t) => t.text), lines: [line] };
-        return;
-      }
-      if (splitBullets && /^- /.test(line)) {
-        flush(i);
-        cur = { start: i + 1, trail: trail.map((t) => t.text), lines: [line] };
-        return;
-      }
-      if (!cur) cur = { start: i + 1, trail: trail.map((t) => t.text), lines: [] };
-      cur.lines.push(line);
-    });
-    flush(lines.length);
-  }
-  return chunks;
-}
-
-export function buildIndex(chunks = chunkDocs()) {
-  const N = chunks.length;
-  const df = new Map();
-  const stats = chunks.map((c) => {
-    // Field weighting: heading-trail + doc-name tokens count double — a
-    // query matching a section title should beat the same words buried in
-    // prose.
-    const fieldTokens = tokenize(c.trail.join(" ") + " " + basename(c.doc, ".md").replace(/-/g, " "));
-    const tokens = tokenize(c.text).concat(fieldTokens, fieldTokens);
-    const tf = new Map();
-    for (const t of tokens) tf.set(t, (tf.get(t) || 0) + 1);
-    for (const t of tf.keys()) df.set(t, (df.get(t) || 0) + 1);
-    return { tf, len: tokens.length };
-  });
-  const avgdl = stats.reduce((s, d) => s + d.len, 0) / (N || 1);
-  return { chunks, stats, df, N, avgdl };
-}
-
-export function search(query, k = 6, index = buildIndex()) {
-  const { chunks, stats, df, N, avgdl } = index;
-  const K1 = 1.2;
-  const B = 0.75;
-  const qTerms = [...new Set(tokenize(query))];
-  return chunks
-    .map((c, i) => {
-      const { tf, len } = stats[i];
-      let score = 0;
-      for (const t of qTerms) {
-        const f = tf.get(t);
-        if (!f) continue;
-        const n = df.get(t) || 0;
-        const idf = Math.log(1 + (N - n + 0.5) / (n + 0.5));
-        score += (idf * f * (K1 + 1)) / (f + K1 * (1 - B + (B * len) / avgdl));
-      }
-      return { chunk: c, score };
-    })
-    .filter((r) => r.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, k)
-    .map(({ chunk, score }) => ({
-      anchor: `${chunk.doc}:${chunk.startLine}`,
-      doc: chunk.doc,
-      heading_trail: chunk.trail,
-      lines: [chunk.startLine, chunk.endLine],
-      score: Math.round(score * 100) / 100,
-      text:
-        chunk.text.length > 1500
-          ? chunk.text.slice(0, 1500) + "\n… (truncated — open the anchor for the full section)"
-          : chunk.text,
-    }));
-}
-
-// Discriminative relevance signal for gating (ask-gate). Raw BM25 top-score
-// does not separate on-topic from off-topic questions well — idfCoverage
-// (the fraction of the query's information content present in the best
-// chunk) does: off-topic questions match only corpus-common words; their
-// rare terms are absent, so coverage stays low.
-export function relevanceSignal(query, index = buildIndex()) {
-  const { chunks, stats, df, N, avgdl } = index;
-  const K1 = 1.2;
-  const B = 0.75;
-  const qTerms = [...new Set(tokenize(query))];
-  if (!qTerms.length) return null;
-  const idfOf = (t) => {
-    const n = df.get(t) || 0;
-    return Math.log(1 + (N - n + 0.5) / (n + 0.5));
-  };
-  let best = -1;
-  let bestScore = 0;
-  for (let i = 0; i < chunks.length; i++) {
-    const { tf, len } = stats[i];
-    let score = 0;
-    for (const t of qTerms) {
-      const f = tf.get(t);
-      if (!f) continue;
-      score += (idfOf(t) * f * (K1 + 1)) / (f + K1 * (1 - B + (B * len) / avgdl));
-    }
-    if (score > bestScore) {
-      bestScore = score;
-      best = i;
-    }
-  }
-  if (best === -1) return { topScore: 0, idfCoverage: 0, anchor: null };
-  const tf = stats[best].tf;
-  let covered = 0;
-  let total = 0;
-  for (const t of qTerms) {
-    const w = idfOf(t);
-    total += w;
-    if (tf.get(t)) covered += w;
-  }
-  return {
-    topScore: Math.round(bestScore * 100) / 100,
-    idfCoverage: total ? Math.round((covered / total) * 100) / 100 : 0,
-    anchor: `${chunks[best].doc}:${chunks[best].startLine}`,
-  };
-}
-
-// Reciprocal-rank fusion across query variants. Each variant votes
-// 1/(60+rank) per chunk; the original query is always variant 0, so a
-// failed/absent rewrite degrades to plain single-query BM25.
-export function searchFused(queries, k = 6, index = buildIndex()) {
-  const K_RRF = 60;
-  const byAnchor = new Map();
-  for (const q of queries) {
-    search(q, Math.max(k, 10), index).forEach((r, rank) => {
-      const cur = byAnchor.get(r.anchor) || { ...r, score: 0 };
-      cur.score += 1 / (K_RRF + rank + 1);
-      byAnchor.set(r.anchor, cur);
-    });
-  }
-  return [...byAnchor.values()]
-    .sort((a, b) => b.score - a.score)
-    .slice(0, k)
-    .map((r) => ({ ...r, score: Math.round(r.score * 1000) / 1000 }));
-}
-
-// ---- CLI ----
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = process.argv.slice(2);
   const kIdx = args.indexOf("-k");
@@ -229,7 +30,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exit(2);
   }
   const t0 = performance.now();
-  const results = search(query, k);
+  const results = search(query, k, buildIndex(chunkDocs(ROOT)));
   const ms = Math.round(performance.now() - t0);
   if (json) {
     console.log(JSON.stringify({ query, ms, results }, null, 1));

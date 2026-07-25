@@ -1,8 +1,14 @@
+---
+type: ledger
+title: Decisions
+description: decision ledger (`D###` entries, newest first). Check before re-litigating anything.
+tags: [decisions, governance]
+timestamp: 2026-07-25
+audience: agents + owner. Read before asking; cite before asserting
+authoritative_for: [every settled call. Newest first]
+code: [node scripts/next-task-id.mjs --add --decision --title "..." --body "..."]
+---
 # Decisions
-
-> **Audience:** agents + owner. Read before asking; cite before asserting.
-> **Authoritative for:** every settled call. Newest first.
-> **Updated by:** `node scripts/next-task-id.mjs --add --decision --title "..." --body "..."`
 
 Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the

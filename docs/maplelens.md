@@ -1,8 +1,16 @@
+---
+type: spec
+title: MapleLens — generalizing the DIY error tracker
+description: "MapleLens error tracker: shared core vs. per-instance config, deploy runbook, the MCP contract `/sweep-errors` reads."
+tags: [maplelens, error-tracker]
+timestamp: 2026-07-25
+audience: anyone extracting shared code from VeHagita's tracker, or deploying a new per-app instance
+authoritative_for: [what's shared vs. per-instance, the deployment story per app, and the MCP contract /sweep-errors depends on]
+code: []
+reference_for: maplelens-core extraction from VeHagita's cloudflare/error-tracker/ (external repo — extraction is #T7; no owned paths here yet)
+---
 # MapleLens — generalizing the DIY error tracker
 
-> **Audience:** anyone extracting shared code from VeHagita's tracker, or deploying a new per-app instance.
-> **Authoritative for:** what's shared vs. per-instance, the deployment story per app, and the MCP contract `/sweep-errors` depends on.
-> **Reference for:** `maplelens-core` extraction from VeHagita's `cloudflare/error-tracker/` (external repo — extraction is #T7; no owned paths here yet)
 > **Status:** Approved 2026-07-25 (owner sign-off). Spec for plugin v1 — implementation tracked in [[tasks]] and [[decisions]].
 > **Source design:** VeHagita `docs/features/diy-error-tracker/roadmap.md` + `deployment.md` (agent-native, MCP-first, dual-send with free-tier Sentry — carried over verbatim, not redesigned).
 > **Related:** [[standard-architecture]] (`errorTracker` block in `maple.config.json`) · [[loop-pack]] (`/sweep-errors`) · [[rollout]]

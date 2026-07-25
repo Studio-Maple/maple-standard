@@ -15,20 +15,19 @@ only this pass can do.
 | Key | Default | Notes |
 |---|---|---|
 | `docs.root` | `"docs"` | the wiki folder (may be flat or nested — `docs/index.md` + topic pages, or `docs/{system,features,...}/`) |
-| `docs.indexFile` | `"docs/.docs-index.json"` | machine-readable map: doc -> `Code:` anchor paths |
-| `docs.driftScript` | `"scripts/check-docs-drift.mjs"` | structural checker (project-root-relative) |
-| `docs.indexScript` | `"scripts/generate-docs-index.mjs"` | regenerates `docs.indexFile` |
-| `docs.changelogFile` | `"CHANGELOG.md"` | |
+| `docs.docsIndexJson` | `"docs/.docs-index.json"` | machine-readable map: doc -> owned-paths (`code`) |
+| `docs.index` | `"docs/index.md"` | the catalog page (generated Catalog block, D010) |
+| `docs.tasks` / `docs.decisions` / `docs.log` / `docs.gaps` | `"docs/tasks.md"` / `"docs/decisions.md"` / `"docs/log.md"` / `"docs/gaps.md"` | the state files the gate entry-length-caps |
 | `docs.ephemeralPaths` | `[]` | doc-relative paths not owned by code (e.g. a session-state folder) — skip these in ownership resolution |
 
-**Gap:** `docs.driftScript` / `docs.indexScript` are **not bundled with this
-plugin** — they must already exist in the adopting project (this template
-repo ships them at `scripts/check-docs-drift.mjs` /
-`scripts/generate-docs-index.mjs`; `/adopt-standard` is expected to be the
-place a future version copies them in for non-template projects, but that
-port hasn't happened yet — see plugin/README.md "Gaps"). If the scripts
-aren't present, do the semantic pass (steps 1-2 below) and skip steps 3-4,
-noting the gap to the user.
+Structural checking runs `plugin/scripts/docs/check-docs-drift.mjs` and
+`generate-docs-index.mjs` **bundled with this plugin** (#T13 — no
+project-side copy needed; a project's own `scripts/check-docs-drift.mjs`,
+if it has one from before adopting the plugin, can stay as a thin delegate
+to the bundled version, same pattern as this template repo's own
+`scripts/*.mjs`). Both are frontmatter-aware (OKF v0.1, docs/decisions.md
+D010) with a legacy-prose fallback — see plugin/README.md's "Bundled docs
+tooling" section for the full `docs.*` key set they read.
 
 ## Arguments
 
@@ -39,17 +38,18 @@ noting the gap to the user.
 
 ## How ownership is resolved
 
-`docs.indexFile` maps each doc -> its `Code:` anchor paths. The reverse map
-(code path -> owning doc) is what the `docs-sync-reminder` Stop hook prints.
-A changed code file is "owned" by a doc when it sits under one of that doc's
-anchor paths. Paths under any `docs.ephemeralPaths` entry are skipped — they
-aren't owned by code.
+`docs.docsIndexJson` maps each doc -> its `code` anchor paths (frontmatter
+`code`, or the legacy `**Code:**`/`**Enforced by:**` preamble on an
+unmigrated page). The reverse map (code path -> owning doc) is what the
+`docs-sync-reminder` Stop hook prints. A changed code file is "owned" by a
+doc when it sits under one of that doc's anchor paths. Paths under any
+`docs.ephemeralPaths` entry are skipped — they aren't owned by code.
 
 ## Steps
 
 ### 1. Scope
 Run `git status --porcelain` for changed files (or take the `$ARGUMENTS`
-path). Read `docs.indexFile`; for each changed code file, find docs whose
+path). Read `docs.docsIndexJson`; for each changed code file, find docs whose
 `anchor_paths` cover it. That set is your worklist.
 
 ### 2. Reconcile each implicated doc (the semantic pass)
@@ -59,18 +59,29 @@ For each doc on the worklist:
   names, flags, fallback chains, phase status, file/symbol names.
   **Synthesize, don't append** — edit the relevant section, don't bolt on an
   "Update:" note. Stale = rewrite or delete; never leave a wrong claim.
-- If the doc's `Code:` preamble paths moved/renamed, update them.
+- If the doc's frontmatter `code` (or legacy `Code:` preamble) paths
+  moved/renamed, update them. A page with a `description` in frontmatter
+  joins the generated Catalog automatically on the next regenerate — no
+  manual catalog edit needed (D010).
 
 ### 3. Triage the structural warnings
-Run `node <docs.driftScript>` and resolve what it surfaces:
+Run `node plugin/scripts/docs/check-docs-drift.mjs` (or the project's own
+delegate, e.g. this template's `node scripts/check-docs-drift.mjs`) and
+resolve what it surfaces:
 - **untracked doc** → commit it or delete it (no limbo).
-- **not referenced in index.md** → add a one-line catalog entry under the right heading in `docs/index.md`, or delete the doc if it's dead.
-- **unresolved wikilink [[X]]** → fix the link or remove it (the target doc was likely deleted).
+- **Catalog block is stale** → run with `--fix` (it's generated from
+  frontmatter `description`, not hand-edited — see docs/index.md's
+  Conventions section) — or delete the doc if it's dead.
+- **unresolved wikilink [[X]]** / **unresolved relative link** → fix the
+  link or remove it (the target doc was likely deleted or renamed).
+- **legacy prose preamble** → migrate the page to OKF v0.1 frontmatter when
+  you're already touching it (not required to clear this pass — it's
+  migration pressure, not a blocker).
 
 ### 4. Regenerate + verify
 ```
-node <docs.driftScript> --fix     # regenerate docs.indexFile (or run <docs.indexScript> directly)
-node <docs.driftScript>           # must end: 0 error(s)
+node plugin/scripts/docs/check-docs-drift.mjs --fix   # regenerate docs.docsIndexJson + the docs.index catalog
+node plugin/scripts/docs/check-docs-drift.mjs          # must end: 0 error(s)
 ```
 Errors block the pre-push gate — drive them to zero. Warnings are review
 signals; clear the ones in scope.
@@ -99,3 +110,9 @@ nested `docs/{system,features,quality,dev,learning,state}/` layout and
 called out `docs/state/*` as ephemeral by name. This version treats the
 docs folder shape as config (`docs.root`, `docs.ephemeralPaths`) so it works
 for both a flat layout (this template's own `docs/`) and a nested one.
+
+**Docs tooling is now bundled (#T13).** The structural checker/generator
+used to be "must already exist in the project" — as of D010 they ship at
+`plugin/scripts/docs/{check-docs-drift,generate-docs-index}.mjs`, generic
+and config-driven, so this command works out of the box on a fresh
+`/adopt-standard` bootstrap with no project-side script copy required.

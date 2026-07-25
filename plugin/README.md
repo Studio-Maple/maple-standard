@@ -21,7 +21,7 @@ yet.
 | Component | What it does |
 |---|---|
 | `/wt-start`, `/wt-land`, `/wt-preview`, `/wt-reap` | Isolated parallel-session git worktrees + a single merge semaphore (`/wt-land`) so concurrent Claude sessions never collide on the shared tree. |
-| `/sync-docs` | The docs-drift **executor** — semantic reconciliation of `docs/` against code, backed by a project's own structural drift script. |
+| `/sync-docs` | The docs-drift **executor** — semantic reconciliation of `docs/` against code, backed by the bundled structural drift script (`plugin/scripts/docs/check-docs-drift.mjs` — see "Bundled docs tooling" below), OKF v0.1 frontmatter-aware per D010. |
 | `/heal` | Error-tracker-driven self-healing: fetch, cluster, triage, fix, and verify unresolved issues through a 5-tier ladder before marking them resolved. |
 | `/adopt-standard` | Bootstrap: stamps `maple.config.json`, scaffolds canonical `docs/` files + `CLAUDE.md` if missing, generates the docs index. |
 | `/sweep-errors`, `/burn-backlog`, `/sweep-quality`, `/detect-drift`, `/dev-burner` | The **loop pack** — budget-bounded autonomous loops orchestrated by `/dev-burner` under `/loop`, working in an isolated `dev-burner` worktree that never self-merges. Stubs until `docs/loop-pack.md` is approved. |
@@ -85,10 +85,65 @@ command or hook are listed (no speculative keys).
 | `docs.gapsFile` | `"docs/gaps.md"` | read by `ask-gate` |
 | `docs.changelogFile` | `"CHANGELOG.md"` | checked by `docs-sync-reminder` |
 | `docs.ephemeralPaths` | `[]` | doc-relative paths not owned by code — skipped by `/sync-docs` ownership resolution |
-| `docs.driftScript` | `"scripts/check-docs-drift.mjs"` | **not bundled** — must already exist in the project (see Gaps) |
-| `docs.indexScript` | `"scripts/generate-docs-index.mjs"` | **not bundled** — same caveat |
-| `docs.idAllocatorScript` | `"scripts/next-task-id.mjs"` | guidance text only (`decision-reminder`'s nudge message); not invoked by any hook |
 | `docs.searchScript` | `"scripts/doc-search/search.mjs"` | **optional** — a project-local BM25 doc searcher `ask-gate` will use if present; absent is fine, it falls back to a line-grep signal |
+
+**Known inconsistency (not fixed here):** the table above is what `ask-gate.mjs`,
+`docs-sync-reminder.js`, and `decision-reminder.js` actually read today. The
+bundled docs tooling below (added for #T13) reads a *different*, canonical
+key set from `docs/standard-architecture.md`'s `maple.config.json` schema
+(`docs.root`/`index`/`tasks`/`decisions`/`log`/`gaps`/`docsIndexJson`). The
+two have drifted apart — reconciling the hooks onto the canonical keys is
+tracked as a follow-up (see "Gaps" below), not done as part of bundling the
+scripts.
+
+### Bundled docs tooling (`plugin/scripts/docs/`) — #T13
+
+Canonical, generalized implementations of the four scripts a project's docs
+gate needs, so a non-template adopter (VeHagita, EasyCaller) gets them for
+free instead of owning its own copies:
+
+| Script | What it does |
+|---|---|
+| `check-docs-drift.mjs` | The structural docs-drift gate — see its own header comment for the full ERROR/WARN inventory. `--fix` regenerates the index + catalog. |
+| `generate-docs-index.mjs` | Walks `docs.root`, emits `docs.docsIndexJson`, and maintains the generated Catalog block in `docs.index` (see "OKF v0.1 frontmatter" below). |
+| `next-task-id.mjs` | Collision-free `#T`/`D`/`S` id allocator (atomic lockfile mutex). Depended on by `/sync-docs`, `decision-reminder`, and this template's own `pnpm next-id`. |
+| `doc-search/search.mjs` | BM25 doc search. Depended on by `ask-gate`'s optional relevance signal (`docs.searchScript`). |
+
+All four are plain Node, zero new dependencies, and read this **canonical**
+`docs.*` key set (via `plugin/scripts/docs/lib/config.mjs`), with defaults
+matching this template's own flat `docs/` layout — so they work with **no**
+`maple.config.json` present at all:
+
+| Key | Default | Read by |
+|---|---|---|
+| `docs.root` | `"docs"` | all four |
+| `docs.index` | `"docs/index.md"` | check-docs-drift, generate-docs-index |
+| `docs.tasks` | `"docs/tasks.md"` | all four |
+| `docs.decisions` | `"docs/decisions.md"` | check-docs-drift, next-task-id |
+| `docs.log` | `"docs/log.md"` | check-docs-drift, next-task-id, doc-search |
+| `docs.gaps` | `"docs/gaps.md"` | check-docs-drift, doc-search |
+| `docs.docsIndexJson` | `"docs/.docs-index.json"` | check-docs-drift, generate-docs-index |
+
+This template's own `scripts/check-docs-drift.mjs` / `generate-docs-index.mjs`
+/ `next-task-id.mjs` / `doc-search/search.mjs` are now thin delegates to
+these bundled versions (same repo, so a relative import just works) — the
+template's `package.json` scripts, husky hooks, and CI tiers are unaffected.
+
+#### OKF v0.1 frontmatter (docs/decisions.md D010)
+
+Each doc page's preamble may be YAML frontmatter — reserved fields `type`,
+`title`, `description`, `tags`, `timestamp`; this project's custom fields
+`audience`, `authoritative_for`, `code` (the owned-paths list the drift gate
+existence-checks — replaces the prose `**Code:**` anchor), `reference_for`
+(replaces `**Reference for:**` — descriptive, never existence-checked) — or
+the legacy prose blockquote preamble, which still works but gets a WARN so
+migration pressure exists. `generate-docs-index.mjs` builds the Catalog
+block in `docs.index` (between `<!-- catalog:begin -->` / `<!-- catalog:end
+-->` markers) from each page's frontmatter `description`; `check-docs-
+drift.mjs` errors if that block goes stale. See `plugin/scripts/docs/lib/
+preamble.mjs` and `frontmatter.mjs` for the parser and its documented
+limits (flat `key: value` + inline `[a, b]` arrays only — no new
+dependency, not a general YAML parser).
 
 ### `errorTracker.*` and `ci.tiers.*` — used by `/heal`
 
@@ -162,13 +217,24 @@ tells you who's allowed to edit it and when it updates:
 
 ## Gaps (honest inventory — see also each command file's own "Gap" section)
 
-- **Docs tooling isn't bundled.** `scripts/check-docs-drift.mjs` and
-  `scripts/generate-docs-index.mjs` are referenced by `docs.driftScript` /
-  `docs.indexScript` but not copied into `plugin/scripts/` — a non-template
-  project adopting this plugin needs to supply its own (or a future plugin
-  version needs to bundle generic copies). `/sync-docs` and
-  `/adopt-standard` both degrade gracefully (skip the step, say so) when
-  they're missing.
+- **Docs tooling config keys are inconsistent (two conventions, not
+  reconciled).** `plugin/scripts/docs/*` (bundled per #T13) reads the
+  canonical `docs.root`/`index`/`tasks`/`decisions`/`log`/`gaps`/
+  `docsIndexJson` keys from `docs/standard-architecture.md`'s schema, but
+  the plugin's existing hooks (`ask-gate.mjs`, `docs-sync-reminder.js`,
+  `decision-reminder.js`) already ship reading a different, older set
+  (`decisionsFile`/`tasksFile`/`gapsFile`/`indexFile`/`changelogFile`/
+  `searchScript`/`idAllocatorScript` — see the `docs.*` table above). Both
+  work today against this template's defaults (which happen to point at the
+  same files either way), but a project overriding one convention's keys in
+  `maple.config.json` won't affect the other. Reconciling onto one key set
+  is a follow-up, tracked for #T12 (hook hardening), not done here.
+- **`ask-gate.mjs`'s `bm25Signal()` calls `doc-search`'s `buildIndex()` with
+  no explicit root** — it resolves the project ROOT for the dynamic
+  `import()` path but doesn't thread it through to the exported functions,
+  so `buildIndex()` falls back to `CLAUDE_PROJECT_DIR`/`process.cwd()`.
+  Matches the invoking project's root in practice, not guaranteed. Also
+  #T12 scope.
 - **`worktree.gate.tiers.*` has no default command** — every adopting
   project must define its own gate commands; there's no bundled generic
   gate script (the original VeHagita `ci-local.sh` was too project-specific

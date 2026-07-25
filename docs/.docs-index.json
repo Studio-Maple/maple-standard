@@ -1,7 +1,7 @@
 {
   "generated": "2026-07-25",
-  "generator": "scripts/generate-docs-index.mjs",
-  "description": "Machine-readable map of docs/**/*.md preambles. Regenerate after any preamble change: node scripts/generate-docs-index.mjs (or check-docs-drift.mjs --fix).",
+  "generator": "plugin/scripts/docs/generate-docs-index.mjs",
+  "description": "Machine-readable map of docs/**/*.md preambles (OKF v0.1 frontmatter or legacy prose — docs/decisions.md D010). Regenerate after any preamble/description change: run this script (or check-docs-drift.mjs --fix).",
   "files": [
     {
       "path": "docs/decisions.md",
@@ -11,7 +11,7 @@
       "authoritative_for": [
         "every settled call. Newest first"
       ],
-      "anchor_type": "updated_by",
+      "anchor_type": "code",
       "anchor_paths": [
         "node scripts/next-task-id.mjs --add --decision --title \"...\" --body \"...\""
       ],
@@ -32,7 +32,7 @@
         "wrong",
         "or unresolved"
       ],
-      "anchor_type": "updated_by",
+      "anchor_type": null,
       "anchor_paths": [],
       "related": [
         "decisions"
@@ -47,7 +47,7 @@
         "what happened when. Append-only",
         "newest first"
       ],
-      "anchor_type": "updated_by",
+      "anchor_type": "code",
       "anchor_paths": [
         "node scripts/next-task-id.mjs --add --session --title \"...\" --body \"...\""
       ],
@@ -60,7 +60,7 @@
       "audience": "anyone running, extending, or reviewing the output of the standing loop session",
       "authoritative_for": [
         "the anatomy of each loop",
-        "the `/dev-burner` orchestrator",
+        "the /dev-burner orchestrator",
         "and the morning-review flow"
       ],
       "anchor_type": "code",
@@ -84,13 +84,10 @@
       "authoritative_for": [
         "what's shared vs. per-instance",
         "the deployment story per app",
-        "and the MCP contract `/sweep-errors` depends on"
+        "and the MCP contract /sweep-errors depends on"
       ],
       "anchor_type": "reference_for",
-      "anchor_paths": [
-        "maplelens-core",
-        "cloudflare/error-tracker/"
-      ],
+      "anchor_paths": [],
       "related": [
         "tasks",
         "decisions",
@@ -149,7 +146,7 @@
       "audience": "anyone asking \"where does this piece of the standard live, and why.\"",
       "authoritative_for": [
         "the four-way component split",
-        "the `maple.config.json` schema",
+        "the maple.config.json schema",
         "and the adoption sequence"
       ],
       "anchor_type": "code",
@@ -172,9 +169,9 @@
       "topic": "root",
       "audience": "agents + owner. Open work only — sweep done entries",
       "authoritative_for": [
-        "tracked future work (`#T###`)"
+        "tracked future work (#T###)"
       ],
-      "anchor_type": "updated_by",
+      "anchor_type": "code",
       "anchor_paths": [
         "node scripts/next-task-id.mjs --add --section \"Inbox\" --title \"...\" --body \"...\""
       ],

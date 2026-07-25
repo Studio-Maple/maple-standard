@@ -1,8 +1,14 @@
+---
+type: ledger
+title: Tasks
+description: open tasks only (`#T###`). Done tasks are swept; the record lives in CHANGELOG/git.
+tags: [tasks, governance]
+timestamp: 2026-07-25
+audience: agents + owner. Open work only — sweep done entries
+authoritative_for: [tracked future work (#T###)]
+code: [node scripts/next-task-id.mjs --add --section "Inbox" --title "..." --body "..."]
+---
 # Tasks
-
-> **Audience:** agents + owner. Open work only — sweep done entries.
-> **Authoritative for:** tracked future work (`#T###`).
-> **Updated by:** `node scripts/next-task-id.mjs --add --section "Inbox" --title "..." --body "..."`
 
 One bullet per task, ≤600 chars (gate-enforced): `- [ ] **#T### — title.** body`.
 A `#T` is for real future work, not a band-aid over rot you could fix now.

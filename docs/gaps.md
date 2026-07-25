@@ -1,8 +1,13 @@
+---
+type: ledger
+title: Gaps
+description: things the owner flagged as missing or wrong. Check at session start.
+tags: [gaps, governance]
+timestamp: 2026-07-25
+audience: agents — check at session start
+authoritative_for: [things the owner flagged as missing, wrong, or unresolved]
+---
 # Gaps
-
-> **Audience:** agents — check at session start.
-> **Authoritative for:** things the owner flagged as missing, wrong, or unresolved.
-> **Updated by:** the owner (typically via Obsidian); agents propose, owner approves.
 
 Flat bullets, one gap per line. When a gap is resolved, delete the bullet
 (the resolution belongs in [[decisions]] or the owning doc).

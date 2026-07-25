@@ -1,9 +1,16 @@
+---
+type: spec
+title: Loop pack — autonomous overnight improvement loops
+description: the dev-burner overnight loop pack, four autonomous loops, the orchestrator, morning review.
+tags: [loop-pack, automation]
+timestamp: 2026-07-25
+audience: anyone running, extending, or reviewing the output of the standing loop session
+authoritative_for: [the anatomy of each loop, the /dev-burner orchestrator, and the morning-review flow]
+code: [plugin/commands/dev-burner.md, plugin/commands/{sweep-errors,burn-backlog,sweep-quality,detect-drift}.md]
+---
 # Loop pack — autonomous overnight improvement loops
 
-> **Audience:** anyone running, extending, or reviewing the output of the standing loop session.
-> **Authoritative for:** the anatomy of each loop, the `/dev-burner` orchestrator, and the morning-review flow.
-> **Code:** `plugin/commands/dev-burner.md` · `plugin/commands/{sweep-errors,burn-backlog,sweep-quality,detect-drift}.md` (stubs — implementation is #T8)
-> **Status:** Approved 2026-07-25 (owner sign-off). Spec for plugin v1 — implementation tracked in [[tasks]] and [[decisions]].
+> **Status:** Approved 2026-07-25 (owner sign-off). Spec for plugin v1 — implementation tracked in [[tasks]] and [[decisions]]. `code` above is stubs — implementation is #T8.
 > **Related:** [[standard-architecture]] (plugin split, `maple.config.json`) · [[maplelens]] (the tracker `/sweep-errors` reads) · [[rollout]]
 
 ## What this is, per Cherny's loop-engineering framing

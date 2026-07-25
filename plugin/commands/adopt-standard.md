@@ -70,7 +70,11 @@ leave it untouched. Report which ones were created vs. already present.
 
 Minimal templates (adjust the preamble style to match any existing docs in
 the project — don't introduce a second convention alongside one that
-already exists):
+already exists). Default the preamble to OKF v0.1 frontmatter (D010 — see
+this template's own `docs/*.md` as the reference shape) for a project with
+no pre-existing docs convention; only fall back to the legacy prose
+blockquote preamble when the project already has one and you're matching
+it:
 - `index.md` — one-line-per-page catalog, starting with the four/five files
   this command just created.
 - `gaps.md` — flat bullet list, "(none yet)" placeholder.
@@ -94,14 +98,13 @@ dedicated follow-up session, not invented here.
 
 ### 6. Generate the docs index
 
-Run `node <docs.indexScript>` (default `scripts/generate-docs-index.mjs`)
-to produce `docs/.docs-index.json`.
-
-**Gap:** this script is not bundled with the plugin (see plugin/README.md
-"Gaps") — if it's missing from the project, say so explicitly and skip this
-step rather than failing silently; `docs/.docs-index.json` staying absent
-means `/sync-docs` and the `docs-sync-reminder` hook degrade gracefully
-(they no-op without it) but won't catch drift until the script exists.
+Run `node plugin/scripts/docs/generate-docs-index.mjs` (bundled with the
+plugin — #T13, no project-side copy needed) to produce `docs.docsIndexJson`
+(default `docs/.docs-index.json`) and, if `docs.index` already has
+`<!-- catalog:begin -->`/`<!-- catalog:end -->` markers, the generated
+Catalog block too. It's frontmatter-aware (OKF v0.1, docs/decisions.md
+D010) with a legacy-prose fallback, so this works whether or not the
+scaffolded pages have frontmatter yet.
 
 ### 7. Report
 

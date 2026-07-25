@@ -1,8 +1,15 @@
+---
+type: spec
+title: Standard architecture — the plugin / template / bootstrap / global split
+description: the standard's four-way split (plugin / user-global / stamped files / template), the `maple.config.json` schema, and the `/adopt-standard` sequence.
+tags: [architecture, plugin, config-schema]
+timestamp: 2026-07-25
+audience: anyone asking "where does this piece of the standard live, and why."
+authoritative_for: [the four-way component split, the maple.config.json schema, and the adoption sequence]
+code: [plugin/, plugin/commands/adopt-standard.md, plugin/README.md]
+---
 # Standard architecture — the plugin / template / bootstrap / global split
 
-> **Audience:** anyone asking "where does this piece of the standard live, and why."
-> **Authoritative for:** the four-way component split, the `maple.config.json` schema, and the adoption sequence.
-> **Code:** `plugin/` · `plugin/commands/adopt-standard.md` · `plugin/README.md`
 > **Status:** Approved 2026-07-25 (owner sign-off). Spec for plugin v1 — implementation tracked in [[tasks]] and [[decisions]].
 > **Related:** [[loop-pack]] · [[maplelens]] · [[rollout]]
 
