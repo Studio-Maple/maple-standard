@@ -9,7 +9,7 @@ A `#T` is for real future work, not a band-aid over rot you could fix now.
 
 ## Inbox
 
-- [ ] **#T13 — Bundle generic docs tooling into the plugin.** check-docs-drift.mjs + generate-docs-index.mjs are referenced by config but not bundled - non-template adopters have no copies. Generalize and ship them in plugin/scripts/.
+- [ ] **#T13 — Bundle generic docs tooling into the plugin.** check-docs-drift.mjs + generate-docs-index.mjs are referenced by config but not bundled - non-template adopters have no copies. Generalize and ship them in plugin/scripts/, OKF-aligned per D010: frontmatter-aware gate, catalog generated from description fields, both wikilinks and markdown links validated.
 
 - [ ] **#T12 — Harden generic safety hooks in the plugin.** Ported: deny-credential-paths, scrub-secrets, bash-guard, dirty-tree-guard, ask-gate, decision-reminder, docs-sync-reminder, parallel-session-warn. Verify each fires correctly from plugin context on a scratch project.
 
@@ -25,7 +25,7 @@ A `#T` is for real future work, not a band-aid over rot you could fix now.
 
 - [ ] **#T6 — Adopt the standard on EasyCaller (Caller-development).** Run /adopt-standard; verify per [[rollout]] step 2.
 
-- [ ] **#T5 — VeHagita alignment pass.** Swap in plugin equivalents where they exist; confirm /chaos + /heal-security stay project-local; verify per [[rollout]] step 3.
+- [ ] **#T5 — VeHagita alignment pass.** Swap in plugin equivalents where they exist; confirm /chaos + /heal-security stay project-local; verify per [[rollout]] step 3. Includes OKF frontmatter migration of VeHagita's ~65 docs pages (D010).
 
 - [ ] **#T4 — Deploy MapleLens for VeHagita.** Execute the deployment runbook (separate session) against the already-committed cloudflare/error-tracker/; verify per [[rollout]] step 4.
 

@@ -8,6 +8,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D010 | 2026-07-25 | Docs system aligns with Google OKF v0.1
+Full alignment: YAML frontmatter replaces the prose preamble (type/title/description/tags/timestamp + custom audience/authoritative_for/code fields), docs tooling reads frontmatter, index.md catalog is generated from description fields. Drift gate validates both wikilinks and markdown links. Scope: plugin docs tooling (#T13), VeHagita page migration (folded into #T5), MapleLens docs OKF-style from day one. Client-handoff use: not adopted for now.
+
 ## D009 | 2026-07-25 | First adoption target: EasyCaller, after plugin v1
 Rollout order: plugin v1 -> EasyCaller (Caller-development) adoption -> VeHagita alignment (keeps /chaos and /heal-security project-local) -> MapleLens VeHagita deploy -> MapleLens EasyCaller deploy -> loops live on both. See [[rollout]] for per-step verification.
 
