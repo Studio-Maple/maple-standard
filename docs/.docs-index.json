@@ -1,5 +1,5 @@
 {
-  "generated": "2026-07-15",
+  "generated": "2026-07-25",
   "generator": "scripts/generate-docs-index.mjs",
   "description": "Machine-readable map of docs/**/*.md preambles. Regenerate after any preamble change: node scripts/generate-docs-index.mjs (or check-docs-drift.mjs --fix).",
   "files": [
@@ -15,7 +15,12 @@
       "anchor_paths": [
         "node scripts/next-task-id.mjs --add --decision --title \"...\" --body \"...\""
       ],
-      "related": []
+      "related": [
+        "rollout",
+        "loop-pack",
+        "maplelens",
+        "standard-architecture"
+      ]
     },
     {
       "path": "docs/gaps.md",
@@ -49,6 +54,52 @@
       "related": []
     },
     {
+      "path": "docs/loop-pack.md",
+      "title": "Loop pack — autonomous overnight improvement loops",
+      "topic": "root",
+      "audience": "anyone running, extending, or reviewing the output of the standing loop session",
+      "authoritative_for": [
+        "the anatomy of each loop",
+        "the `/dev-burner` orchestrator",
+        "and the morning-review flow"
+      ],
+      "anchor_type": "code",
+      "anchor_paths": [
+        "plugin/commands/dev-burner.md",
+        "plugin/commands/{sweep-errors,burn-backlog,sweep-quality,detect-drift}.md"
+      ],
+      "related": [
+        "tasks",
+        "decisions",
+        "standard-architecture",
+        "maplelens",
+        "rollout"
+      ]
+    },
+    {
+      "path": "docs/maplelens.md",
+      "title": "MapleLens — generalizing the DIY error tracker",
+      "topic": "root",
+      "audience": "anyone extracting shared code from VeHagita's tracker, or deploying a new per-app instance",
+      "authoritative_for": [
+        "what's shared vs. per-instance",
+        "the deployment story per app",
+        "and the MCP contract `/sweep-errors` depends on"
+      ],
+      "anchor_type": "reference_for",
+      "anchor_paths": [
+        "maplelens-core",
+        "cloudflare/error-tracker/"
+      ],
+      "related": [
+        "tasks",
+        "decisions",
+        "standard-architecture",
+        "loop-pack",
+        "rollout"
+      ]
+    },
+    {
       "path": "docs/quality.md",
       "title": "Quality — the enforcement matrix",
       "topic": "root",
@@ -64,12 +115,55 @@
         ".husky/pre-push",
         "eslint.config.mjs",
         ".dependency-cruiser.cjs",
-        "knip.json",
+        "knip.jsonc",
         "scripts/check-docs-drift.mjs",
         "scripts/check-types-fresh.mjs"
       ],
       "related": [
         "../CLAUDE.md"
+      ]
+    },
+    {
+      "path": "docs/rollout.md",
+      "title": "Rollout — ordered plan from plugin v1 to loops live everywhere",
+      "topic": "root",
+      "audience": "whoever is executing or checking progress on the standard's rollout",
+      "authoritative_for": [
+        "step order",
+        "and what \"adopted correctly\" means at each step"
+      ],
+      "anchor_type": "reference_for",
+      "anchor_paths": [],
+      "related": [
+        "tasks",
+        "decisions",
+        "standard-architecture",
+        "loop-pack",
+        "maplelens"
+      ]
+    },
+    {
+      "path": "docs/standard-architecture.md",
+      "title": "Standard architecture — the plugin / template / bootstrap / global split",
+      "topic": "root",
+      "audience": "anyone asking \"where does this piece of the standard live, and why.\"",
+      "authoritative_for": [
+        "the four-way component split",
+        "the `maple.config.json` schema",
+        "and the adoption sequence"
+      ],
+      "anchor_type": "code",
+      "anchor_paths": [
+        "plugin/",
+        "plugin/commands/adopt-standard.md",
+        "plugin/README.md"
+      ],
+      "related": [
+        "tasks",
+        "decisions",
+        "loop-pack",
+        "maplelens",
+        "rollout"
       ]
     },
     {
@@ -84,7 +178,12 @@
       "anchor_paths": [
         "node scripts/next-task-id.mjs --add --section \"Inbox\" --title \"...\" --body \"...\""
       ],
-      "related": []
+      "related": [
+        "standard-architecture",
+        "loop-pack",
+        "maplelens",
+        "rollout"
+      ]
     }
   ]
 }

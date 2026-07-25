@@ -15,6 +15,10 @@ cross-linked pages), drift-gated by `scripts/check-docs-drift.mjs`.
 - [[gaps]] — things the owner flagged as missing or wrong. Check at session start.
 - [[log]] — append-only session history (`S###`, 1-2 sentences each).
 - [[quality]] — the enforcement matrix: every gate/hook, what it enforces, where it runs.
+- [[standard-architecture]] — the standard's four-way split (plugin / user-global / stamped files / template), the `maple.config.json` schema, and the `/adopt-standard` sequence.
+- [[loop-pack]] — the dev-burner overnight loop pack: four autonomous loops, the orchestrator, morning review.
+- [[maplelens]] — MapleLens error tracker: shared core vs. per-instance config, deploy runbook, the MCP contract `/sweep-errors` reads.
+- [[rollout]] — ordered rollout plan (plugin v1 → EasyCaller → VeHagita → MapleLens → loops live) with per-step verification.
 
 ## Conventions
 
