@@ -2,7 +2,7 @@
 
 > **Audience:** anyone running, extending, or reviewing the output of the standing loop session.
 > **Authoritative for:** the anatomy of each loop, the `/dev-burner` orchestrator, and the morning-review flow.
-> **Code:** `plugin/commands/dev-burner.md` · `plugin/commands/{sweep-errors,burn-backlog,sweep-quality,detect-drift}.md` (stubs — implementation is #T7)
+> **Code:** `plugin/commands/dev-burner.md` · `plugin/commands/{sweep-errors,burn-backlog,sweep-quality,detect-drift}.md` (stubs — implementation is #T8)
 > **Status:** Approved 2026-07-25 (owner sign-off). Spec for plugin v1 — implementation tracked in [[tasks]] and [[decisions]].
 > **Related:** [[standard-architecture]] (plugin split, `maple.config.json`) · [[maplelens]] (the tracker `/sweep-errors` reads) · [[rollout]]
 
