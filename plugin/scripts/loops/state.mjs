@@ -38,6 +38,7 @@
  */
 import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { resolveLoopRoot } from "./resolve-root.mjs";
 
 export function loopStateDir(root) {
   return join(root, ".loop-state");
@@ -94,8 +95,14 @@ export function listStateDir(root) {
 
 // ---- CLI --------------------------------------------------------------------
 
+// M4: canonical root resolution (git worktree toplevel, not a bare
+// CLAUDE_PROJECT_DIR/cwd guess) — see resolve-root.mjs header. Only the CLI
+// default needs this; the importable read/writeLoopState above already take
+// `root` as an explicit required argument. Passes this process's OWN cwd
+// (not CLAUDE_PROJECT_DIR) as the preferred starting point — same
+// reasoning as budget.mjs's defaultRoot().
 function defaultRoot() {
-  return process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  return resolveLoopRoot(process.cwd());
 }
 
 function parseRoot(argv) {
