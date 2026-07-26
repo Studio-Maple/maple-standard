@@ -38,12 +38,25 @@ function isPlainObject(v) {
 function isNonEmptyString(v) {
   return typeof v === "string" && v.trim().length > 0;
 }
-/** "path-shaped": a non-empty string, no NUL/control bytes. Doesn't require the path to exist. */
+// MJ-4: several path-shaped config values (worktrees.root, chief among them)
+// eventually reach a shell — historically via an unsafe `eval` in
+// maple-reap.sh's do_or_echo (removed, see maple-reap.sh), but a validator
+// that only checked "non-empty, no control bytes" would still wave through
+// a value crafted to break quoting or inject shell metacharacters into
+// *some* future/third-party consumer. Reject the classic shell-dangerous
+// characters outright — no legitimate project-relative or absolute path
+// (POSIX or Windows drive-letter form, e.g. `C:\Users\foo\wt` — backslash
+// is deliberately NOT in this set, it's a normal Windows path separator)
+// needs any of these.
+const SHELL_METACHARS = /['"`$;&|<>\n\r]/;
+
+/** "path-shaped": a non-empty string, no NUL/control bytes, no quote/shell-metacharacters. Doesn't require the path to exist. */
 function isPathShaped(v) {
   if (!isNonEmptyString(v)) return false;
   for (let i = 0; i < v.length; i++) {
     if (v.charCodeAt(i) < 0x20) return false;
   }
+  if (SHELL_METACHARS.test(v)) return false;
   return true;
 }
 function isStringArray(v) {
@@ -138,6 +151,24 @@ export function validateConfig(config) {
       if (config.worktrees.namePattern !== undefined) {
         if (!isNonEmptyString(config.worktrees.namePattern)) errors.push("worktrees.namePattern: must be a non-empty string");
         else if (!config.worktrees.namePattern.includes("<slug>")) errors.push('worktrees.namePattern: must contain the literal "<slug>" placeholder');
+        else {
+          // An empty prefix AND suffix (namePattern === "<slug>" exactly)
+          // makes maple_is_agent_branch's `case "$1" in "$PREFIX"*"$SUFFIX")`
+          // degenerate to `case "$1" in *)` — every branch name, including
+          // "main"/"development"/"dev-burner", matches "an agent branch".
+          // /wt-land would then accept HEAD=main as a landable agent branch;
+          // /wt-reap's merged-branch cleanup could delete the target branch
+          // itself. Reject at the config layer rather than let it reach
+          // maple-lib.sh at all.
+          const idx = config.worktrees.namePattern.indexOf("<slug>");
+          const prefix = config.worktrees.namePattern.slice(0, idx);
+          const suffix = config.worktrees.namePattern.slice(idx + "<slug>".length);
+          if (prefix === "" && suffix === "") {
+            errors.push(
+              'worktrees.namePattern: "<slug>" alone (no prefix or suffix around the placeholder) would make every branch name look like an agent branch — add a prefix and/or suffix, e.g. "agent/<slug>"'
+            );
+          }
+        }
       }
       if (config.worktrees.nodeModulesDirs !== undefined && !isPathArray(config.worktrees.nodeModulesDirs))
         errors.push("worktrees.nodeModulesDirs: must be an array of path-shaped strings");

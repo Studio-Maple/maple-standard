@@ -68,7 +68,7 @@ one key set now); the subset these scripts read:
 | `ci.prePushTier` | `"gate"` | land |
 | `ci.tiers.<name>` | none — **required** for any tier you use | land |
 | `worktrees.lock.ttlSeconds` | `1800` | land (lock) |
-| `worktrees.lock.waitSeconds` | `3600` | land (lock) |
+| `worktrees.lock.waitSeconds` | `300` | land (lock) |
 | `worktrees.lock.pollSeconds` | `5` | land (lock) |
 | `worktrees.reap.staleHours` | `24` | reap `--force` |
 

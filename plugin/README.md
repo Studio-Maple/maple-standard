@@ -108,7 +108,7 @@ branch falls back to the origin's detected default branch
 | `worktrees.preview.command` | `"npm run dev -- --port {port} --host 127.0.0.1"` | `{port}` substituted |
 | `worktrees.preview.logFile` | `".preview-dev.log"` | relative to the preview worktree |
 | `worktrees.lock.ttlSeconds` | `1800` | plugin extension — stale-lock steal threshold |
-| `worktrees.lock.waitSeconds` | `3600` | total queue-wait before `/wt-land` gives up |
+| `worktrees.lock.waitSeconds` | `300` | total queue-wait before `/wt-land` gives up — kept well under a typical Bash-call timeout |
 | `worktrees.lock.pollSeconds` | `5` | lock poll interval |
 | `worktrees.reap.staleHours` | `24` | idle threshold for `/wt-reap --force` |
 

@@ -22,7 +22,7 @@ Canonical keys per `docs/standard-architecture.md` (reconciled #T11):
 | `repo.devBranch` / `repo.prodBranch` | origin's default branch, else `"main"` | devBranch wins if set (D008 dual-checkout) |
 | `ci.prePushTier` | `"gate"` | which tier `--tier` defaults to |
 | `ci.tiers.<name>` | **none** | a shell command string to run as the gate for that tier, e.g. `{"fast": "npm run ci:fast", "gate": "npm run ci:gate", "core": "npm run ci:core"}`. **Required** for whichever tier you invoke — with no configured command for a tier, `/wt-land` refuses to land ungated rather than guess at one. |
-| `worktrees.lock.ttlSeconds` / `.waitSeconds` / `.pollSeconds` | `1800` / `3600` / `5` | stale-lock recovery + queue timeout |
+| `worktrees.lock.ttlSeconds` / `.waitSeconds` / `.pollSeconds` | `1800` / `300` / `5` | stale-lock recovery + queue timeout |
 
 Malformed config? Run
 `node "$CLAUDE_PLUGIN_ROOT/scripts/validate-config.mjs"` for the full list

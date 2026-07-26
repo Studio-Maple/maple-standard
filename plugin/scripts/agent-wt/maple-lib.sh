@@ -31,7 +31,10 @@
 #   worktrees.envFiles               default []     (gitignored env files to hardlink)
 #   worktrees.freshDepsCommand       default "npm ci"
 #   worktrees.lock.ttlSeconds        default 1800  (30min — stale-lock steal threshold)
-#   worktrees.lock.waitSeconds       default 3600  (60min — total wait before giving up)
+#   worktrees.lock.waitSeconds       default 300   (5min — total wait before giving up; kept
+#                                     well under a typical Claude Code Bash call's own timeout,
+#                                     which would otherwise fire first and leave the caller
+#                                     with no clean "gave up" message at all)
 #   worktrees.lock.pollSeconds       default 5
 #
 # Malformed maple.config.json (invalid JSON)? Every `maple_cfg` lookup below
@@ -159,7 +162,7 @@ MAPLE_PREVIEW_NAME="_preview"
 
 # Lock tuning — a full gate run can be minutes; generous TTL + wait.
 MAPLE_LOCK_TTL="${MAPLE_LOCK_TTL:-$(maple_cfg worktrees.lock.ttlSeconds 1800)}"
-MAPLE_LOCK_WAIT="${MAPLE_LOCK_WAIT:-$(maple_cfg worktrees.lock.waitSeconds 3600)}"
+MAPLE_LOCK_WAIT="${MAPLE_LOCK_WAIT:-$(maple_cfg worktrees.lock.waitSeconds 300)}"
 MAPLE_LOCK_POLL="${MAPLE_LOCK_POLL:-$(maple_cfg worktrees.lock.pollSeconds 5)}"
 
 # ── slug validation ──────────────────────────────────────────────────────────
@@ -328,19 +331,46 @@ _maple_lock_slug()  { sed -n '3p' "$MAPLE_LOCK_DIR/meta" 2>/dev/null || echo "?"
 
 _maple_pid_alive() { kill -0 "$1" 2>/dev/null; }
 
+# mtime of a dir, epoch seconds. GNU stat (Linux, git-bash/MSYS), then BSD
+# stat (macOS); if neither exists, fail open to "just now" (age 0) rather
+# than mis-declaring a lock stale because `stat` itself is missing.
+_maple_dir_mtime() {
+  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || _maple_now
+}
+
 # Steal the lock iff its holder is dead OR older than TTL (crash recovery).
+#
+# MJ-2: `mkdir` (the atomic acquire) and `_maple_lock_meta` (the pid/epoch
+# write) are two separate steps — a competitor that loses the `mkdir` race
+# can observe the lock dir WITH NO meta file yet, a window of roughly
+# "however long the write takes" (~ms), not zero. The old logic read a
+# missing meta as pid="" / epoch=0, computed an enormous fake age, and
+# declared the brand-new lock stale — a second process could then rm -rf +
+# recreate it, and BOTH sessions would believe they held the lock.
+#
+# Fix: a missing/unreadable meta is NOT automatically stale. Fall back to
+# the LOCK DIRECTORY's own mtime (set the instant `mkdir` succeeded) for the
+# age computation instead — only a lock dir that is itself genuinely older
+# than the TTL with no meta ever written (a holder that crashed before
+# finishing the write) counts as stale.
 _maple_lock_is_stale() {
   local pid epoch age
-  pid="$(_maple_lock_pid)"; epoch="$(_maple_lock_epoch)"
-  age=$(( $(_maple_now) - epoch ))
-  if [ -n "$pid" ] && _maple_pid_alive "$pid" && [ "$age" -lt "$MAPLE_LOCK_TTL" ]; then
-    return 1   # live + fresh -> not stale
+  pid="$(_maple_lock_pid)"
+  if [ -n "$pid" ]; then
+    epoch="$(_maple_lock_epoch)"
+    age=$(( $(_maple_now) - epoch ))
+    if _maple_pid_alive "$pid" && [ "$age" -lt "$MAPLE_LOCK_TTL" ]; then
+      return 1   # live + fresh -> not stale
+    fi
+    return 0     # dead, or past TTL -> stale
   fi
-  return 0
+  # No meta yet — judge by the lock DIRECTORY's age, not an assumed-zero epoch.
+  age=$(( $(_maple_now) - $(_maple_dir_mtime "$MAPLE_LOCK_DIR") ))
+  [ "$age" -ge "$MAPLE_LOCK_TTL" ]
 }
 
 maple_lock_acquire() {
-  local slug="${1:-?}" waited=0
+  local slug="${1:-?}" waited=0 next_progress=0
   while true; do
     if mkdir "$MAPLE_LOCK_DIR" 2>/dev/null; then
       _maple_lock_meta "$slug"
@@ -354,8 +384,12 @@ maple_lock_acquire() {
     fi
     [ "$waited" -lt "$MAPLE_LOCK_WAIT" ] \
       || maple_die "timed out after ${MAPLE_LOCK_WAIT}s waiting for the land lock (held by slug=$(_maple_lock_slug) pid=$(_maple_lock_pid))."
-    if [ "$waited" -eq 0 ]; then
-      maple_log "land lock held by slug=$(_maple_lock_slug) — queueing (polls every ${MAPLE_LOCK_POLL}s)…"
+    # Progress line at the start, then roughly every 30s — a silent multi-
+    # minute wait looks identical to a hang from the caller's side (and a
+    # Claude Code Bash call has its own timeout that can fire first).
+    if [ "$waited" -ge "$next_progress" ]; then
+      maple_log "land lock held by slug=$(_maple_lock_slug) — queueing (waited ${waited}s/${MAPLE_LOCK_WAIT}s, polls every ${MAPLE_LOCK_POLL}s)…"
+      next_progress=$(( waited + 30 ))
     fi
     sleep "$MAPLE_LOCK_POLL"
     waited=$(( waited + MAPLE_LOCK_POLL ))
