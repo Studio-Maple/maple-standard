@@ -20,6 +20,7 @@
     "depcruise:report": "depcruise --config .dependency-cruiser.cjs --output-type err-html --output-to depcruise-report.html src",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:plugin-loops": "node plugin/scripts/loops/run-tests.mjs",
     "test:e2e": "playwright test --config e2e/playwright.config.ts",
     "test:e2e:smoke": "playwright test --config e2e/playwright.config.ts --grep @smoke",
     "test:supabase": "node supabase/tests/run-db-tests.mjs",

@@ -33,22 +33,25 @@ step() { echo ""; echo "--- $1 ---"; }
 die()  { echo ""; echo "x $1" >&2; exit 1; }
 
 run_fast() {
-  step "fast 1/6: lint (eslint --max-warnings=0, incl. eslint-plugin-security)"
+  step "fast 1/7: lint (eslint --max-warnings=0, incl. eslint-plugin-security)"
   pnpm run lint:ci
 
-  step "fast 2/6: typecheck (tsc --noEmit)"
+  step "fast 2/7: typecheck (tsc --noEmit)"
   pnpm run typecheck
 
-  step "fast 3/6: knip (dead code — fails on regressions)"
+  step "fast 3/7: knip (dead code — fails on regressions)"
   pnpm run knip
 
-  step "fast 4/6: dependency-cruiser (module boundaries)"
+  step "fast 4/7: dependency-cruiser (module boundaries)"
   pnpm run depcruise || echo "(depcruise: advisory findings — not blocking unless an 'error' rule fired)"
 
-  step "fast 5/6: unit + component tests (vitest)"
+  step "fast 5/7: unit + component tests (vitest)"
   pnpm run test
 
-  step "fast 6/6: build (next build) + docs-drift"
+  step "fast 6/7: plugin loop-pack tests (plugin/scripts/loops — m11)"
+  pnpm run test:plugin-loops
+
+  step "fast 7/7: build (next build) + docs-drift"
   pnpm run build
   node scripts/check-docs-drift.mjs
 }

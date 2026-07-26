@@ -36,23 +36,26 @@ function Invoke-Checked([string]$Command) {
 }
 
 function Run-Fast {
-    Step "fast 1/6: lint (eslint --max-warnings=0, incl. eslint-plugin-security)"
+    Step "fast 1/7: lint (eslint --max-warnings=0, incl. eslint-plugin-security)"
     Invoke-Checked "pnpm run lint:ci"
 
-    Step "fast 2/6: typecheck (tsc --noEmit)"
+    Step "fast 2/7: typecheck (tsc --noEmit)"
     Invoke-Checked "pnpm run typecheck"
 
-    Step "fast 3/6: knip (dead code - fails on regressions)"
+    Step "fast 3/7: knip (dead code - fails on regressions)"
     Invoke-Checked "pnpm run knip"
 
-    Step "fast 4/6: dependency-cruiser (module boundaries)"
+    Step "fast 4/7: dependency-cruiser (module boundaries)"
     try { Invoke-Checked "pnpm run depcruise" }
     catch { Write-Host "(depcruise: advisory findings - not blocking unless an 'error' rule fired)" -ForegroundColor Yellow }
 
-    Step "fast 5/6: unit + component tests (vitest)"
+    Step "fast 5/7: unit + component tests (vitest)"
     Invoke-Checked "pnpm run test"
 
-    Step "fast 6/6: build (next build) + docs-drift"
+    Step "fast 6/7: plugin loop-pack tests (plugin/scripts/loops - m11)"
+    Invoke-Checked "pnpm run test:plugin-loops"
+
+    Step "fast 7/7: build (next build) + docs-drift"
     Invoke-Checked "pnpm run build"
     Invoke-Checked "node scripts/check-docs-drift.mjs"
 }
