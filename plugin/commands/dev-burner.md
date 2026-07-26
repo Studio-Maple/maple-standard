@@ -60,18 +60,17 @@ that path now (first run only — subsequent cycles are typically already
 there since the standing session stays put across cycles). Confirm HEAD is
 `repo.standingLoopBranch` before continuing.
 
-**`.loop-state/` must be gitignored.** Check the worktree's `.gitignore`:
-
-```bash
-grep -qxF '.loop-state/' .gitignore 2>/dev/null || IS_GITIGNORE_MISSING=1
-```
-
-If missing, append `.loop-state/` and commit it as its own tiny commit
-(`chore(dev-burner): gitignore .loop-state/`) before doing anything else
-this cycle. This is the ONLY place any loop-pack command touches
-`.gitignore`, and only when the entry is genuinely absent — never silently
-skipped, never done by a script without this explicit instruction (per
-docs/tasks.md #T8's brief: "scripts never edit .gitignore silently").
+**`.loop-state/` must be gitignored.** MJ-7: this used to be a manual
+check right here in this orchestrator's prose, which meant a loop run
+STANDALONE under plain `/loop` (never through `/dev-burner`) skipped it
+entirely. The check now lives in `maple_ensure_loop_state_gitignored()`
+(`plugin/scripts/agent-wt/maple-lib.sh`), called from step 0 of every loop
+command file (`sweep-errors.md` / `burn-backlog.md` / `sweep-quality.md` /
+`detect-drift.md`) — so it runs whichever loop step 5 below hands off to,
+covering both the orchestrated and standalone paths with one mechanism.
+Idempotent (only appends + commits if the line is genuinely missing); still
+the only place any loop-pack code touches `.gitignore` (per docs/tasks.md
+#T8's brief: "scripts never edit .gitignore silently").
 
 ### 2. Check the global budget
 

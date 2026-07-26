@@ -51,12 +51,15 @@ so it isn't retried blind within the same run.
 
 ```bash
 . "$CLAUDE_PLUGIN_ROOT/scripts/agent-wt/maple-lib.sh"
+maple_ensure_loop_state_gitignored   # covers a standalone /loop run too, not just /dev-burner (MJ-7)
 GATE_CMD="$(maple_cfg ci.tiers.gate '')"
 [ -n "$GATE_CMD" ] || maple_die "no ci.tiers.gate configured — refusing to commit ungated"
 TURNS_LIMIT="$(maple_cfg loops.budgetPerCycle.turns 40)"
 MINUTES_LIMIT="$(maple_cfg loops.budgetPerCycle.minutes 20)"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
 ITER=0
+node "$CLAUDE_PLUGIN_ROOT/scripts/loops/budget.mjs" start --loop sweep-quality \
+  --limit "$TURNS_LIMIT" --minutes-limit "$MINUTES_LIMIT"   # mechanical enforcement (MJ-8) — see loop-budget-guard.mjs
 ```
 
 Load state: `node "$CLAUDE_PLUGIN_ROOT/scripts/loops/state.mjs" read sweep-quality`.
@@ -114,8 +117,10 @@ Otherwise, for the one candidate found:
    - **Gate red** → `git reset --hard "$PRE_SHA"`, record the candidate in
      `discarded` with the failure reason, try a different candidate next
      cycle (don't retry the same one blind within this run).
-   - **Gate green** → `git add -A && git commit -m "refactor(sweep-quality): <one-line summary>"`
-     (or `fix(sweep-quality): ...` / `test(sweep-quality): ...` as fits).
+   - **Gate green** → `git add -A -- ':!.loop-state' && git commit -m "refactor(sweep-quality): <one-line summary>"`
+     (or `fix(sweep-quality): ...` / `test(sweep-quality): ...` as fits;
+     pathspec exclusion keeps `.loop-state/*.json` scratch out of the
+     commit — MJ-7).
      Record the commit SHA for the report.
 5. Update `lastReviewedCommit` to the commit that yielded this candidate
    (found or discarded — either way, don't re-review it) and write state.
@@ -131,6 +136,7 @@ stop) per cycle, always.
 ```bash
 echo '{"ts":"'"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"'","loop":"sweep-quality","outcome":"<outcome>","commit":<commit-sha-json-string-or-null>,"budgetUsed":{"turns":'"$ITER"',"minutes":<elapsed>}}' \
   | node "$CLAUDE_PLUGIN_ROOT/scripts/loops/ledger.mjs" append
+node "$CLAUDE_PLUGIN_ROOT/scripts/loops/budget.mjs" end   # clear the cycle file — loop-budget-guard.mjs goes back to no-op (MJ-8)
 ```
 
 Summarize in chat: the candidate found (or "quiet"), what kind (bug /

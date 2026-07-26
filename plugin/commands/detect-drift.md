@@ -65,12 +65,15 @@ removed an entry since).
 
 ```bash
 . "$CLAUDE_PLUGIN_ROOT/scripts/agent-wt/maple-lib.sh"
+maple_ensure_loop_state_gitignored   # covers a standalone /loop run too, not just /dev-burner (MJ-7)
 GAPS_FILE="$(maple_cfg docs.gaps docs/gaps.md)"
 DOCS_ROOT="$(maple_cfg docs.root docs)"
 TURNS_LIMIT="$(maple_cfg loops.budgetPerCycle.turns 40)"
 MINUTES_LIMIT="$(maple_cfg loops.budgetPerCycle.minutes 20)"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
 ITER=0
+node "$CLAUDE_PLUGIN_ROOT/scripts/loops/budget.mjs" start --loop detect-drift \
+  --limit "$TURNS_LIMIT" --minutes-limit "$MINUTES_LIMIT"   # mechanical enforcement (MJ-8) — see loop-budget-guard.mjs
 ```
 
 Load state: `node "$CLAUDE_PLUGIN_ROOT/scripts/loops/state.mjs" read detect-drift`.
@@ -149,6 +152,7 @@ always ending with `rotationCursor` advanced.
 ```bash
 echo '{"ts":"'"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"'","loop":"detect-drift","outcome":"<outcome>","commit":<commit-sha-json-string-or-null>,"budgetUsed":{"turns":'"$ITER"',"minutes":<elapsed>}}' \
   | node "$CLAUDE_PLUGIN_ROOT/scripts/loops/ledger.mjs" append
+node "$CLAUDE_PLUGIN_ROOT/scripts/loops/budget.mjs" end   # clear the cycle file — loop-budget-guard.mjs goes back to no-op (MJ-8)
 ```
 
 Summarize in chat: pages reviewed, findings (with `low-confidence` flagged

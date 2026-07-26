@@ -290,6 +290,32 @@ maple_unlink_node_modules() {
   done < <(maple_cfg_array worktrees.nodeModulesDirs '.')
 }
 
+# ── loop pack: .loop-state/ must be gitignored ──────────────────────────────
+# MJ-7: this used to be dev-burner.md prose only (a manual grep + append
+# instruction Claude followed at orchestrator step 1) — a loop run
+# STANDALONE under plain `/loop` (never through /dev-burner) skipped it
+# entirely, so its `git add -A` could stage .loop-state/*.json scratch
+# files. Sourced by every agent-wt script AND every loop command file (all
+# of them already `. maple-lib.sh` at their own step 0), so calling this
+# covers both paths. Idempotent — only appends if the line is genuinely
+# missing; never touches .gitignore otherwise. Operates on the CURRENT
+# worktree (may be the standing dev-burner one, or any other), not
+# MAPLE_MAIN_ROOT, since .gitignore is branch-tracked content.
+maple_ensure_loop_state_gitignored() {
+  local wt gi
+  wt="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0
+  gi="$wt/.gitignore"
+  if [ -f "$gi" ] && grep -qxF '.loop-state/' "$gi" 2>/dev/null; then
+    return 0
+  fi
+  printf '%s\n' '.loop-state/' >> "$gi"
+  if (cd "$wt" && git add .gitignore && git commit --quiet -m "chore(loop-pack): gitignore .loop-state/"); then
+    maple_log "added .loop-state/ to .gitignore (committed)"
+  else
+    maple_warn "added .loop-state/ to .gitignore but could not auto-commit it — commit manually"
+  fi
+}
+
 # Safely remove a worktree dir: unlink node_modules junctions first, then let
 # git remove it; fall back to a manual (now junction-free, so safe) rm + prune.
 maple_remove_worktree() {

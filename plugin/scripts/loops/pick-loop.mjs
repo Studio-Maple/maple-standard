@@ -147,8 +147,20 @@ function main() {
   }
   const config = existsSync(join(root, "maple.config.json")) ? loadMapleConfig(root) : {};
   const { entries } = readLedgerEntries(root);
-  const result = pickLoop({ config, ledgerEntries: entries, sweepErrorsPriority });
+  // pickLoop() throws for importers on an empty loops.enabled (documented,
+  // deliberate — "run nothing" must be honored, not silently substituted).
+  // The CLI entry point used to let that propagate as a raw uncaught-
+  // exception stack trace; /dev-burner (and any other caller) just needs a
+  // clean, non-zero, parseable-by-a-human failure instead.
+  let result;
+  try {
+    result = pickLoop({ config, ledgerEntries: entries, sweepErrorsPriority });
+  } catch (e) {
+    console.error(`[pick-loop] ${e.message} — nothing to run this cycle (loops.enabled is empty in maple.config.json)`);
+    process.exit(1);
+  }
   process.stdout.write(JSON.stringify(result));
+  process.exit(0);
 }
 
 function isMain() {

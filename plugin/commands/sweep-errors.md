@@ -56,12 +56,15 @@ actually attempted.
 
 ```bash
 . "$CLAUDE_PLUGIN_ROOT/scripts/agent-wt/maple-lib.sh"
+maple_ensure_loop_state_gitignored   # covers a standalone /loop run too, not just /dev-burner (MJ-7)
 GATE_CMD="$(maple_cfg ci.tiers.gate '')"
 [ -n "$GATE_CMD" ] || maple_die "no ci.tiers.gate configured — refusing to commit ungated"
 TURNS_LIMIT="$(maple_cfg loops.budgetPerCycle.turns 40)"
 MINUTES_LIMIT="$(maple_cfg loops.budgetPerCycle.minutes 20)"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
 ITER=0
+node "$CLAUDE_PLUGIN_ROOT/scripts/loops/budget.mjs" start --loop sweep-errors \
+  --limit "$TURNS_LIMIT" --minutes-limit "$MINUTES_LIMIT"   # mechanical enforcement (MJ-8) — see loop-budget-guard.mjs
 ```
 
 Load state: `node "$CLAUDE_PLUGIN_ROOT/scripts/loops/state.mjs" read sweep-errors`.
@@ -117,7 +120,9 @@ Otherwise, for this cluster:
      noise, just failed this attempt; it will be retried next eligible
      cycle since no cooldown applies to a plain gate failure), continue to
      the next candidate.
-   - **Gate green** → `git add -A && git commit -m "fix(sweep-errors): <cluster id/title> — <brief>"`.
+   - **Gate green** → `git add -A -- ':!.loop-state' && git commit -m "fix(sweep-errors): <cluster id/title> — <brief>"`
+     (pathspec exclusion keeps `.loop-state/*.json` scratch out of the
+     commit — MJ-7).
      Mark the fingerprint `fixed` in state. Record the commit SHA for the
      report.
 6. Write state after every cluster (fixed, noise, unreproducible, or a bare
@@ -136,6 +141,7 @@ Otherwise, for this cluster:
 ```bash
 echo '{"ts":"'"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"'","loop":"sweep-errors","outcome":"<outcome>","commit":<commit-sha-json-string-or-null>,"budgetUsed":{"turns":'"$ITER"',"minutes":<elapsed>}}' \
   | node "$CLAUDE_PLUGIN_ROOT/scripts/loops/ledger.mjs" append
+node "$CLAUDE_PLUGIN_ROOT/scripts/loops/budget.mjs" end   # clear the cycle file — loop-budget-guard.mjs goes back to no-op (MJ-8)
 ```
 
 Summarize in chat: outcome, clusters attempted/fixed/skipped, commit SHA(s)

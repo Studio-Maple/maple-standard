@@ -21,11 +21,33 @@
  * limit is supplied; either, both, or neither may be set (unset = no cap
  * on that dimension).
  *
+ * MJ-8 (docs/tasks.md #T8 mechanization): before this, the per-cycle budget
+ * was enforced ONLY by each loop command's own prose re-checking `check`
+ * at specific points — pure trust that the agent running the loop actually
+ * does so, and stops if it says exceeded. That contradicts this repo's own
+ * "enforce by mechanism, not by trust" rule. `start`/`end` below make it
+ * mechanical: `start` writes the cycle's turn-cap + wall-clock deadline to
+ * `.loop-state/current-cycle.json`; a PreToolUse hook
+ * (plugin/hooks/loop-budget-guard.mjs) reads that file on EVERY tool call
+ * and blocks (exit 2) once the cycle is over budget, independent of
+ * whether the agent bothers to call `check` itself. `end` removes the
+ * file — every loop's own final "Report" step calls it, so the guard goes
+ * back to a strict no-op the moment the cycle is done (success, failure,
+ * or budget-exceeded) and never gates a later, unrelated session.
+ *
  * Importable: checkBudget({ usedCount, countLimit, startedAt, minutesLimit, now }).
  * CLI: node budget.mjs check --used N [--limit N] [--started-at ISO|MS]
  *        [--minutes-limit N] [--now MS]
  *      exit 0 = not exceeded, exit 1 = exceeded. Always prints a JSON result.
+ *      node budget.mjs start [--loop <name>] [--limit N] [--minutes-limit N]
+ *        [--root <path>] [--now MS]
+ *      -> writes .loop-state/current-cycle.json (turnLimit/minutesLimit/
+ *         deadlineMs/startedAt/toolCalls:0); exit 0.
+ *      node budget.mjs end [--root <path>]
+ *      -> removes .loop-state/current-cycle.json if present; exit 0.
  */
+import { writeLoopState, loopStateFilePath } from "./state.mjs";
+import { existsSync, unlinkSync } from "node:fs";
 
 function toMs(t) {
   if (t === undefined || t === null || t === "") return null;
@@ -63,27 +85,93 @@ export function checkBudget({ usedCount, countLimit, startedAt, minutesLimit, no
 
 // ---- CLI --------------------------------------------------------------------
 
-function main() {
-  const argv = process.argv.slice(2);
-  const cmd = argv[0];
-  if (cmd !== "check") {
-    console.error(
-      "Usage: node budget.mjs check --used N [--limit N] [--started-at ISO|MS] [--minutes-limit N] [--now MS]"
-    );
-    process.exit(2);
-  }
+function defaultRoot() {
+  return process.env.CLAUDE_PROJECT_DIR || process.cwd();
+}
+
+const USAGE =
+  "Usage: node budget.mjs check --used N [--limit N] [--started-at ISO|MS] [--minutes-limit N] [--now MS]\n" +
+  "       node budget.mjs start [--loop <name>] [--limit N] [--minutes-limit N] [--root <path>] [--now MS]\n" +
+  "       node budget.mjs end [--root <path>]";
+
+function parseFlags(argv, spec) {
   const opts = {};
-  for (let i = 1; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === "--used") opts.usedCount = Number(argv[++i]);
-    else if (a === "--limit") opts.countLimit = Number(argv[++i]);
-    else if (a === "--started-at") opts.startedAt = argv[++i];
-    else if (a === "--minutes-limit") opts.minutesLimit = Number(argv[++i]);
-    else if (a === "--now") opts.now = Number(argv[++i]);
+  for (let i = 0; i < argv.length; i++) {
+    const key = spec[argv[i]];
+    if (key) opts[key] = argv[++i];
   }
+  return opts;
+}
+
+function cmdCheck(argv) {
+  const raw = parseFlags(argv, {
+    "--used": "usedCount",
+    "--limit": "countLimit",
+    "--started-at": "startedAt",
+    "--minutes-limit": "minutesLimit",
+    "--now": "now",
+  });
+  const opts = {
+    usedCount: raw.usedCount !== undefined ? Number(raw.usedCount) : undefined,
+    countLimit: raw.countLimit !== undefined ? Number(raw.countLimit) : undefined,
+    startedAt: raw.startedAt,
+    minutesLimit: raw.minutesLimit !== undefined ? Number(raw.minutesLimit) : undefined,
+    now: raw.now !== undefined ? Number(raw.now) : undefined,
+  };
   const result = checkBudget(opts);
   process.stdout.write(JSON.stringify(result));
   process.exit(result.exceeded ? 1 : 0);
+}
+
+// Write .loop-state/current-cycle.json — the mechanical guard's ONLY input
+// (MJ-8). turnLimit/minutesLimit are recorded as configured (possibly
+// unset -> null, meaning "no cap on that dimension", same convention as
+// checkBudget itself); deadlineMs is pre-computed from minutesLimit so the
+// guard only ever has to compare against the clock, never redo the math.
+function cmdStart(argv) {
+  const raw = parseFlags(argv, {
+    "--loop": "loop",
+    "--limit": "countLimit",
+    "--minutes-limit": "minutesLimit",
+    "--root": "root",
+    "--now": "now",
+  });
+  const root = raw.root || defaultRoot();
+  const now = raw.now !== undefined ? Number(raw.now) : Date.now();
+  const turnLimit = raw.countLimit !== undefined && Number.isFinite(Number(raw.countLimit)) ? Number(raw.countLimit) : null;
+  const minutesLimit =
+    raw.minutesLimit !== undefined && Number.isFinite(Number(raw.minutesLimit)) ? Number(raw.minutesLimit) : null;
+  const cycle = {
+    loop: raw.loop || null,
+    startedAt: new Date(now).toISOString(),
+    turnLimit,
+    minutesLimit,
+    deadlineMs: minutesLimit !== null ? now + minutesLimit * 60000 : null,
+    toolCalls: 0,
+  };
+  const file = writeLoopState(root, "current-cycle", cycle);
+  console.log(`OK — wrote ${file}`);
+  process.exit(0);
+}
+
+function cmdEnd(argv) {
+  const raw = parseFlags(argv, { "--root": "root" });
+  const root = raw.root || defaultRoot();
+  const file = loopStateFilePath(root, "current-cycle");
+  if (existsSync(file)) unlinkSync(file);
+  console.log(`OK — cleared ${file}`);
+  process.exit(0);
+}
+
+function main() {
+  const argv = process.argv.slice(2);
+  const cmd = argv[0];
+  const rest = argv.slice(1);
+  if (cmd === "check") return cmdCheck(rest);
+  if (cmd === "start") return cmdStart(rest);
+  if (cmd === "end") return cmdEnd(rest);
+  console.error(USAGE);
+  process.exit(2);
 }
 
 function isMain() {

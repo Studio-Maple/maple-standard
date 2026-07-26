@@ -60,6 +60,7 @@ tracker noise might; it needs either a task-file edit or a fix idea).
 
 ```bash
 . "$CLAUDE_PLUGIN_ROOT/scripts/agent-wt/maple-lib.sh"
+maple_ensure_loop_state_gitignored   # covers a standalone /loop run too, not just /dev-burner (MJ-7)
 GATE_CMD="$(maple_cfg ci.tiers.gate '')"
 [ -n "$GATE_CMD" ] || maple_die "no ci.tiers.gate configured — refusing to commit ungated"
 TASKS_FILE="$(maple_cfg docs.tasks docs/tasks.md)"
@@ -67,6 +68,8 @@ TURNS_LIMIT="$(maple_cfg loops.budgetPerCycle.turns 40)"
 MINUTES_LIMIT="$(maple_cfg loops.budgetPerCycle.minutes 20)"
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
 ITER=0
+node "$CLAUDE_PLUGIN_ROOT/scripts/loops/budget.mjs" start --loop burn-backlog \
+  --limit "$TURNS_LIMIT" --minutes-limit "$MINUTES_LIMIT"   # mechanical enforcement (MJ-8) — see loop-budget-guard.mjs
 ```
 
 Load state: `node "$CLAUDE_PLUGIN_ROOT/scripts/loops/state.mjs" read burn-backlog`.
@@ -118,7 +121,11 @@ Otherwise:
    - **Gate red** → `git reset --hard "$PRE_SHA"`, record `outcome:
      "failed"` + the gate's failing step in state, task stays open in
      `tasks.md` (never marked done without a passing gate).
-   - **Gate green** → `git add -A && git commit -m "feat(burn-backlog): <#T id> — <brief>"`.
+   - **Gate green** → `git add -A -- ':!.loop-state' && git commit -m "feat(burn-backlog): <#T id> — <brief>"`
+     (the pathspec exclusion keeps this loop's own `.loop-state/*.json`
+     scratch files — gitignored, but `-A` would still stage an untracked one
+     if the gitignore-ensure step above hasn't run yet in this worktree —
+     out of the commit; MJ-7).
      Record `outcome: "done"` + the commit SHA in state — this is a
      completion CLAIM, not a `tasks.md` checkoff (see rules above).
 6. Write state.
@@ -134,6 +141,7 @@ all → outcome `quiet`.
 ```bash
 echo '{"ts":"'"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"'","loop":"burn-backlog","outcome":"<outcome>","commit":<commit-sha-json-string-or-null>,"budgetUsed":{"turns":'"$ITER"',"minutes":<elapsed>}}' \
   | node "$CLAUDE_PLUGIN_ROOT/scripts/loops/ledger.mjs" append
+node "$CLAUDE_PLUGIN_ROOT/scripts/loops/budget.mjs" end   # clear the cycle file — loop-budget-guard.mjs goes back to no-op (MJ-8)
 ```
 
 Summarize in chat: which `#T` id, outcome, commit SHA if any, and — for

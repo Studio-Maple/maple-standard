@@ -60,3 +60,7 @@ depcruise-report.html
 
 # docs lockfiles (next-task-id.mjs mutex leftovers after a crash)
 docs/*.lock
+
+# loop pack scratch state (MJ-7 — pinned here too, defense in depth
+# alongside maple_ensure_loop_state_gitignored's runtime auto-append)
+.loop-state/

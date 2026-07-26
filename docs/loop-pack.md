@@ -100,7 +100,7 @@ Run each cycle by the standing `/loop` session. No arguments needed for normal o
 3. **Pick a loop for this cycle.** Default: round-robin, weighted by config; a loop that reported "quiet" recently gets a cooldown so it doesn't hog cycles doing nothing. `/sweep-errors` gets priority if the tracker shows new high-severity issues since the last cycle.
 4. **Enforce the per-loop budget** (principle 2) — hard stop, revert, log if exceeded mid-cycle.
 5. **Run the chosen loop's procedure** as specified above.
-6. **Append a ledger entry** to `.loop-state/dev-burner-ledger.jsonl` — one line per cycle: timestamp, loop chosen, outcome, commit SHA (if any), budget consumed. This is the primary artifact the morning review reads.
+6. **Confirm the ledger entry.** Each loop's own Report step already appended one line to `.loop-state/dev-burner-ledger.jsonl` (timestamp, loop chosen, outcome, commit SHA if any, budget consumed) before returning control here — this step verifies it landed rather than writing a second one (a loop is self-sufficient whether run standalone under `/loop` or orchestrated here). This ledger is the primary artifact the morning review reads.
 7. Yield back to `/loop`'s self-pacing for the next cycle.
 
 ## Morning review
