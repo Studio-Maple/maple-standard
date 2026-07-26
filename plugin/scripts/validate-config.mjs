@@ -214,10 +214,20 @@ export function validateConfig(config) {
     if (!isPlainObject(config.docs)) {
       errors.push("docs: must be an object");
     } else {
-      const docsKeys = ["root", "index", "decisions", "tasks", "gaps", "log", "docsIndexJson", "changelog"];
-      checkNoExtraKeys(config.docs, docsKeys, "docs", errors);
-      for (const key of docsKeys) {
+      const docsPathKeys = ["root", "index", "decisions", "tasks", "gaps", "log", "docsIndexJson", "changelog"];
+      // MJ-1: docs.ephemeralPaths was documented (plugin/README.md,
+      // plugin/commands/sync-docs.md) but absent here — the docs block is
+      // additionalProperties:false, so a project that set it exactly as
+      // documented got a hard validator rejection on every maple_check_config
+      // call (every wt-* invocation) and a failing /adopt-standard step 2.
+      // It's an array of doc-relative path STRINGS, not a single path, so it
+      // gets its own check rather than joining docsPathKeys.
+      checkNoExtraKeys(config.docs, [...docsPathKeys, "ephemeralPaths"], "docs", errors);
+      for (const key of docsPathKeys) {
         if (config.docs[key] !== undefined && !isPathShaped(config.docs[key])) errors.push(`docs.${key}: must be a path-shaped string`);
+      }
+      if (config.docs.ephemeralPaths !== undefined && !isPathArray(config.docs.ephemeralPaths)) {
+        errors.push("docs.ephemeralPaths: must be an array of path-shaped strings");
       }
     }
   }

@@ -5,7 +5,31 @@
 //
 // Triggered for: Bash, Read, Grep
 // Receives:  JSON via stdin describing the tool invocation + result
-// Returns:   modified JSON via stdout
+// Returns:   a hookSpecificOutput.updatedToolOutput rewrite (see MJ-5 below),
+//            or nothing at all when there's nothing to scrub
+//
+// MJ-5: this hook used to mutate `payload.tool_response` in place and write
+// the WHOLE payload back to stdout. `tool_response` is INPUT ONLY — Claude
+// Code reads a PostToolUse hook's stdout for the hook's OWN JSON control
+// fields, never as if it were the (possibly-edited) original tool result.
+// Nothing was ever actually redacted from what Claude sees; the hook was a
+// silent no-op wearing a scrubber's clothes.
+//
+// The real mechanism (verified against the current Claude Code hooks
+// reference, https://code.claude.com/docs/en/hooks.md, checked 2026-07-26 —
+// do not re-derive this from memory, the contract has changed before):
+// PostToolUse can replace what Claude sees by printing
+//   {"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":"<text>"}}
+// where `updatedToolOutput` is a STRING — every documented example is a
+// plain string, including for tools whose raw result is structured (e.g.
+// Write's example tool_output is the string "File created successfully",
+// not an object). The docs describe the hook's own tool-result input field
+// as `tool_output` (also a string in every example); this file also checks
+// the older `tool_response` shape ({output|stdout|stderr|content} or a bare
+// string) some earlier Claude Code versions used, purely for robustness —
+// but the OUTPUT this hook emits is always the one documented shape: a
+// single string, full replacement (the docs don't document or show a
+// structured/partial `updatedToolOutput`, so this hook doesn't invent one).
 //
 // We replace every match of known secret regex patterns with [REDACTED:<kind>]
 // so context still parses as readable text. Pattern catalog is conservative —
@@ -19,6 +43,7 @@
 //   GitHub PAT            ghp_<36+>
 //   GitHub fine-grained   github_pat_<50+>
 //   AWS access key        AKIA<16>
+//   Vercel-context token   <24 alnum> near the word "vercel"
 //
 // False positive policy: docs explaining these formats may contain literal
 // examples. We bypass scrubbing for outputs whose `file_path` (Read tool)
@@ -51,13 +76,29 @@ const PATTERNS = [
   { name: 'gh_pat',          re: /ghp_[a-zA-Z0-9]{30,}/g },
   { name: 'gh_fgpat',        re: /github_pat_[a-zA-Z0-9_]{50,}/g },
   { name: 'aws_key',         re: /AKIA[A-Z0-9]{16}/g },
-  { name: 'vercel_token',    re: /\b[A-Za-z0-9]{24}\b(?=.*vercel)/gi },
+  // ReDoS fix: the old `(?=.*vercel)` lookahead re-scans from EVERY 24-char
+  // candidate to the end of the current line (`.` doesn't cross newlines
+  // even without the `s` flag) — on one long line (a minified blob, a huge
+  // log line with no newlines) that's O(n) per candidate, ~O(n^2) overall;
+  // reviewer measured ~1s/100KB against this hook's 5s timeout. Two fixes,
+  // applied together: (1) `requireSubstring` below skips this pattern
+  // entirely when "vercel" doesn't appear anywhere in the text — the common
+  // case, one cheap indexOf instead of a regex pass; (2) the lookahead
+  // itself is now bounded to 200 chars instead of the rest of the line, so
+  // even a text that DOES contain "vercel" somewhere can't force a
+  // full-remaining-line rescan per candidate.
+  { name: 'vercel_token',    re: /\b[A-Za-z0-9]{24}\b(?=.{0,200}vercel)/gi, requireSubstring: 'vercel' },
 ];
 
 function scrub(text) {
   if (typeof text !== 'string' || text.length === 0) return text;
   let out = text;
-  for (const { name, re } of PATTERNS) {
+  let lower = null;
+  for (const { name, re, requireSubstring } of PATTERNS) {
+    if (requireSubstring) {
+      lower ??= out.toLowerCase();
+      if (!lower.includes(requireSubstring)) continue;
+    }
     out = out.replace(re, `[REDACTED:${name}]`);
   }
   return out;
@@ -72,6 +113,32 @@ function isDocsRead(payload, docsRoot) {
   return new RegExp(`(^|[/\\\\])${escaped}[/\\\\]`).test(filePath);
 }
 
+// Flatten whatever shape the tool result arrived in into ONE string —
+// `updatedToolOutput` is documented as a full-replacement string (see
+// header), not a structured partial update, regardless of the tool's own
+// result shape.
+function extractToolOutputText(payload) {
+  if (typeof payload?.tool_output === 'string') return payload.tool_output;
+  if (typeof payload?.tool_response === 'string') return payload.tool_response;
+  const r = payload?.tool_response;
+  if (r && typeof r === 'object') {
+    const parts = [];
+    if (typeof r.output === 'string') parts.push(r.output);
+    if (typeof r.stdout === 'string') parts.push(r.stdout);
+    if (typeof r.stderr === 'string') parts.push(r.stderr);
+    if (typeof r.content === 'string') parts.push(r.content);
+    if (parts.length) return parts.join('\n');
+  }
+  if (payload?.tool_output && typeof payload.tool_output === 'object') {
+    try {
+      return JSON.stringify(payload.tool_output);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 let raw = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => { raw += chunk; });
@@ -80,9 +147,9 @@ process.stdin.on('end', () => {
   try {
     payload = JSON.parse(raw);
   } catch {
-    // If we can't parse, pass through unchanged. Failing the hook would
-    // block tool execution which is worse than a missed scrub.
-    process.stdout.write(raw);
+    // Can't parse the payload at all — nothing to rewrite. Exit 0 with no
+    // stdout ("allow", per the PostToolUse contract) rather than echoing
+    // unparsed raw text back as if it were valid hook JSON output.
     process.exit(0);
   }
 
@@ -91,29 +158,20 @@ process.stdin.on('end', () => {
   const docsRoot = cfg?.docs?.root || 'docs';
 
   if (isDocsRead(payload, docsRoot)) {
-    process.stdout.write(JSON.stringify(payload));
-    process.exit(0);
+    process.exit(0); // intentionally human-facing docs example — leave as-is
   }
 
-  if (payload?.tool_response) {
-    if (typeof payload.tool_response === 'string') {
-      payload.tool_response = scrub(payload.tool_response);
-    } else if (typeof payload.tool_response === 'object') {
-      if (typeof payload.tool_response.output === 'string') {
-        payload.tool_response.output = scrub(payload.tool_response.output);
-      }
-      if (typeof payload.tool_response.stdout === 'string') {
-        payload.tool_response.stdout = scrub(payload.tool_response.stdout);
-      }
-      if (typeof payload.tool_response.stderr === 'string') {
-        payload.tool_response.stderr = scrub(payload.tool_response.stderr);
-      }
-      if (typeof payload.tool_response.content === 'string') {
-        payload.tool_response.content = scrub(payload.tool_response.content);
-      }
-    }
-  }
+  const text = extractToolOutputText(payload);
+  if (text === null) process.exit(0); // nothing recognizable to scan
 
-  process.stdout.write(JSON.stringify(payload));
+  const scrubbed = scrub(text);
+  if (scrubbed === text) process.exit(0); // no match — no-op, don't rewrite for nothing
+
+  process.stdout.write(JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: 'PostToolUse',
+      updatedToolOutput: scrubbed,
+    },
+  }));
   process.exit(0);
 });

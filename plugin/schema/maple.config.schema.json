@@ -81,7 +81,12 @@
         "gaps": { "type": "string", "minLength": 1, "format": "path" },
         "log": { "type": "string", "minLength": 1, "format": "path" },
         "docsIndexJson": { "type": "string", "minLength": 1, "format": "path" },
-        "changelog": { "type": "string", "minLength": 1, "format": "path" }
+        "changelog": { "type": "string", "minLength": 1, "format": "path" },
+        "ephemeralPaths": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "plugin extension — doc-relative paths (under docs.root) that own no code and so are exempt from the drift gate's point-to-code anchor check, e.g. a session-state folder. Default []."
+        }
       }
     },
 

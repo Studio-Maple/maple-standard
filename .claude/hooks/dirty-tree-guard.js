@@ -6,7 +6,7 @@ try {
   const status = execSync('git status --porcelain', { encoding: 'utf8' }).trim();
   if (!status) process.exit(0);
 
-  const codeFiles = status.split('\n').filter(l => /\.(ts|tsx|js|jsx|sql|css)$/.test(l));
+  const codeFiles = status.split('\n').filter(l => /\.(ts|tsx|js|jsx|mjs|cjs|sql|css)$/.test(l));
   if (codeFiles.length > 0) {
     console.error('UNCOMMITTED CODE CHANGES:\n' + codeFiles.map(l => '  ' + l).join('\n'));
   }

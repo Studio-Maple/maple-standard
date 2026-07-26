@@ -238,18 +238,26 @@ export function searchFused(queries, k = 6, index = buildIndex()) {
 }
 
 // ---- CLI ----
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const args = process.argv.slice(2);
-  const kIdx = args.indexOf("-k");
-  const k = kIdx !== -1 ? Number(args[kIdx + 1]) || 6 : 6;
-  const json = args.includes("--json");
-  const query = args.filter((a, i) => a !== "--json" && a !== "-k" && i !== kIdx + 1).join(" ");
+// Exported (not just run inline) so the repo-level shim
+// (scripts/doc-search/search.mjs) can delegate to this ONE parser instead of
+// carrying its own copy — MJ-6: both copies had the same `i !== kIdx + 1`
+// bug (with `-k` absent, kIdx===-1 so kIdx+1===0, silently dropping
+// argv[0] — the first word of every query) because there were two parsers
+// to keep in sync and only one got fixed. Root is threaded through
+// explicitly (the plugin's own CLI passes none, defaulting via chunkDocs ->
+// resolveCorpus -> defaultRoot(); the repo shim passes its own root so the
+// index is built from THIS repo regardless of invocation cwd).
+export function runCli(argv, root) {
+  const kIdx = argv.indexOf("-k");
+  const k = kIdx !== -1 ? Number(argv[kIdx + 1]) || 6 : 6;
+  const json = argv.includes("--json");
+  const query = argv.filter((a, i) => a !== "--json" && a !== "-k" && (kIdx === -1 || i !== kIdx + 1)).join(" ");
   if (!query) {
     console.error('usage: node search.mjs "your question" [-k 6] [--json]');
     process.exit(2);
   }
   const t0 = performance.now();
-  const results = search(query, k);
+  const results = search(query, k, buildIndex(chunkDocs(root)));
   const ms = Math.round(performance.now() - t0);
   if (json) {
     console.log(JSON.stringify({ query, ms, results }, null, 1));
@@ -260,4 +268,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       console.log(`    ${r.text.replace(/\s+/g, " ").slice(0, 160)}…\n`);
     }
   }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  runCli(process.argv.slice(2));
 }

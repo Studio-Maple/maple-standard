@@ -18,6 +18,9 @@
  * ERRORS (block):
  *   1. A frontmatter `code` entry / legacy preamble `Code:`/`Enforced by:`
  *      path no longer exists.
+ *   2. A wikilink [[X]] that doesn't resolve to a real .md basename
+ *      (docs/standard-architecture.md lists broken wikilinks as blocking,
+ *      alongside dead Code: paths and a stale index — promoted from WARN).
  *   3. <docs.docsIndexJson> is stale vs the current preambles.
  *   3b. The generated Catalog block in <docs.index> (between
  *       `<!-- catalog:begin -->`/`<!-- catalog:end -->`) is stale vs what
@@ -29,7 +32,6 @@
  *   9. A <docs.tasks> entry block over 600 chars (condensed bullets only).
  *  10. A <docs.log> session entry over 600 chars.
  * WARNS (surface):
- *   2. A wikilink [[X]] that doesn't resolve to a real .md basename.
  *   2b. A relative markdown link `[x](y.md)` to an in-docs .md file that
  *       doesn't resolve (external http(s) links are ignored).
  *   4. An untracked (never-committed) doc.
@@ -174,7 +176,10 @@ export async function run({ root, fix = false } = {}) {
     }
   }
 
-  // 2. Wikilinks resolve.
+  // 2. Wikilinks resolve. docs/standard-architecture.md:37 groups broken
+  // wikilinks with dead Code: paths and a stale index as things the
+  // drift-gate BLOCKS — this used to only warn, letting a broken wikilink
+  // sit indefinitely. The doc is the approved spec, so this errors now.
   const ignoredLinks = new Set(["README", "wikilink", "wikilinks", "path", "name"]);
   const logRel = relative(ROOT, cfg.log).replace(/\\/g, "/");
   for (const file of docFiles) {
@@ -187,7 +192,7 @@ export async function run({ root, fix = false } = {}) {
       const base = basename(link);
       if (ignoredLinks.has(link) || ignoredLinks.has(base)) continue;
       if (!basenameMap.has(base)) {
-        warn(`${rel}: unresolved wikilink [[${link}]]`);
+        error(`${rel}: unresolved wikilink [[${link}]]`);
       }
     }
   }
@@ -291,11 +296,22 @@ export async function run({ root, fix = false } = {}) {
   }
 
   // 7. Point-to-code discipline + 7b. frontmatter migration pressure.
+  // MJ-1: docs.ephemeralPaths (doc-relative, under docs.root) marks pages
+  // that genuinely own no code — a session-state/scratch folder someone
+  // deliberately excluded from ownership resolution — so they're exempt
+  // from the "no anchor" nudge below (they're supposed to have none).
+  const ephemeralPrefixes = cfg.ephemeralPaths || [];
+  function isEphemeralDoc(file) {
+    const relToDocsRoot = relative(cfg.root, file).replace(/\\/g, "/");
+    return ephemeralPrefixes.some(
+      (p) => relToDocsRoot === p || relToDocsRoot.startsWith(p.replace(/\/$/, "") + "/")
+    );
+  }
   for (const file of docFiles) {
     const rel = relative(ROOT, file).replace(/\\/g, "/");
     if (basename(file, ".md") === "README" || rel === indexRel) continue;
     const meta = metaByFile.get(file);
-    if (!meta.hasAnyAnchor) {
+    if (!meta.hasAnyAnchor && !isEphemeralDoc(file)) {
       warn(`no anchor (audience/authoritative_for/code/reference_for — point-to-code discipline): ${rel}`);
     }
     if (!meta.hasFrontmatter) {

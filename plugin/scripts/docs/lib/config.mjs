@@ -40,6 +40,11 @@ export const DOCS_DEFAULTS = {
   log: "docs/log.md",
   gaps: "docs/gaps.md",
   docsIndexJson: "docs/.docs-index.json",
+  // Read by docs-sync-reminder.js:69 (`docs.changelog`, default
+  // "CHANGELOG.md") but missing here — this module is the OTHER canonical
+  // resolver every plugin.scripts/docs/ script uses, so it silently had no
+  // default for a key its own sibling hook already treats as canonical.
+  changelog: "CHANGELOG.md",
 };
 
 /**
@@ -52,6 +57,18 @@ export const DOCS_DEFAULTS = {
 export function resolveDocsConfig(root, env = process.env) {
   const cfg = loadMapleConfig(root)?.docs ?? {};
   const pick = (key, envKey) => resolve(root, (envKey && env[envKey]) || cfg[key] || DOCS_DEFAULTS[key]);
+
+  // docsIndexJson's default is DERIVED from the effective docs.root instead
+  // of the flat "docs/.docs-index.json" DOCS_DEFAULTS entry above — a
+  // project that customizes docs.root without also setting
+  // docs.docsIndexJson would otherwise get a default silently pointing at
+  // the WRONG folder. Mirrors docs-sync-reminder.js:67-68's own derivation
+  // (`${docsRoot}/.docs-index.json`) — that hook is CommonJS and can't
+  // import this ESM module, so it duplicates the same logic inline; keep
+  // both in sync if this ever changes.
+  const docsRootRaw = (cfg.root || DOCS_DEFAULTS.root).replace(/[/\\]+$/, "");
+  const docsIndexJsonDefault = `${docsRootRaw}/.docs-index.json`;
+
   return {
     root: pick("root"),
     index: pick("index"),
@@ -59,7 +76,13 @@ export function resolveDocsConfig(root, env = process.env) {
     decisions: pick("decisions", "NEXT_TASK_ID_DECISIONS_FILE"),
     log: pick("log", "NEXT_TASK_ID_LOG_FILE"),
     gaps: pick("gaps"),
-    docsIndexJson: pick("docsIndexJson"),
+    docsIndexJson: resolve(root, cfg.docsIndexJson || docsIndexJsonDefault),
+    changelog: pick("changelog"),
+    // MJ-1: doc-relative path prefixes (under docs.root) exempt from the
+    // drift gate's point-to-code anchor check — see check-docs-drift.mjs's
+    // use of this. Not filesystem-resolved (they're prefixes matched
+    // against a doc's path relative to docs.root, not paths read directly).
+    ephemeralPaths: Array.isArray(cfg.ephemeralPaths) ? cfg.ephemeralPaths : [],
   };
 }
 
