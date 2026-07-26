@@ -58,6 +58,16 @@ function extractWikilinks(content) {
   return [...links];
 }
 
+// m9: which line ending a file predominantly uses — CRLF if CRLF pairs
+// outnumber lone LFs, else LF (also the tie-break/default for an all-LF or
+// empty file).
+function dominantEol(text) {
+  const crlf = (text.match(/\r\n/g) || []).length;
+  const totalLf = (text.match(/\n/g) || []).length;
+  const lf = totalLf - crlf;
+  return crlf > lf ? "\r\n" : "\n";
+}
+
 function topicFromPath(root, file) {
   const relToRoot = relative(root, file).replace(/\\/g, "/");
   const parts = relToRoot.split("/");
@@ -145,16 +155,28 @@ export async function run({ root } = {}) {
 
   let catalogResult = "skipped (no <!-- catalog:begin/end --> markers in index.md)";
   try {
-    // Normalize to LF before splicing (and therefore before writing back) —
-    // a CRLF checkout (Windows, no `*.md text eol=lf` yet) would otherwise
-    // leave the file with MIXED endings: CRLF outside the markers (untouched
-    // disk content) and LF inside (the freshly-generated block). Harmless
-    // for check-docs-drift.mjs's own comparison (now normalized on both
-    // sides — see BL-1), but avoids the noisy mixed-EOL diff regardless.
-    const indexMd = (await readFile(cfg.index, "utf8")).replace(/\r\n/g, "\n");
+    // Normalize to LF before splicing — a CRLF checkout (Windows, no
+    // `*.md text eol=lf` yet) would otherwise leave the file with MIXED
+    // endings: CRLF outside the markers (untouched disk content) and LF
+    // inside (the freshly-generated block). Harmless for
+    // check-docs-drift.mjs's own comparison (now normalized on both sides
+    // — see BL-1), but avoids the noisy mixed-EOL diff regardless.
+    //
+    // m9: that normalization used to carry all the way through to the
+    // WRITE too — a CRLF-committed index.md came back with 0 CR bytes
+    // (every line flipped to LF), a whole-file EOL diff having nothing to
+    // do with the actual catalog change, on any adopting project that
+    // hasn't picked up the .gitattributes LF pin yet. Detect the file's
+    // OWN dominant line ending before normalizing, and convert back to it
+    // on write — so only the semantic content changes, never the EOL
+    // style of a file this script didn't intend to touch.
+    const indexMdRaw = await readFile(cfg.index, "utf8");
+    const eol = dominantEol(indexMdRaw);
+    const indexMd = indexMdRaw.replace(/\r\n/g, "\n");
     const spliced = spliceCatalogBlock(indexMd, catalogItems.join("\n"));
     if (spliced !== null) {
-      await writeFile(cfg.index, spliced, "utf8");
+      const toWrite = eol === "\r\n" ? spliced.replace(/\n/g, "\r\n") : spliced;
+      await writeFile(cfg.index, toWrite, "utf8");
       catalogResult = `${catalogItems.length} entries`;
     }
   } catch {
