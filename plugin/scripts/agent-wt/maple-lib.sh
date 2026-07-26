@@ -30,7 +30,18 @@
 #   worktrees.nodeModulesDirs        default ["."]  (dirs to junction-link node_modules from)
 #   worktrees.envFiles               default []     (gitignored env files to hardlink)
 #   worktrees.freshDepsCommand       default "npm ci"
-#   worktrees.lock.ttlSeconds        default 1800  (30min — stale-lock steal threshold)
+#   worktrees.lock.ttlSeconds        default 900   (15min — stale-lock steal threshold. m5:
+#                                     was 1800 against a 300s default wait — a crash between
+#                                     mkdir and the meta write left the lock unstealable for up
+#                                     to 30min while every waiting caller had already given up
+#                                     at 5min. Halved rather than matched to waitSeconds exactly:
+#                                     TTL also governs stealing from a genuinely slow-but-alive
+#                                     holder (a real gate run "can be minutes"), so it can't drop
+#                                     all the way to waitSeconds without risking preemption of a
+#                                     live process; waitSeconds can't rise to meet TTL without
+#                                     risking a Claude Code Bash call's own timeout firing first
+#                                     (see below) — 900s narrows the abandoned-lock gap from 25min
+#                                     to 10min under those two constraints instead of closing it.)
 #   worktrees.lock.waitSeconds       default 300   (5min — total wait before giving up; kept
 #                                     well under a typical Claude Code Bash call's own timeout,
 #                                     which would otherwise fire first and leave the caller
@@ -160,8 +171,9 @@ MAPLE_WT_ROOT="${MAPLE_WT_ROOT:-$(_maple_default_wt_root)}"
 MAPLE_LOCK_DIR="$MAPLE_COMMON_DIR/maple-land.lock"
 MAPLE_PREVIEW_NAME="_preview"
 
-# Lock tuning — a full gate run can be minutes; generous TTL + wait.
-MAPLE_LOCK_TTL="${MAPLE_LOCK_TTL:-$(maple_cfg worktrees.lock.ttlSeconds 1800)}"
+# Lock tuning — a full gate run can be minutes; generous TTL + wait. m5: TTL
+# default reconciled with waitSeconds — see the header comment above.
+MAPLE_LOCK_TTL="${MAPLE_LOCK_TTL:-$(maple_cfg worktrees.lock.ttlSeconds 900)}"
 MAPLE_LOCK_WAIT="${MAPLE_LOCK_WAIT:-$(maple_cfg worktrees.lock.waitSeconds 300)}"
 MAPLE_LOCK_POLL="${MAPLE_LOCK_POLL:-$(maple_cfg worktrees.lock.pollSeconds 5)}"
 
@@ -305,11 +317,44 @@ maple_ensure_loop_state_gitignored() {
   local wt gi
   wt="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0
   gi="$wt/.gitignore"
-  if [ -f "$gi" ] && grep -qxF '.loop-state/' "$gi" 2>/dev/null; then
+
+  # m7: match `.loop-state` or `.loop-state/` as a WHOLE LINE, tolerant of a
+  # CRLF-terminated .gitignore (a Windows checkout with no `*.gitignore text
+  # eol=lf` pin) — a plain `grep -qxF '.loop-state/'` treats the trailing
+  # `\r` as part of the line content and never matches a CRLF file, so every
+  # single cycle re-appended a duplicate entry. The trailing `/?` also means
+  # a project that already wrote the bare `.loop-state` form (matches the
+  # dir either way in a .gitignore) isn't treated as missing just because it
+  # lacks the slash.
+  if [ -f "$gi" ] && grep -Eq '^\.loop-state/?\r?$' "$gi" 2>/dev/null; then
     return 0
   fi
+
+  # B3: a .gitignore whose last line has no trailing newline would otherwise
+  # get our append glued onto it — e.g. `node_modules` (no final \n) becomes
+  # `node_modules.loop-state/`, which un-ignores `node_modules` AND fails to
+  # ignore `.loop-state/`. Reproduced with a real credential file: an
+  # unterminated `.env.local` line as the last line of .gitignore became
+  # `.env.local.loop-state/`, un-ignoring `.env.local` — a subsequent loop
+  # `git add -A` would then stage it. Ensure the file ends in a newline
+  # first. (Command substitution strips ALL trailing newlines from its
+  # output, so `$(tail -c1 "$gi")` is empty exactly when the file already
+  # ends in one — this correctly no-ops on an already well-formed file.)
+  if [ -f "$gi" ] && [ -s "$gi" ] && [ -n "$(tail -c1 "$gi" 2>/dev/null)" ]; then
+    printf '\n' >> "$gi"
+  fi
+
   printf '%s\n' '.loop-state/' >> "$gi"
-  if (cd "$wt" && git add .gitignore && git commit --quiet -m "chore(loop-pack): gitignore .loop-state/"); then
+
+  # M1: `--only` commits exactly the CURRENT WORKING-TREE content of the
+  # named path, ignoring (and never staging/touching) anything else already
+  # in the index — a plain `git add .gitignore && git commit` here would
+  # sweep a user's unrelated already-staged work into this chore commit
+  # (reproduced with a staged wip.txt landing inside it). On any failure,
+  # nothing is left staged either way (m8) — `--only` never modifies the
+  # index for other paths, and doesn't require a prior `git add` for this
+  # one.
+  if (cd "$wt" && git commit --only .gitignore --quiet -m "chore(loop-pack): gitignore .loop-state/"); then
     maple_log "added .loop-state/ to .gitignore (committed)"
   else
     maple_warn "added .loop-state/ to .gitignore but could not auto-commit it — commit manually"
@@ -379,19 +424,40 @@ _maple_dir_mtime() {
 # age computation instead — only a lock dir that is itself genuinely older
 # than the TTL with no meta ever written (a holder that crashed before
 # finishing the write) counts as stale.
+#
+# m4: clock skew can put a dir's mtime in the FUTURE relative to `date +%s`
+# (e.g. a VM/container whose clock jumps) — an un-clamped `now - mtime` goes
+# negative, and `[ age -ge TTL ]` is then never true, so an abandoned lock
+# with a skewed mtime could NEVER be reclaimed. Clamp both age computations
+# below to a minimum of 0 via _maple_clamp_age.
+#
+# m6: a corrupted meta file (line 2 not a plain integer — truncated write,
+# manual edit, etc.) fed straight into `$(( now - epoch ))` is a bash
+# arithmetic-context syntax error, and under `set -u` a bareword inside that
+# expression that bash treats as a variable reference dies with "unbound
+# variable" — killing maple-land mid-flight instead of just mis-judging one
+# lock. Sanitize epoch to digits-only first; on garbage, treat it as "just
+# acquired now" (age 0) — fail SAFE toward "not stale" (never steal from a
+# holder whose pid is still alive just because its epoch field is garbage),
+# not toward "ancient" (which would steal from a live holder on bad data).
+_maple_clamp_age() { local a="$1"; [ "$a" -lt 0 ] && a=0; printf '%s' "$a"; }
+
 _maple_lock_is_stale() {
   local pid epoch age
   pid="$(_maple_lock_pid)"
   if [ -n "$pid" ]; then
     epoch="$(_maple_lock_epoch)"
-    age=$(( $(_maple_now) - epoch ))
+    case "$epoch" in
+      ''|*[!0-9]*) epoch="$(_maple_now)" ;;  # m6: corrupted epoch -> treat as fresh, never steal a live holder on bad data
+    esac
+    age="$(_maple_clamp_age $(( $(_maple_now) - epoch )))"
     if _maple_pid_alive "$pid" && [ "$age" -lt "$MAPLE_LOCK_TTL" ]; then
       return 1   # live + fresh -> not stale
     fi
     return 0     # dead, or past TTL -> stale
   fi
   # No meta yet — judge by the lock DIRECTORY's age, not an assumed-zero epoch.
-  age=$(( $(_maple_now) - $(_maple_dir_mtime "$MAPLE_LOCK_DIR") ))
+  age="$(_maple_clamp_age $(( $(_maple_now) - $(_maple_dir_mtime "$MAPLE_LOCK_DIR") )))"
   [ "$age" -ge "$MAPLE_LOCK_TTL" ]
 }
 
