@@ -20,13 +20,21 @@ gaps/tasks rather than fixing it live. Detection only; fixing is
 
 ## Config this command will read (`maple.config.json`)
 
+Canonical keys per `docs/standard-architecture.md` (reconciled #T11):
+
 | Key | Default | Notes |
 |---|---|---|
-| `docs.gapsFile` | `"docs/gaps.md"` | where detected drift gets logged for owner review |
-| `docs.driftScript` | `"scripts/check-docs-drift.mjs"` | reused for the docs half of drift detection |
-| `loop.budgets.detectDrift.maxIterations` | `5` | max drift items investigated per invocation |
-| `loop.budgets.detectDrift.maxMinutes` | `15` | wall-clock ceiling per invocation |
-| `loop.worktreeBranch` | `"dev-burner"` | runs in this isolated worktree branch, never merges |
+| `docs.gaps` | `"docs/gaps.md"` | where detected drift gets logged for owner review |
+| `loops.budgetPerCycle.turns` | `40` | shared turn ceiling per loop cycle |
+| `loops.budgetPerCycle.minutes` | `20` | shared wall-clock ceiling per loop cycle |
+| `repo.standingLoopBranch` | `"dev-burner"` | runs in this isolated worktree branch, never merges |
+
+The docs half of drift detection reuses the plugin's own bundled
+`plugin/scripts/docs/check-docs-drift.mjs` (#T13) directly — no separate
+`docs.driftScript` config key.
+
+Malformed config? Run
+`node "$CLAUDE_PLUGIN_ROOT/scripts/validate-config.mjs"`.
 
 ## Budget enforcement (to be implemented)
 

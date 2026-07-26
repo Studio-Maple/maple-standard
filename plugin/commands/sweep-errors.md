@@ -18,12 +18,17 @@ standalone via `/loop`.
 
 ## Config this command will read (`maple.config.json`)
 
+Canonical keys per `docs/standard-architecture.md` (reconciled #T11):
+
 | Key | Default | Notes |
 |---|---|---|
-| `errorTracker.*` | — | same tracker config as `/heal` (kind/org/project/endpoint/query) |
-| `loop.budgets.sweepErrors.maxIterations` | `10` | max clusters fixed per invocation |
-| `loop.budgets.sweepErrors.maxMinutes` | `30` | wall-clock ceiling per invocation |
-| `loop.worktreeBranch` | `"dev-burner"` | runs in this isolated worktree branch, never merges |
+| `errorTracker.*` | — | same tracker config as `/heal` (provider/endpoint/readTokenRef/writeTokenRef/sentryProject) |
+| `loops.budgetPerCycle.turns` | `40` | shared turn ceiling per loop cycle |
+| `loops.budgetPerCycle.minutes` | `20` | shared wall-clock ceiling per loop cycle |
+| `repo.standingLoopBranch` | `"dev-burner"` | runs in this isolated worktree branch, never merges |
+
+Malformed config? Run
+`node "$CLAUDE_PLUGIN_ROOT/scripts/validate-config.mjs"`.
 
 ## Budget enforcement (to be implemented)
 

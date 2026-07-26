@@ -1,0 +1,207 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://maple-standard/schema/maple.config.json",
+  "title": "maple.config.json",
+  "description": "Per-project config read by every maple-standard plugin command/hook. Canonical shape per docs/standard-architecture.md (project/repo/worktrees/docs/ci/lint/sizeCaps/errorTracker/loops), plus plugin-specific operational extensions nested under the same canonical top-level blocks (never a competing top-level block — see plugin/README.md 'Schema reconciliation'). Every key is optional except project.name/project.slug; omitted keys fall back to documented defaults.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["project"],
+  "properties": {
+    "$schema": { "type": "string" },
+
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "slug"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "slug": { "type": "string", "pattern": "^[a-z0-9-]+$", "minLength": 1 }
+      }
+    },
+
+    "repo": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prodCheckout": { "type": "string", "minLength": 1, "format": "path" },
+        "devCheckout": { "type": "string", "minLength": 1, "format": "path" },
+        "prodBranch": { "type": "string", "minLength": 1 },
+        "devBranch": { "type": "string", "minLength": 1 },
+        "standingLoopBranch": { "type": "string", "minLength": 1 },
+        "remote": { "type": "string", "minLength": 1 }
+      }
+    },
+
+    "worktrees": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "root": { "type": "string", "minLength": 1, "format": "path" },
+        "namePattern": { "type": "string", "minLength": 1, "pattern": "<slug>" },
+        "nodeModulesDirs": { "type": "array", "items": { "type": "string", "format": "path" } },
+        "envFiles": { "type": "array", "items": { "type": "string", "format": "path" } },
+        "freshDepsCommand": { "type": "string", "minLength": 1 },
+        "preview": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "workdir": { "type": "string", "minLength": 1, "format": "path" },
+            "command": { "type": "string", "minLength": 1 },
+            "logFile": { "type": "string", "minLength": 1, "format": "path" }
+          }
+        },
+        "lock": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ttlSeconds": { "type": "integer", "minimum": 1 },
+            "waitSeconds": { "type": "integer", "minimum": 1 },
+            "pollSeconds": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "reap": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "staleHours": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+
+    "docs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "root": { "type": "string", "minLength": 1, "format": "path" },
+        "index": { "type": "string", "minLength": 1, "format": "path" },
+        "decisions": { "type": "string", "minLength": 1, "format": "path" },
+        "tasks": { "type": "string", "minLength": 1, "format": "path" },
+        "gaps": { "type": "string", "minLength": 1, "format": "path" },
+        "log": { "type": "string", "minLength": 1, "format": "path" },
+        "docsIndexJson": { "type": "string", "minLength": 1, "format": "path" },
+        "changelog": { "type": "string", "minLength": 1, "format": "path" }
+      }
+    },
+
+    "ci": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tiers": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        },
+        "prePushTier": { "type": "string", "minLength": 1 }
+      }
+    },
+
+    "lint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "roots": { "type": "array", "items": { "type": "string", "format": "path" } },
+        "maxWarnings": { "type": "integer", "minimum": 0 }
+      }
+    },
+
+    "sizeCaps": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hook": { "type": "integer", "minimum": 1 },
+        "component": { "type": "integer", "minimum": 1 },
+        "service": { "type": "integer", "minimum": 1 },
+        "route": { "type": "integer", "minimum": 1 }
+      }
+    },
+
+    "errorTracker": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "provider": { "type": "string", "enum": ["sentry", "maplelens"] },
+        "endpoint": { "type": ["string", "null"] },
+        "readTokenRef": { "type": ["string", "null"] },
+        "writeTokenRef": { "type": ["string", "null"] },
+        "sentryProject": { "type": ["string", "null"] },
+        "livePreviewUrl": { "type": ["string", "null"] },
+        "query": { "type": "string" },
+        "verification": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The /heal fix-verify ladder (t1-t5) — deliberately namespaced under errorTracker, not ci.tiers, to avoid colliding with the wt-land gate tiers (docs/decisions.md D002-D011 reconciliation, #T11).",
+          "properties": {
+            "t1": { "type": "array", "items": { "type": "string" } },
+            "t2": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "pushCommand": { "type": "string" },
+                "ciWatchCommand": { "type": "string" }
+              }
+            },
+            "t3": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "deployUrlTemplate": { "type": "string" },
+                "waitSeconds": { "type": "integer", "minimum": 0 }
+              }
+            },
+            "t4": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" }
+              }
+            },
+            "t5": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "waitMinutes": { "type": "integer", "minimum": 0 }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "loops": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["sweep-errors", "burn-backlog", "sweep-quality", "detect-drift"] }
+        },
+        "budgetPerCycle": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "turns": { "type": "integer", "minimum": 1 },
+            "minutes": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+
+    "hooks": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "bashGuard": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cwdGuardEnabled": { "type": "boolean" },
+            "pushGuardEnabled": { "type": "boolean" },
+            "pushGuardMinTimeoutMs": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    }
+  }
+}

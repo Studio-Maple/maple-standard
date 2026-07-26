@@ -11,16 +11,15 @@
  * plugin/scripts/docs/ works unmodified in a project with NO
  * maple.config.json at all.
  *
- * NOTE — known inconsistency, not introduced here: the plugin's existing
- * hooks (plugin/hooks/ask-gate.mjs, docs-sync-reminder.js,
- * decision-reminder.js) already ship reading a DIFFERENT, older set of
- * docs.* key names (decisionsFile/tasksFile/gapsFile/indexFile/
- * changelogFile/searchScript/idAllocatorScript), documented in
- * plugin/README.md. That table predates docs/standard-architecture.md's
- * schema and the two have drifted apart. This module intentionally follows
- * the canonical schema (root/index/tasks/decisions/log/gaps/docsIndexJson)
- * per this task's brief; reconciling the hooks' key names is out of scope
- * here — see plugin/README.md "Gaps".
+ * The plugin's own hooks (plugin/hooks/ask-gate.mjs, docs-sync-reminder.js,
+ * decision-reminder.js) read this SAME canonical key set now (reconciled
+ * docs/tasks.md #T11/#T12 — they used to ship their own older
+ * decisionsFile/tasksFile/gapsFile/indexFile/changelogFile/searchScript/
+ * idAllocatorScript names; retired, one key set, no aliases). ask-gate.mjs
+ * imports this module directly (both are ESM); the two CommonJS hooks
+ * (decision-reminder.js, docs-sync-reminder.js) mirror this module's
+ * defaults/lookup order inline rather than bridging module systems with an
+ * async import().
  */
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";

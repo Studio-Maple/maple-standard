@@ -17,13 +17,18 @@ of the loops it rotates through, or run standalone via `/loop`.
 
 ## Config this command will read (`maple.config.json`)
 
+Canonical keys per `docs/standard-architecture.md` (reconciled #T11):
+
 | Key | Default | Notes |
 |---|---|---|
-| `docs.tasksFile` | `"docs/tasks.md"` | the backlog to burn down |
-| `worktree.gate.tiers.<name>` | — | reused to verify each landed task |
-| `loop.budgets.burnBacklog.maxIterations` | `5` | max tasks landed per invocation |
-| `loop.budgets.burnBacklog.maxMinutes` | `45` | wall-clock ceiling per invocation |
-| `loop.worktreeBranch` | `"dev-burner"` | runs in this isolated worktree branch, never merges |
+| `docs.tasks` | `"docs/tasks.md"` | the backlog to burn down |
+| `ci.tiers.<name>` | — | reused to verify each landed task |
+| `loops.budgetPerCycle.turns` | `40` | shared turn ceiling per loop cycle (was a separate `burnBacklog`-specific budget; now shared across the loop pack) |
+| `loops.budgetPerCycle.minutes` | `20` | shared wall-clock ceiling per loop cycle |
+| `repo.standingLoopBranch` | `"dev-burner"` | runs in this isolated worktree branch, never merges |
+
+Malformed config? Run
+`node "$CLAUDE_PLUGIN_ROOT/scripts/validate-config.mjs"`.
 
 ## Budget enforcement (to be implemented)
 
@@ -36,4 +41,4 @@ force-finished over budget.
 
 Full task-selection strategy (priority order, what's safe to pick up
 unattended vs. what needs a human decision first), and how it interacts
-with `worktree.gate` verification, are specified there once approved.
+with `ci.tiers` verification, are specified there once approved.

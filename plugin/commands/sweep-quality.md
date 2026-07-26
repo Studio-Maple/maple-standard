@@ -17,12 +17,17 @@ looseness — unattended and budget-bounded.
 
 ## Config this command will read (`maple.config.json`)
 
+Canonical keys per `docs/standard-architecture.md` (reconciled #T11):
+
 | Key | Default | Notes |
 |---|---|---|
-| `worktree.gate.tiers.fast` | — | reused as the "did I break anything" check after each fix |
-| `loop.budgets.sweepQuality.maxIterations` | `10` | max fixes per invocation |
-| `loop.budgets.sweepQuality.maxMinutes` | `30` | wall-clock ceiling per invocation |
-| `loop.worktreeBranch` | `"dev-burner"` | runs in this isolated worktree branch, never merges |
+| `ci.tiers.fast` | — | reused as the "did I break anything" check after each fix |
+| `loops.budgetPerCycle.turns` | `40` | shared turn ceiling per loop cycle |
+| `loops.budgetPerCycle.minutes` | `20` | shared wall-clock ceiling per loop cycle |
+| `repo.standingLoopBranch` | `"dev-burner"` | runs in this isolated worktree branch, never merges |
+
+Malformed config? Run
+`node "$CLAUDE_PLUGIN_ROOT/scripts/validate-config.mjs"`.
 
 ## Budget enforcement (to be implemented)
 

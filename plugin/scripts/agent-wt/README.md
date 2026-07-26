@@ -14,8 +14,8 @@ Parallel sessions sharing one working tree clobber each other (`git commit`
 stages the whole index). The fix is **enforcement, not discipline**:
 
 - **Isolation by construction** — each session gets its own git worktree +
-  ephemeral `<branchPrefix><slug>` branch (default prefix `agent/`). A
-  session physically cannot stage another's files.
+  ephemeral branch named per `worktrees.namePattern` (default
+  `agent/<slug>`). A session physically cannot stage another's files.
 - **A single semaphore** — the only path to the target branch is
   `maple-land`, which holds one global lock while it rebases -> runs the
   configured gate command -> pushes.
@@ -30,7 +30,7 @@ debugging:
 
 ```bash
 bash "$CLAUDE_PLUGIN_ROOT/scripts/agent-wt/maple-start.sh" my-feature
-#   --fresh-deps   run worktree.freshDepsCommand instead of linking node_modules
+#   --fresh-deps   run worktrees.freshDepsCommand instead of linking node_modules
 #   --no-launch    don't open a tmux/claude session
 #   --from <ref>   branch off something other than origin/<targetBranch>
 
@@ -38,7 +38,7 @@ bash "$CLAUDE_PLUGIN_ROOT/scripts/agent-wt/maple-preview.sh" my-feature
 bash "$CLAUDE_PLUGIN_ROOT/scripts/agent-wt/maple-preview.sh" --stop
 
 bash "$CLAUDE_PLUGIN_ROOT/scripts/agent-wt/maple-land.sh"
-#   --tier <name>   which worktree.gate.tiers.<name> command to run (default worktree.gate.defaultTier)
+#   --tier <name>   which ci.tiers.<name> command to run (default ci.prePushTier)
 #   --keep          don't prune the worktree after landing
 #   --no-push       rebase + gate only, leave the branch in place
 
@@ -47,35 +47,43 @@ bash "$CLAUDE_PLUGIN_ROOT/scripts/agent-wt/maple-reap.sh" --dry-run
 
 ## Config (`maple.config.json`)
 
-All keys optional. See `plugin/README.md` for the full schema; the subset
-these scripts read:
+All keys optional. See `plugin/README.md` for the full schema (canonical
+per docs/standard-architecture.md, reconciled docs/tasks.md #T11 — this
+table used to list an invented `worktree.*`/singular block; that's retired,
+one key set now); the subset these scripts read:
 
 | Key | Default | Used by |
 |---|---|---|
-| `worktree.remote` | `"origin"` | all |
-| `worktree.targetBranch` | origin's default branch, else `"main"` | all |
-| `worktree.branchPrefix` | `"agent/"` | all |
-| `worktree.root` | `"../<repo-name>-wt"` | all |
-| `worktree.nodeModulesDirs` | `["."]` | start, preview, reap (unlink) |
-| `worktree.envFiles` | `[]` | start, preview |
-| `worktree.freshDepsCommand` | `"npm ci"` | start `--fresh-deps` |
-| `worktree.preview.port` | `8080` | preview |
-| `worktree.preview.workdir` | `"."` | preview |
-| `worktree.preview.command` | `"npm run dev -- --port {port} --host 127.0.0.1"` | preview |
-| `worktree.preview.logFile` | `".preview-dev.log"` | preview |
-| `worktree.gate.defaultTier` | `"gate"` | land |
-| `worktree.gate.tiers.<name>` | none — **required** for any tier you use | land |
-| `worktree.lock.ttlSeconds` | `1800` | land (lock) |
-| `worktree.lock.waitSeconds` | `3600` | land (lock) |
-| `worktree.lock.pollSeconds` | `5` | land (lock) |
-| `worktree.reap.staleHours` | `24` | reap `--force` |
+| `repo.remote` | `"origin"` | all |
+| `repo.devBranch` / `repo.prodBranch` | origin's default branch, else `"main"` | all (devBranch wins if set, D008) |
+| `worktrees.namePattern` | `"agent/<slug>"` | all |
+| `worktrees.root` | `"../<repo-name>-wt"` | all |
+| `worktrees.nodeModulesDirs` | `["."]` | start, preview, reap (unlink) |
+| `worktrees.envFiles` | `[]` | start, preview |
+| `worktrees.freshDepsCommand` | `"npm ci"` | start `--fresh-deps` |
+| `worktrees.preview.port` | `8080` | preview |
+| `worktrees.preview.workdir` | `"."` | preview |
+| `worktrees.preview.command` | `"npm run dev -- --port {port} --host 127.0.0.1"` | preview |
+| `worktrees.preview.logFile` | `".preview-dev.log"` | preview |
+| `ci.prePushTier` | `"gate"` | land |
+| `ci.tiers.<name>` | none — **required** for any tier you use | land |
+| `worktrees.lock.ttlSeconds` | `1800` | land (lock) |
+| `worktrees.lock.waitSeconds` | `3600` | land (lock) |
+| `worktrees.lock.pollSeconds` | `5` | land (lock) |
+| `worktrees.reap.staleHours` | `24` | reap `--force` |
+
+`maple.config.json` failing to parse, or holding an unknown/wrong-typed key?
+Every script above falls back to defaults and warns once
+(`maple_check_config` in `maple-lib.sh`) — run
+`node "$CLAUDE_PLUGIN_ROOT/scripts/validate-config.mjs"` for the full list
+of problems.
 
 ## Known gaps vs. the VeHagita original (see plugin/README.md "Gaps")
 
 - **No package-manager-specific dependency linking beyond `node_modules`
   junctions/symlinks.** VeHagita's `_lib.sh` linked exactly four
   monorepo-specific dirs (`.`, `frontend`, `tests/e2e`, `supabase/tests`);
-  this version takes an arbitrary list via `worktree.nodeModulesDirs`, but a
+  this version takes an arbitrary list via `worktrees.nodeModulesDirs`, but a
   project must enumerate its own dirs — there's no auto-discovery.
   Windows-only: junction/hardlink logic mirrors the original 1:1
   (`mklink /J` for dirs, `mklink /H` for files); Unix uses real symlinks.
@@ -83,8 +91,8 @@ these scripts read:
   `vh-land.sh` set `SUPABASE_WORKDIR` so the Supabase CLI's local-stack
   identity (keyed to a project dir) resolved from inside a worktree. That's
   a Supabase-CLI-specific quirk, not something this generic script can infer
-  — if your `worktree.gate.tiers.*` command needs a similar per-tool
-  workaround, bake it into the command string itself (e.g.
+  — if your `ci.tiers.*` command needs a similar per-tool workaround, bake
+  it into the command string itself (e.g.
   `"gate": "SUPABASE_WORKDIR=/abs/path npm run ci:gate"`).
 - **No auto-launch beyond tmux.** `maple-start`'s launch step only knows
   tmux + `claude` on PATH; anything else (Windows Terminal tabs, iTerm2,

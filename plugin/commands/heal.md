@@ -10,25 +10,31 @@ fix is verified live and the tracker stops emitting events.
 
 ## Config this command reads (`maple.config.json` at project root)
 
+Canonical keys per `docs/standard-architecture.md` (reconciled #T11 — the
+old separate `errorTracker.org` + `.project` fold into one
+`errorTracker.sentryProject`, and the verification ladder below moved off
+`ci.tiers.*` — that path collided with the unrelated `wt-land` gate tiers
+of the same name — onto its own `errorTracker.verification.*`):
+
 | Key | Default | Notes |
 |---|---|---|
-| `errorTracker.kind` | `"sentry"` | `"sentry"` \| `"maplelens"` (Studio Maple's DIY tracker) — determines which MCP tool / API this command calls |
-| `errorTracker.org` | **none — required** | Sentry org slug, or the maplelens tenant id |
-| `errorTracker.project` | **none — required** | Sentry project slug, or the maplelens project id |
-| `errorTracker.endpoint` | **none** | For `kind: "sentry"`: the region URL (e.g. `https://de.sentry.io`) — pass it on every Sentry call. For `kind: "maplelens"`: the tracker's API base URL. |
+| `errorTracker.provider` | `"sentry"` | `"sentry"` \| `"maplelens"` (Studio Maple's DIY tracker) — determines which MCP tool / API this command calls |
+| `errorTracker.sentryProject` | **none — required** | Sentry org/project identity, or the maplelens tenant/project id |
+| `errorTracker.endpoint` | **none** | For `provider: "sentry"`: the region URL (e.g. `https://de.sentry.io`) — pass it on every Sentry call. For `provider: "maplelens"`: the tracker's API base URL. |
 | `errorTracker.query` | `"is:unresolved"` | default issue-search query; `$ARGUMENTS` overrides |
 | `errorTracker.livePreviewUrl` | **none** | base URL to verify a fix went live (T3/T4) — e.g. `https://dev.example.com` |
-| `ci.tiers.t1` | `["npx eslint --cache .", "npx tsc --noEmit", "npm run build"]` | pre-commit commands (array, run in order) |
-| `ci.tiers.t2.pushCommand` | `"git push origin HEAD"` | how a fix commit gets pushed |
-| `ci.tiers.t2.ciWatchCommand` | `""` (skip if empty) | e.g. `"gh run watch"` — a command that blocks until CI is green/red for the just-pushed commit |
-| `ci.tiers.t3.deployUrlTemplate` | `""` (skip tier if empty) | e.g. `"{livePreviewUrl}/{page}"` — `{livePreviewUrl}`, `{page}`, `{sha}` substituted |
-| `ci.tiers.t3.waitSeconds` | `20` | poll interval while waiting for the deployed bundle to flip |
-| `ci.tiers.t4.enabled` | `true` | browser console/network check — uses whatever browser automation is available in the session (Claude Browser tools, or a Playwright MCP if configured) |
-| `ci.tiers.t5.waitMinutes` | `8` | wait after T3 deploy before rechecking the tracker for new events |
+| `errorTracker.verification.t1` | `["npx eslint --cache .", "npx tsc --noEmit", "npm run build"]` | pre-commit commands (array, run in order) |
+| `errorTracker.verification.t2.pushCommand` | `"git push origin HEAD"` | how a fix commit gets pushed |
+| `errorTracker.verification.t2.ciWatchCommand` | `""` (skip if empty) | e.g. `"gh run watch"` — a command that blocks until CI is green/red for the just-pushed commit |
+| `errorTracker.verification.t3.deployUrlTemplate` | `""` (skip tier if empty) | e.g. `"{livePreviewUrl}/{page}"` — `{livePreviewUrl}`, `{page}`, `{sha}` substituted |
+| `errorTracker.verification.t3.waitSeconds` | `20` | poll interval while waiting for the deployed bundle to flip |
+| `errorTracker.verification.t4.enabled` | `true` | browser console/network check — uses whatever browser automation is available in the session (Claude Browser tools, or a Playwright MCP if configured) |
+| `errorTracker.verification.t5.waitMinutes` | `8` | wait after T3 deploy before rechecking the tracker for new events |
 
-No error-tracker MCP tool configured for `errorTracker.kind`? Say so up
+No error-tracker MCP tool configured for `errorTracker.provider`? Say so up
 front and stop — don't guess at a tool name; MCP server ids are
-per-installation and can't be hardcoded here.
+per-installation and can't be hardcoded here. Malformed config? Run
+`node "$CLAUDE_PLUGIN_ROOT/scripts/validate-config.mjs"`.
 
 ## Arguments
 
@@ -40,9 +46,9 @@ Default: `errorTracker.query` (`is:unresolved` — no environment filter;
 
 ### 1. Fetch + cluster
 
-Query the configured tracker (`errorTracker.kind`) for
-`errorTracker.org` / `errorTracker.project` (pass `errorTracker.endpoint` on
-every call where the tool requires it — e.g. Sentry's region URL), query =
+Query the configured tracker (`errorTracker.provider`) for
+`errorTracker.sentryProject` (pass `errorTracker.endpoint` on every call
+where the tool requires it — e.g. Sentry's region URL), query =
 `$ARGUMENTS` or `errorTracker.query`, sorted by frequency, limit ~25.
 
 If no issues, report "No unresolved issues." and stop.
@@ -84,14 +90,14 @@ For each cluster, ask: **approve / deny / stale / change [instructions]**
 Run the **verification ladder** sequentially. Halt on the first failing
 tier; do not advance to marking the issue resolved in the tracker.
 
-**T1 — Pre-commit (always).** Run each command in `ci.tiers.t1` in order.
+**T1 — Pre-commit (always).** Run each command in `errorTracker.verification.t1` in order.
 Halt + revert the edit if any fails.
 
 **T2 — Push + CI gate.**
 ```bash
 git add <files> && git commit -m "fix(heal): <ID> — <brief>"
-<ci.tiers.t2.pushCommand>
-<ci.tiers.t2.ciWatchCommand>   # only if configured — blocks until CI resolves
+<errorTracker.verification.t2.pushCommand>
+<errorTracker.verification.t2.ciWatchCommand>   # only if configured — blocks until CI resolves
 ```
 
 **On CI red — up to 2 retries when the diagnosis is concrete:**
@@ -111,24 +117,24 @@ git add <files> && git commit -m "fix(heal): <ID> — <brief>"
 5. The tracker issue stays unresolved while CI is red. Do not advance to T3-T5.
 6. Never revert/reset/force-push to "clean up" CI. Forward fixes only.
 
-**T3 — Deploy live (skip if `ci.tiers.t3.deployUrlTemplate` is empty).**
+**T3 — Deploy live (skip if `errorTracker.verification.t3.deployUrlTemplate` is empty).**
 ```bash
 TARGET_SHA=$(git rev-parse --short HEAD)
 until curl -fsS "<deployUrlTemplate with {sha}/{page} substituted>" | grep -q "$TARGET_SHA"; do
-  sleep <ci.tiers.t3.waitSeconds>
+  sleep <errorTracker.verification.t3.waitSeconds>
 done
 # per-cluster marker: each fix declares what should appear in the response HTML
 curl -fsS "<deployUrlTemplate>" | grep -E '<expected-marker>'
 ```
 Halt if the expected marker doesn't show up.
 
-**T4 — Browser check (skip if `ci.tiers.t4.enabled` is false).** Using
+**T4 — Browser check (skip if `errorTracker.verification.t4.enabled` is false).** Using
 whatever browser automation is available this session: navigate to the
 affected page under `errorTracker.livePreviewUrl`, read console messages
 (filter errors) and network requests (look for 4xx/5xx on the affected
 endpoint). If any console error matches the original tracker message → halt.
 
-**T5 — Tracker recheck.** Wait `ci.tiers.t5.waitMinutes` after the T3
+**T5 — Tracker recheck.** Wait `errorTracker.verification.t5.waitMinutes` after the T3
 deploy, then re-query the tracker scoped to this issue + a short recent
 window.
 - 0 new events → mark every issue in the cluster resolved in the tracker.

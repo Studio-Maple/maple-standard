@@ -14,12 +14,13 @@
 #
 # Ported + generalized from VeHagita's scripts/agent-wt/vh-reap.sh
 # (D085 / #T070 there). Config: see maple-lib.sh header + plugin/README.md.
-#   worktree.reap.staleHours   default 24
+# CANONICAL key (docs/standard-architecture.md; reconciled #T11):
+#   worktrees.reap.staleHours   default 24
 
 set -euo pipefail
 . "$(dirname "$0")/maple-lib.sh"
 
-DEFAULT_STALE="$(maple_cfg worktree.reap.staleHours 24)"
+DEFAULT_STALE="$(maple_cfg worktrees.reap.staleHours 24)"
 DRY=false FORCE=false STALE_HOURS="${MAPLE_STALE_HOURS:-$DEFAULT_STALE}"
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -94,6 +95,6 @@ while IFS= read -r b; do
   else
     maple_log "keeping unmerged orphan branch $b (idle $(branch_idle_hours "$b")h)"; kept=$((kept+1))
   fi
-done < <(git for-each-ref --format='%(refname:short)' "refs/heads/${MAPLE_BRANCH_PREFIX}*")
+done < <(git for-each-ref --format='%(refname:short)' "refs/heads/${MAPLE_NAME_PREFIX}*${MAPLE_NAME_SUFFIX}")
 
 maple_ok "reap done — ${reaped} removed, ${kept} kept$([ "$DRY" = true ] && echo ' (dry-run)')"

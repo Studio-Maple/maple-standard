@@ -19,26 +19,34 @@
 // Tiers (each cheaper tier short-circuits before the next):
 //   0. kill switch / re-entrancy guard          (env)
 //   1. deny-once accounting                      (temp state file)
-//   2. retrieval: any matching docs material?    (exact-ID grep + optional
-//      full-corpus BM25 via a project-local doc-search script — falls back
-//      to a keyword line-grep if that script is absent/errors) — else ALLOW
+//   2. retrieval: any matching docs material?    (exact-ID grep + full-corpus
+//      BM25 via the plugin's own bundled doc-search — falls back to the
+//      line-grep signal alone if the bundled module errors) — else ALLOW
 //   3. Layer A protocol gate: docs not checked?  (transcript scan) -> NUDGE
 //   4. Layer C semantic judge: headless small model (only if A passed) -> NUDGE?
 //
 // Fail-open everywhere: any error/timeout/missing-binary -> ALLOW. A buggy
 // gate must never prevent the agent from asking the user.
 //
-// maple.config.json keys (all optional):
-//   docs.decisionsFile   default "docs/decisions.md"
-//   docs.tasksFile       default "docs/tasks.md"
-//   docs.gapsFile        default "docs/gaps.md"
-//   docs.searchScript    default "scripts/doc-search/search.mjs" — an optional
-//                        project-local BM25 searcher exporting
-//                        { buildIndex(), relevanceSignal(text, index),
-//                        search(text, n, index) }. Absent (the common case
-//                        for a non-template project) -> this hook silently
-//                        falls back to the line-grep signal below; it is
-//                        NOT bundled with this plugin.
+// maple.config.json keys (all optional) — CANONICAL docs.* keys per
+// docs/standard-architecture.md, read via plugin/scripts/docs/lib/config.mjs
+// (docs/decisions.md D002-D011, reconciled docs/tasks.md #T11/#T12 — this
+// hook used to read its own invented decisionsFile/tasksFile/gapsFile/
+// searchScript key set; retired, one key set now):
+//   docs.decisions   default "docs/decisions.md"
+//   docs.tasks       default "docs/tasks.md"
+//   docs.gaps        default "docs/gaps.md"
+//   docs.root        default "docs" — used only for the "docs already
+//                    checked this session?" transcript heuristic (Layer A)
+//
+// BM25 retrieval uses the plugin's OWN bundled doc-search
+// (plugin/scripts/docs/doc-search/search.mjs, #T13) directly — no project
+// config key for it anymore (the old `docs.searchScript` — an optional
+// project-local searcher — is retired; every project gets BM25 retrieval
+// for free now). chunkDocs()/buildIndex() are called with the ROOT this
+// hook already resolved from the payload (see PROJECT ROOT note below),
+// not left to fall back to cwd (#T12 hardening — see doc-search/search.mjs's
+// former "NOTE" comment on this, now resolved).
 //
 // Env config (unchanged from the template original):
 //   ASK_GATE_DISABLE=1            turn the gate off entirely
@@ -58,9 +66,10 @@
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
+import { resolveDocsConfig } from '../scripts/docs/lib/config.mjs';
+import * as docSearch from '../scripts/docs/doc-search/search.mjs';
 
 const DISABLED = process.env.ASK_GATE_DISABLE === '1';
 const REENTRANT = process.env.ASK_GATE_JUDGE === '1';
@@ -103,26 +112,20 @@ const nudge = (msg) => {
 
 // ---- config -----------------------------------------------------------------
 
-function loadMapleConfig(root) {
-  try {
-    return JSON.parse(readFileSync(join(root, 'maple.config.json'), 'utf8'));
-  } catch {
-    return {};
-  }
-}
-
+// Canonical docs.* resolution (docs/standard-architecture.md, #T11/#T12) —
+// resolveDocsConfig() returns every path already resolved to ABSOLUTE
+// against `root`, so downstream readers use them as-is (no more re-joining
+// against root with a relative path, which is what the old decisionsFile/
+// tasksFile/gapsFile key set assumed).
 function docsConfig(root) {
-  const cfg = loadMapleConfig(root)?.docs ?? {};
-  const decisionsFile = cfg.decisionsFile || 'docs/decisions.md';
-  const tasksFile = cfg.tasksFile || 'docs/tasks.md';
-  const gapsFile = cfg.gapsFile || 'docs/gaps.md';
-  const searchScript = cfg.searchScript || 'scripts/doc-search/search.mjs';
+  const resolved = resolveDocsConfig(root);
+  const rel = (abs) => relative(root, abs).replace(/\\/g, '/');
   return {
-    searchScript,
+    docsRootRel: rel(resolved.root) || 'docs',
     DOCS: [
-      { path: decisionsFile, tag: `${decisionsFile} (decisions — D###)` },
-      { path: tasksFile, tag: `${tasksFile} (tracked work — #T###)` },
-      { path: gapsFile, tag: `${gapsFile} (flagged unknowns)` },
+      { path: resolved.decisions, tag: `${rel(resolved.decisions)} (decisions — D###)` },
+      { path: resolved.tasks, tag: `${rel(resolved.tasks)} (tracked work — #T###)` },
+      { path: resolved.gaps, tag: `${rel(resolved.gaps)} (flagged unknowns)` },
     ],
   };
 }
@@ -161,19 +164,19 @@ function extractTerms(text) {
   return { ids: [...ids], words: [...words].slice(0, 30) };
 }
 
-function loadDoc(root, rel) {
+function loadDoc(absPath) {
   try {
-    return readFileSync(join(root, rel), 'utf8');
+    return readFileSync(absPath, 'utf8');
   } catch {
     return '';
   }
 }
 
-function retrieve(root, docs, terms) {
+function retrieve(docs, terms) {
   const records = [];
   let idMatch = false;
   for (const { path } of docs) {
-    const content = loadDoc(root, path);
+    const content = loadDoc(path);
     if (!content) continue;
     const lines = content.split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
@@ -205,19 +208,21 @@ function retrieve(root, docs, terms) {
   return { hitCount: records.length, idMatch, excerpt, hitDocs };
 }
 
-// Full-corpus BM25 signal via an OPTIONAL project-local doc-search script
-// (maple.config.json docs.searchScript). Not bundled with this plugin — most
-// adopting projects won't have one, and that's fine: any error/absence just
-// means bm25Signal returns null and the caller falls back to the line-grep
-// signal from retrieve() above.
-async function bm25Signal(root, searchScriptRel, text) {
+// Full-corpus BM25 signal via the plugin's own BUNDLED doc-search
+// (plugin/scripts/docs/doc-search/search.mjs, #T13) — statically imported
+// above, so this always runs (no more "optional project-local script,
+// absent for most adopters"). `root` is the SAME project root this hook
+// already resolved from the payload (see main()) and is threaded all the
+// way through to chunkDocs()/buildIndex() — fixes the #T12-flagged gap
+// where this used to call buildIndex() with no root, leaving it to fall
+// back to CLAUDE_PROJECT_DIR/cwd instead of the payload-resolved root.
+async function bm25Signal(root, text) {
   try {
-    const abs = join(root, searchScriptRel);
-    const mod = await import(pathToFileURL(abs).href);
-    const index = mod.buildIndex();
-    const sig = mod.relevanceSignal(text, index);
+    const chunks = docSearch.chunkDocs(root);
+    const index = docSearch.buildIndex(chunks);
+    const sig = docSearch.relevanceSignal(text, index);
     if (!sig) return null;
-    const top = mod.search(text, 6, index);
+    const top = docSearch.search(text, 6, index);
     let excerpt = '';
     const hitDocs = [];
     for (const r of top) {
@@ -393,8 +398,7 @@ async function main(raw) {
   if (!Array.isArray(questions) || questions.length === 0) return allow();
 
   const ROOT = payload?.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
-  const { DOCS, searchScript } = docsConfig(ROOT);
-  const docsRoot = DOCS[0].path.split('/')[0] || 'docs';
+  const { DOCS, docsRootRel } = docsConfig(ROOT);
 
   const sessionId = payload?.session_id || 'default';
   const transcriptPath = payload?.transcript_path || '';
@@ -404,14 +408,14 @@ async function main(raw) {
 
   const qText = questionsText(questions);
   const terms = extractTerms(qText);
-  const hit = retrieve(ROOT, DOCS, terms);
-  const bm = await bm25Signal(ROOT, searchScript, qText);
+  const hit = retrieve(DOCS, terms);
+  const bm = await bm25Signal(ROOT, qText);
   const relevant = hit.idMatch || (bm ? bm.idfCoverage >= COVERAGE_RELEVANT : hit.hitCount >= 2);
   dbg('hitCount=', String(hit.hitCount), 'idMatch=', String(hit.idMatch),
     'idfCoverage=', String(bm?.idfCoverage ?? 'n/a'), 'bmAnchor=', String(bm?.anchor ?? 'n/a'));
   if (!relevant) return allow(); // docs say nothing about this — ask freely.
 
-  const checked = docsCheckedInSession(transcriptPath, docsRoot);
+  const checked = docsCheckedInSession(transcriptPath, docsRootRel);
   dbg('checked=', String(checked));
 
   const strong = hit.idMatch || (bm ? bm.idfCoverage >= COVERAGE_STRONG : hit.hitCount >= STRONG_LINE);
@@ -424,7 +428,7 @@ async function main(raw) {
         `this session hasn't read them yet and they contain matching material ` +
         `(${where.join(', ')}).\n` +
         `  Grep or read the docs for: ${kw}\n` +
-        DOCS.map((d) => `    - ${d.path}  — ${d.tag}`).join('\n') +
+        DOCS.map((d) => `    - ${d.tag}`).join('\n') +
         `\n  If the answer is there, act on it and CITE it instead of asking. ` +
         `If it's genuinely unresolved after checking, ask again — this gate allows the re-ask.`
     );

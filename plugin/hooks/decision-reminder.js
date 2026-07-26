@@ -12,9 +12,22 @@
  * The capture itself is done by the agent. This hook just makes forgetting
  * loud. Non-blocking (exit 0).
  *
- * maple.config.json keys (all optional):
- *   docs.decisionsFile       default "docs/decisions.md"
- *   docs.idAllocatorScript   default "scripts/next-task-id.mjs" (guidance text only)
+ * maple.config.json keys (all optional) — CANONICAL docs.* key per
+ * docs/standard-architecture.md (docs/decisions.md D002-D011, reconciled
+ * docs/tasks.md #T11/#T12 — this hook used to read its own invented
+ * `docs.decisionsFile` / `docs.idAllocatorScript` keys; retired, one key
+ * set now). This file is CommonJS (plugin/README.md's plugin.json has no
+ * "type": "module", so .js here is CJS) while the canonical resolver
+ * (plugin/scripts/docs/lib/config.mjs) is ESM — rather than an async
+ * dynamic import() to bridge module systems, this MIRRORS that module's
+ * DOCS_DEFAULTS + resolution logic inline (same defaults, same lookup
+ * order), per docs/tasks.md #T12's explicit "use config.mjs or mirror its
+ * logic" allowance:
+ *   docs.decisions   default "docs/decisions.md"
+ *
+ * The next-task-id allocator is always the plugin's own bundled copy now
+ * (plugin/scripts/docs/next-task-id.mjs, #T13) — no more
+ * `docs.idAllocatorScript` config key, it's just referenced directly below.
  *
  * PROJECT ROOT: the hook payload's own `cwd` field (falling back to
  * $CLAUDE_PROJECT_DIR, then process.cwd()) — not __dirname, which resolves
@@ -51,8 +64,9 @@ try {
   const transcriptPath = payload.transcript_path || "";
   const ROOT = payload.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const cfg = loadMapleConfig(ROOT);
-  const decisionsFile = cfg?.docs?.decisionsFile || "docs/decisions.md";
-  const idAllocatorScript = cfg?.docs?.idAllocatorScript || "scripts/next-task-id.mjs";
+  const decisionsFile = cfg?.docs?.decisions || "docs/decisions.md";
+  // The plugin's own bundled allocator (#T13) — no config key anymore.
+  const idAllocatorScript = '"$CLAUDE_PLUGIN_ROOT/scripts/docs/next-task-id.mjs"';
 
   let decisionsTouched = false;
   try {

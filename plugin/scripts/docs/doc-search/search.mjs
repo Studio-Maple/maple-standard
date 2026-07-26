@@ -49,14 +49,11 @@ function* walkMd(dir) {
 /**
  * Resolve the project root + docs.* paths this corpus reads from.
  *
- * NOTE: `buildIndex()`/`chunkDocs()` are called with no `root` argument by
- * plugin/hooks/ask-gate.mjs's `bm25Signal()` (it resolves ROOT itself for
- * the dynamic `import()` path but doesn't thread it through to the
- * exported functions) — so for a caller like that, this falls back to
- * `defaultRoot()` (CLAUDE_PROJECT_DIR or process.cwd()), which in practice
- * matches the invoking project's root but isn't guaranteed to. Threading
- * an explicit root through ask-gate.mjs is tracked as a follow-up (#T12
- * hook-hardening scope), not done here.
+ * `root` defaults to `defaultRoot()` (CLAUDE_PROJECT_DIR or process.cwd())
+ * for direct/CLI callers, but plugin/hooks/ask-gate.mjs's `bm25Signal()`
+ * (#T12 hardening) now threads the payload-resolved project root through
+ * explicitly on every call — `chunkDocs(ROOT)` / `buildIndex(chunks)` —
+ * rather than relying on this fallback.
  */
 export function resolveCorpus(root = defaultRoot()) {
   const ROOT = root;

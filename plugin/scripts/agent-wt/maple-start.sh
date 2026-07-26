@@ -49,7 +49,7 @@ maple_log "creating worktree $DIR on $BRANCH (base: $BASE)"
 git worktree add -b "$BRANCH" "$DIR" "$BASE" >&2
 
 if $FRESH_DEPS; then
-  FRESH_CMD="$(maple_cfg worktree.freshDepsCommand 'npm ci')"
+  FRESH_CMD="$(maple_cfg worktrees.freshDepsCommand 'npm ci')"
   maple_log "installing fresh deps ($FRESH_CMD)"
   ( cd "$DIR" && eval "$FRESH_CMD" ) >&2 || maple_warn "fresh-deps command failed"
 else

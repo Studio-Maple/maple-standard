@@ -12,13 +12,18 @@ agent's own checkout.
 
 ## Config this command reads (`maple.config.json` at project root)
 
+Canonical keys per `docs/standard-architecture.md` (reconciled #T11):
+
 | Key | Default |
 |---|---|
-| `worktree.preview.port` | `8080` |
-| `worktree.preview.workdir` | `"."` (dir, relative to the worktree root, to run the dev command in) |
-| `worktree.preview.command` | `"npm run dev -- --port {port} --host 127.0.0.1"` — `{port}` is substituted |
-| `worktree.preview.logFile` | `".preview-dev.log"` (relative to the preview worktree) |
-| `worktree.nodeModulesDirs` / `worktree.envFiles` | same as `/wt-start` — linked into the preview worktree too |
+| `worktrees.preview.port` | `8080` |
+| `worktrees.preview.workdir` | `"."` (dir, relative to the worktree root, to run the dev command in) |
+| `worktrees.preview.command` | `"npm run dev -- --port {port} --host 127.0.0.1"` — `{port}` is substituted |
+| `worktrees.preview.logFile` | `".preview-dev.log"` (relative to the preview worktree) |
+| `worktrees.nodeModulesDirs` / `worktrees.envFiles` | same as `/wt-start` — linked into the preview worktree too |
+
+Malformed config? Run
+`node "$CLAUDE_PLUGIN_ROOT/scripts/validate-config.mjs"`.
 
 ## Arguments
 
@@ -39,7 +44,7 @@ another branch by re-running with a different slug; stop with
 ## Gap vs. the VeHagita original
 
 The source command hardcoded `cd frontend && npm run dev -- --port N --host
-127.0.0.1`. This version runs `worktree.preview.command` (with `{port}`
-substituted) from `worktree.preview.workdir` — generic, but **the adopting
+127.0.0.1`. This version runs `worktrees.preview.command` (with `{port}`
+substituted) from `worktrees.preview.workdir` — generic, but **the adopting
 project must configure its own dev command** if it isn't a plain `npm run
 dev` at the repo root.

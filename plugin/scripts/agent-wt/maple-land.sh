@@ -6,7 +6,7 @@
 #
 #   1. rebases the branch onto the freshest origin/<targetBranch>,
 #   2. runs the configured gate command for --tier (maple.config.json
-#      worktree.gate.tiers.<tier>; default tier worktree.gate.defaultTier),
+#      ci.tiers.<tier>; default tier ci.prePushTier),
 #   3. pushes HEAD:<targetBranch> (a guaranteed fast-forward, because nothing
 #      else could have advanced the target while we held the lock),
 #   4. prunes the worktree + branch.
@@ -16,17 +16,19 @@
 #
 # Ported + generalized from VeHagita's scripts/agent-wt/vh-land.sh
 # (D085 / #T070 there). Config: see maple-lib.sh header + plugin/README.md.
-#   worktree.gate.defaultTier   default "gate"
-#   worktree.gate.tiers.<name>  shell command string to run as the gate for
-#                               that tier — e.g. {"fast": "npm run ci:fast",
-#                               "gate": "npm run ci:gate"}. No default: if a
-#                               tier has no configured command, maple-land
-#                               refuses to land ungated rather than guess.
+# CANONICAL keys (docs/standard-architecture.md; reconciled #T11 — this used
+# to read an invented `worktree.gate.*` block, now retired):
+#   ci.prePushTier   default "gate"
+#   ci.tiers.<name>  shell command string to run as the gate for that tier —
+#                    e.g. {"fast": "npm run ci:fast", "gate": "npm run
+#                    ci:gate"}. No default: if a tier has no configured
+#                    command, maple-land refuses to land ungated rather than
+#                    guess.
 
 set -euo pipefail
 . "$(dirname "$0")/maple-lib.sh"
 
-DEFAULT_TIER="$(maple_cfg worktree.gate.defaultTier gate)"
+DEFAULT_TIER="$(maple_cfg ci.prePushTier gate)"
 TIER="$DEFAULT_TIER" KEEP=false PUSH=true
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -39,17 +41,15 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-GATE_CMD="$(maple_cfg "worktree.gate.tiers.$TIER" '')"
+GATE_CMD="$(maple_cfg "ci.tiers.$TIER" '')"
 if [ -z "$GATE_CMD" ]; then
-  maple_die "no gate command configured for tier '$TIER' (maple.config.json worktree.gate.tiers.$TIER). Refusing to land ungated — configure a command, or pass --tier for one that has one."
+  maple_die "no gate command configured for tier '$TIER' (maple.config.json ci.tiers.$TIER). Refusing to land ungated — configure a command, or pass --tier for one that has one. If maple.config.json itself looks wrong, run: node \"\$CLAUDE_PLUGIN_ROOT/scripts/validate-config.mjs\""
 fi
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-case "$BRANCH" in
-  "$MAPLE_BRANCH_PREFIX"*) ;;
-  *) maple_die "not on an agent branch (HEAD=$BRANCH). maple-land runs from inside a maple-start worktree." ;;
-esac
-SLUG="${BRANCH#"$MAPLE_BRANCH_PREFIX"}"
+maple_is_agent_branch "$BRANCH" \
+  || maple_die "not on an agent branch (HEAD=$BRANCH, expected pattern '$MAPLE_NAME_PATTERN'). maple-land runs from inside a maple-start worktree."
+SLUG="$(maple_slug_from_branch "$BRANCH")"
 WT_DIR="$(git rev-parse --show-toplevel)"
 
 # Clean tree required — uncommitted work means the session isn't done.

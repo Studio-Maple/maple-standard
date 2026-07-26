@@ -87,7 +87,7 @@ Errors block the pre-push gate — drive them to zero. Warnings are review
 signals; clear the ones in scope.
 
 ### 5. CHANGELOG
-Add an entry under `[Unreleased]` in `docs.changelogFile` for any behavior
+Add an entry under `[Unreleased]` in `docs.changelog` for any behavior
 change you documented (Features / Fixes / Refactoring / Docs).
 
 ### 6. Approval (do NOT self-declare done)

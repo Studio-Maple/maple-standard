@@ -9,16 +9,18 @@
 #
 # Ported + generalized from VeHagita's scripts/agent-wt/vh-preview.sh
 # (D085 / #T070 there). Config: see maple-lib.sh header + plugin/README.md.
-#   worktree.preview.port      default 8080
-#   worktree.preview.workdir   default "."  (dir, relative to worktree root, to run the dev command in)
-#   worktree.preview.command   default "npm run dev -- --port {port} --host 127.0.0.1"
-#                               "{port}" is substituted with the resolved port.
-#   worktree.preview.logFile   default ".preview-dev.log" (relative to the preview worktree)
+# CANONICAL keys (docs/standard-architecture.md; reconciled #T11 — nested
+# under the schema's `worktrees.*` block, not an invented top-level one):
+#   worktrees.preview.port      default 8080
+#   worktrees.preview.workdir   default "."  (dir, relative to worktree root, to run the dev command in)
+#   worktrees.preview.command   default "npm run dev -- --port {port} --host 127.0.0.1"
+#                                "{port}" is substituted with the resolved port.
+#   worktrees.preview.logFile   default ".preview-dev.log" (relative to the preview worktree)
 
 set -euo pipefail
 . "$(dirname "$0")/maple-lib.sh"
 
-DEFAULT_PORT="$(maple_cfg worktree.preview.port 8080)"
+DEFAULT_PORT="$(maple_cfg worktrees.preview.port 8080)"
 SLUG="" PORT="$DEFAULT_PORT" STOP=false
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -31,7 +33,7 @@ while [ $# -gt 0 ]; do
 done
 
 PREVIEW_DIR="$(maple_dir_for "$MAPLE_PREVIEW_NAME")"
-LOG_REL="$(maple_cfg worktree.preview.logFile '.preview-dev.log')"
+LOG_REL="$(maple_cfg worktrees.preview.logFile '.preview-dev.log')"
 LOG="$PREVIEW_DIR/$LOG_REL"
 
 if $STOP; then
@@ -57,9 +59,9 @@ fi
 maple_link_node_modules "$PREVIEW_DIR"
 maple_link_env_files "$PREVIEW_DIR"
 
-WORKDIR_REL="$(maple_cfg worktree.preview.workdir '.')"
+WORKDIR_REL="$(maple_cfg worktrees.preview.workdir '.')"
 WORKDIR="$PREVIEW_DIR/$WORKDIR_REL"
-CMD_TEMPLATE="$(maple_cfg worktree.preview.command 'npm run dev -- --port {port} --host 127.0.0.1')"
+CMD_TEMPLATE="$(maple_cfg worktrees.preview.command 'npm run dev -- --port {port} --host 127.0.0.1')"
 CMD="${CMD_TEMPLATE//\{port\}/$PORT}"
 
 # One server only: free the port, then (re)start against the preview worktree.

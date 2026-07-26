@@ -16,14 +16,25 @@
  * Non-blocking by design (always exit 0): semantic drift is a review
  * signal, not a hard stop.
  *
- * maple.config.json keys (all optional):
+ * maple.config.json keys (all optional) — CANONICAL docs.* keys per
+ * docs/standard-architecture.md (docs/decisions.md D002-D011, reconciled
+ * docs/tasks.md #T11/#T12 — this hook used to read its own invented
+ * `docs.indexFile` / `docs.changelogFile` keys; `docsIndexJson` is now the
+ * one canonical name for the JSON index, shared with the bundled docs
+ * tooling in plugin/scripts/docs/, one key set, no aliases). This file is
+ * CommonJS while plugin/scripts/docs/lib/config.mjs (the canonical
+ * resolver) is ESM — this MIRRORS that module's defaults/lookup order
+ * inline rather than an async import() across module systems, per
+ * docs/tasks.md #T12's "use config.mjs or mirror its logic" allowance:
  *   docs.root            default "docs"
- *   docs.indexFile        default "docs/.docs-index.json"
- *   docs.changelogFile    default "CHANGELOG.md"
+ *   docs.docsIndexJson   default "docs/.docs-index.json"
+ *   docs.changelog       default "CHANGELOG.md" (plugin extension — not in
+ *                        the canonical schema itself, nested under the same
+ *                        canonical `docs.*` block; see plugin/README.md)
  *
- * No docs.indexFile present yet (a project that hasn't run /adopt-standard's
- * index-generation step)? This hook simply has nothing to reverse-map and
- * stays silent — it does not error.
+ * No docs.docsIndexJson present yet (a project that hasn't run
+ * /adopt-standard's index-generation step)? This hook simply has nothing to
+ * reverse-map and stays silent — it does not error.
  *
  * PROJECT ROOT: the hook payload's own `cwd` field (falling back to
  * $CLAUDE_PROJECT_DIR, then process.cwd()) — not __dirname, which resolves
@@ -54,8 +65,8 @@ try {
   const ROOT = payload.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const cfg = loadMapleConfig(ROOT);
   const docsRoot = (cfg?.docs?.root || "docs").replace(/[/\\]+$/, "");
-  const indexFile = cfg?.docs?.indexFile || `${docsRoot}/.docs-index.json`;
-  const changelogFile = cfg?.docs?.changelogFile || "CHANGELOG.md";
+  const indexFile = cfg?.docs?.docsIndexJson || `${docsRoot}/.docs-index.json`;
+  const changelogFile = cfg?.docs?.changelog || "CHANGELOG.md";
 
   const porcelain = execSync("git status --porcelain", {
     cwd: ROOT,
