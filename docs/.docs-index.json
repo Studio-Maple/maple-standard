@@ -1,5 +1,5 @@
 {
-  "generated": "2026-07-25",
+  "generated": "2026-07-26",
   "generator": "plugin/scripts/docs/generate-docs-index.mjs",
   "description": "Machine-readable map of docs/**/*.md preambles (OKF v0.1 frontmatter or legacy prose — docs/decisions.md D010). Regenerate after any preamble/description change: run this script (or check-docs-drift.mjs --fix).",
   "files": [
@@ -80,7 +80,7 @@
       "path": "docs/maplelens.md",
       "title": "MapleLens — generalizing the DIY error tracker",
       "topic": "root",
-      "audience": "anyone extracting shared code from VeHagita's tracker, or deploying a new per-app instance",
+      "audience": "anyone deploying a new per-app MapleLens instance, or auditing what the extraction shipped",
       "authoritative_for": [
         "what's shared vs. per-instance",
         "the deployment story per app",
@@ -89,11 +89,10 @@
       "anchor_type": "reference_for",
       "anchor_paths": [],
       "related": [
-        "tasks",
         "decisions",
+        "rollout",
         "standard-architecture",
-        "loop-pack",
-        "rollout"
+        "loop-pack"
       ]
     },
     {
