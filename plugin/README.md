@@ -119,6 +119,26 @@ branch falls back to the origin's detected default branch
 | `ci.tiers.<name>` | **none** | shell command string run as the gate for that tier (conventionally `fast`/`gate`/`core`/`full`) — **required** for any tier you invoke; `/wt-land` refuses to land ungated rather than guess. Replaces the old invented `worktree.gate.tiers.<name>` key. |
 | `ci.prePushTier` | `"gate"` | which tier `/wt-land` runs with no `--tier`. Replaces the old `worktree.gate.defaultTier`. |
 
+### `lint.*` / `sizeCaps.*` — reserved, not yet read by any bundled plugin code
+
+Both blocks are schema-legal (`plugin/schema/maple.config.schema.json`) and
+validated (`validate-config.mjs`), but **no script or hook in this plugin
+reads them today** — being honest about that here rather than implying a
+consumer exists. They're reserved for **this template's own** project-local
+enforcement, not the plugin: `lint.roots`/`lint.maxWarnings` for a future
+generic lint-runner equivalent to this repo's own `eslint.config.mjs`, and
+`sizeCaps.hook`/`.component`/`.service`/`.route` for a future generic
+equivalent to this repo's own `.claude/hooks/size-warning.js` (which today
+hardcodes its caps rather than reading this block). Wiring either up is
+real, separate work — not invented ad hoc here — should a project need a
+config-driven version of what this template's own hooks do inline:
+
+| Key | Default | Notes |
+|---|---|---|
+| `lint.roots` | **none** | array of path-shaped strings — reserved |
+| `lint.maxWarnings` | **none** | non-negative integer — reserved |
+| `sizeCaps.hook` / `.component` / `.service` / `.route` | **none** | positive integers — reserved |
+
 ### `docs.*` — used by `/sync-docs`, `/adopt-standard`, the bundled docs tooling, and the docs-aware hooks
 
 | Key | Default | Notes |
