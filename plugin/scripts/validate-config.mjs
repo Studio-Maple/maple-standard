@@ -300,7 +300,7 @@ export function validateConfig(config) {
     if (!isPlainObject(config.loops)) {
       errors.push("loops: must be an object");
     } else {
-      checkNoExtraKeys(config.loops, ["enabled", "budgetPerCycle"], "loops", errors);
+      checkNoExtraKeys(config.loops, ["enabled", "budgetPerCycle", "weights", "cooldownCycles", "sessionCap"], "loops", errors);
       if (config.loops.enabled !== undefined) {
         if (!isStringArray(config.loops.enabled)) errors.push("loops.enabled: must be an array of strings");
         else {
@@ -316,6 +316,31 @@ export function validateConfig(config) {
           checkNoExtraKeys(b, ["turns", "minutes"], "loops.budgetPerCycle", errors);
           if (b.turns !== undefined && !isIntMin(b.turns, 1)) errors.push("loops.budgetPerCycle.turns: must be a positive integer");
           if (b.minutes !== undefined && !isIntMin(b.minutes, 1)) errors.push("loops.budgetPerCycle.minutes: must be a positive integer");
+        }
+      }
+      // ---- loops.weights / .cooldownCycles / .sessionCap (plugin extensions,
+      // docs/tasks.md #T8 — pick-loop.mjs / budget.mjs) --------------------------
+      if (config.loops.weights !== undefined) {
+        if (!isPlainObject(config.loops.weights)) {
+          errors.push("loops.weights: must be an object");
+        } else {
+          for (const [name, w] of Object.entries(config.loops.weights)) {
+            if (!LOOP_NAMES.includes(name)) errors.push(`loops.weights: "${name}" is not one of ${JSON.stringify(LOOP_NAMES)}`);
+            if (!isIntMin(w, 1)) errors.push(`loops.weights.${name}: must be a positive integer`);
+          }
+        }
+      }
+      if (config.loops.cooldownCycles !== undefined && !isIntMin(config.loops.cooldownCycles, 0)) {
+        errors.push("loops.cooldownCycles: must be a non-negative integer");
+      }
+      if (config.loops.sessionCap !== undefined) {
+        const sc = config.loops.sessionCap;
+        if (!isPlainObject(sc)) {
+          errors.push("loops.sessionCap: must be an object");
+        } else {
+          checkNoExtraKeys(sc, ["cycles", "hours"], "loops.sessionCap", errors);
+          if (sc.cycles !== undefined && !isIntMin(sc.cycles, 1)) errors.push("loops.sessionCap.cycles: must be a positive integer");
+          if (sc.hours !== undefined && !isIntMin(sc.hours, 1)) errors.push("loops.sessionCap.hours: must be a positive integer");
         }
       }
     }

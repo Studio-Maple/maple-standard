@@ -184,6 +184,25 @@
             "turns": { "type": "integer", "minimum": 1 },
             "minutes": { "type": "integer", "minimum": 1 }
           }
+        },
+        "weights": {
+          "type": "object",
+          "description": "plugin extension (docs/tasks.md #T8) — loop name -> pick-loop.mjs round-robin weight, default 1 for every enabled loop. Object keys are validated against the loops.enabled name set by validate-config.mjs (JSON Schema alone can't express that cross-check).",
+          "additionalProperties": { "type": "integer", "minimum": 1 }
+        },
+        "cooldownCycles": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "plugin extension (docs/tasks.md #T8) — how many ledger cycles a loop that just reported \"quiet\" is skipped for by pick-loop.mjs. Default 3; 0 disables cooldown."
+        },
+        "sessionCap": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "plugin extension (docs/tasks.md #T8) — /dev-burner's optional global budget (orchestrator step 2). Unset = no session cap; the standing /loop session's own stop mechanism is the only ceiling.",
+          "properties": {
+            "cycles": { "type": "integer", "minimum": 1 },
+            "hours": { "type": "integer", "minimum": 1 }
+          }
         }
       }
     },

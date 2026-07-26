@@ -10,11 +10,11 @@ per-project `maple.config.json`, with sane defaults for a typical
 single-package project.
 
 **Status: skeleton.** Commands ported from a production reference (`wt-*`,
-`sync-docs`, `heal`) carry real structure and logic. The loop-pack commands
+`sync-docs`, `heal`) carry real structure and logic. The loop pack
 (`sweep-errors`, `burn-backlog`, `sweep-quality`, `detect-drift`,
-`dev-burner`) are intentionally stubs pending a `docs/loop-pack.md` spec.
-`adopt-standard` is a real bootstrap. See "Gaps" below for what's not done
-yet.
+`dev-burner`) is now implemented per `docs/loop-pack.md` (docs/tasks.md
+#T8) — see "The loop pack" below. `adopt-standard` is a real bootstrap. See
+"Gaps" below for what's not done yet.
 
 ## What you get
 
@@ -24,7 +24,7 @@ yet.
 | `/sync-docs` | The docs-drift **executor** — semantic reconciliation of `docs/` against code, backed by the bundled structural drift script (`plugin/scripts/docs/check-docs-drift.mjs` — see "Bundled docs tooling" below), OKF v0.1 frontmatter-aware per D010. |
 | `/heal` | Error-tracker-driven self-healing: fetch, cluster, triage, fix, and verify unresolved issues through a 5-tier ladder before marking them resolved. |
 | `/adopt-standard` | Bootstrap: validates + stamps `maple.config.json`, scaffolds canonical `docs/` files + `CLAUDE.md` if missing, generates the docs index, merges in the plugin's hooks, verifies the docs gate + a CI tier before declaring done. |
-| `/sweep-errors`, `/burn-backlog`, `/sweep-quality`, `/detect-drift`, `/dev-burner` | The **loop pack** — budget-bounded autonomous loops orchestrated by `/dev-burner` under `/loop`, working in an isolated `dev-burner` worktree that never self-merges. Stubs until `docs/loop-pack.md` is approved. |
+| `/sweep-errors`, `/burn-backlog`, `/sweep-quality`, `/detect-drift`, `/dev-burner` | The **loop pack** — budget-bounded autonomous loops orchestrated by `/dev-burner` under `/loop`, working in an isolated standing `dev-burner` worktree that never self-merges. See "The loop pack" below. |
 | `plugin/hooks/hooks.json` | 8 always-on safety/hygiene hooks (credential-read blocking, secret scrubbing, a Bash cwd/push guard, dirty-tree + decision + docs-sync reminders, parallel-session warning). |
 
 ## Install
@@ -231,7 +231,7 @@ fixed during #T11's reconciliation pass:
 | `hooks.bashGuard.pushGuardEnabled` | `true` | blocks a foreground `git push` without `run_in_background`/a long timeout |
 | `hooks.bashGuard.pushGuardMinTimeoutMs` | `600000` | minimum explicit timeout that satisfies the push guard |
 
-### `loops.*` — used by the (stub) loop-pack commands
+### `loops.*` — used by the loop pack (`/dev-burner` + the four loop commands)
 
 Canonical name is plural (`loops`, matching `docs/standard-architecture.md`)
 — replaces the old singular `loop.*` block. The standing branch moved to
@@ -241,11 +241,92 @@ canonical schema doesn't carry a separate budget per loop name):
 
 | Key | Default | Notes |
 |---|---|---|
-| `loops.enabled` | `["sweep-errors", "burn-backlog", "sweep-quality", "detect-drift"]` | which loops `/dev-burner` rotates through |
+| `loops.enabled` | `["sweep-errors", "burn-backlog", "sweep-quality", "detect-drift"]` | which loops `/dev-burner` rotates through. An explicit `[]` means "run nothing" (`pick-loop.mjs` throws rather than silently falling back to the full set) |
 | `loops.budgetPerCycle.turns` | `40` | shared turn ceiling per loop cycle, whichever loop is running |
 | `loops.budgetPerCycle.minutes` | `20` | shared wall-clock ceiling per loop cycle |
+| `loops.weights.<loopName>` | `1` for every loop | plugin extension (docs/tasks.md #T8) — `pick-loop.mjs`'s round-robin weight per loop; only keys already in `loops.enabled`'s name set are meaningful, and `validate-config.mjs` rejects any other name |
+| `loops.cooldownCycles` | `3` | plugin extension — how many ledger cycles a loop that just reported `"quiet"` is skipped for by `pick-loop.mjs`; `0` disables cooldown |
+| `loops.sessionCap.cycles` / `.hours` | unset (no cap) | plugin extension — `/dev-burner` step 2's optional global budget; unset means the standing `/loop` session's own stop mechanism is the only ceiling |
 
 See `repo.standingLoopBranch` above for the branch these loops work on.
+
+## The loop pack
+
+Four budget-bounded autonomous loops (`/sweep-errors`, `/burn-backlog`,
+`/sweep-quality`, `/detect-drift`), orchestrated by `/dev-burner`, working
+in one standing worktree on `repo.standingLoopBranch` (default
+`"dev-burner"`) that is never merged or pushed by the pack itself — a human
+reviews and lands it each morning. Full behavioral spec: `docs/loop-pack.md`
+(the per-loop anatomy tables, the orchestrator's 7 steps, morning review);
+this section is the implementation map.
+
+**Start the standing session:** from inside the target project (with this
+plugin installed and `maple.config.json` adopted), run `/loop /dev-burner`
+— no interval argument, `/loop` self-paces. `/dev-burner` handles creating
+the standing worktree on its own first cycle; you don't need to `/wt-start`
+it yourself. `/dev-burner --report` at any time (including from a normal,
+non-standing session) prints the morning-review ledger summary without
+touching anything.
+
+### `plugin/scripts/loops/` — deterministic bookkeeping, no model judgment
+
+Small, dependency-free, `node --check`-able modules, each importable AND a
+thin CLI (same convention as `validate-config.mjs`), unit-tested with the
+repo's standalone `*.test.mjs` style (`plugin/scripts/loops/run-tests.mjs`
+runs them all, mirroring `supabase/tests/run-db-tests.mjs`):
+
+| Script | What it does |
+|---|---|
+| `state.mjs` | Read/write `.loop-state/<loop>.json` — atomic write (tmp file + rename), tolerant read (missing file starts fresh silently; corrupt file starts fresh with a warning, never throws). |
+| `ledger.mjs` | Append one JSON line per cycle to `.loop-state/dev-burner-ledger.jsonl` (`{ts, loop, outcome, commit, budgetUsed}`) + a `summarize` mode for morning review (per-loop counts/outcomes, commit list). Tolerant read skips corrupt/partial lines with a warning rather than failing the whole read. |
+| `pick-loop.mjs` | Deterministic loop selection: weighted round-robin over `loops.enabled` (weights from `loops.weights`, ties broken by `loops.enabled` array order), a `loops.cooldownCycles` cooldown for a loop that just reported `"quiet"` (falls back to the full set if every loop is cooling down, so a cycle always picks something), and a priority override for `sweep-errors` that beats cooldown too. |
+| `budget.mjs` | One boundary check (`usedCount >= countLimit` and/or elapsed-minutes past `minutesLimit` — AT the cap counts as exceeded) reused for both each loop's per-cycle budget (`loops.budgetPerCycle`) and `/dev-burner`'s optional session-level cap (`loops.sessionCap`). |
+
+Every loop-pack path is relative to a `root` (CLAUDE_PROJECT_DIR or cwd —
+same convention as every other bundled script), which in practice is the
+standing `dev-burner` worktree once `/dev-burner` has entered it.
+
+### `.loop-state/` layout (gitignored, lives inside the standing worktree)
+
+```
+.loop-state/
+  sweep-errors.json         # fingerprint -> outcome/ts (state.mjs)
+  burn-backlog.json         # #T id -> outcome/ts/commit (state.mjs)
+  sweep-quality.json        # walk cursor + this-run discards (state.mjs)
+  detect-drift.json         # rotation cursor + dedup gap keys (state.mjs)
+  dev-burner.json           # session marker ({sessionStartedAt}) for the session cap (state.mjs)
+  dev-burner-ledger.jsonl   # one line per cycle, every loop (ledger.mjs)
+```
+
+Never committed as data — the ONLY commit that ever touches `.loop-state/`
+existing is `/dev-burner` step 1's one-time `.gitignore` append (adding the
+`.loop-state/` line if it's missing), never the state/ledger files
+themselves. Because the standing worktree gets recreated from a fresh
+`development` tip after each morning land (docs/loop-pack.md step 6), this
+directory naturally resets with it — each night's ledger scopes to that
+night's run.
+
+### The five command files
+
+`sweep-errors.md` / `burn-backlog.md` / `sweep-quality.md` /
+`detect-drift.md` implement docs/loop-pack.md's per-loop anatomy exactly
+(trigger, scope, action, budget via `budget.mjs`, a full `ci.tiers.gate`
+verification gate before any commit — plus a red-before-fix/green-after
+regression test for sweep-errors and sweep-quality's new-test candidates —
+state via `state.mjs`, next-action logic, gate-red failure handling via
+`git reset --hard` to the pre-attempt SHA). `dev-burner.md` implements the
+7-step orchestrator plus `--report`. Cross-cutting rules (no `docs/` page
+writes except detect-drift's scoped `gaps.md` append, burn-backlog never
+checks off `tasks.md`, process corrections go to the cycle report only,
+everything terminates at `repo.standingLoopBranch` and nothing merges or
+pushes) are restated in each command file, not just here — see each file's
+own "Cross-cutting loop-pack rules" section.
+
+`plugin/scripts/agent-wt/maple-devburner.sh` (new, alongside
+`maple-start.sh`/`maple-land.sh`/`maple-preview.sh`/`maple-reap.sh`) creates
+or re-attaches the standing worktree, rebasing onto the fresh dev-branch tip
+only when clean at cycle start, under the SAME global lock `maple-land.sh`
+holds — so `/dev-burner` can never race a concurrent `/wt-land`.
 
 ### Dual-checkout layout — used by `/adopt-standard`
 
@@ -309,7 +390,9 @@ Four layers, each owned differently — knowing which layer a file lives in
 tells you who's allowed to edit it and when it updates:
 
 1. **Plugin** (`plugin/` in this repo) — the stack-agnostic machinery:
-   commands, hooks, the `agent-wt` scripts. Versioned with the plugin
+   commands, hooks, the `agent-wt` scripts (including the loop pack's
+   `maple-devburner.sh`), the loop pack's own bookkeeping helpers under
+   `plugin/scripts/loops/`. Versioned with the plugin
    (`plugin/.claude-plugin/plugin.json`); updates ship to every adopting
    project via the marketplace, not by hand-editing a copy.
 2. **Template** (everything else in this repo: `src/`, `supabase/`,
@@ -348,8 +431,29 @@ tells you who's allowed to edit it and when it updates:
   detection heuristic (see its own "Gap" section) pending a real spec; there
   is no marker file or git config declaring the prod/dev relationship, only
   directory-name + branch-name heuristics.
-- **Loop pack is entirely stubbed** pending `docs/loop-pack.md` (doesn't
-  exist yet — that spec is the approval gate the whole pack is waiting on).
+- **The loop pack has never run against a real overnight session.** It's
+  implemented per `docs/loop-pack.md` and unit-tested at the
+  `plugin/scripts/loops/` bookkeeping layer, but the five command files
+  (procedural instructions for an agentic session, same as every other
+  command in this plugin) haven't yet been exercised end-to-end by a live
+  standing `/loop /dev-burner` session against a real tracker/backlog/repo
+  history. Expect rough edges in the first real overnight run — feed them
+  back as process corrections per docs/loop-pack.md, not silent self-fixes.
+- **"Concrete and actionable" (`/burn-backlog`) and "genuine drift vs.
+  intentional" (`/detect-drift`) are judgment calls**, same category as
+  `/heal`'s stale-check heuristics — there's no tag/label convention in
+  `docs/tasks.md` or a drift-confidence score today that would make either
+  call mechanical instead of judged per cycle.
+- **`/sweep-quality`'s diff-size cap is judgment, not a configured number**
+  — docs/loop-pack.md doesn't specify one; if that proves too loose, a real
+  cap belongs in a new/extended config key (`sizeCaps.*` or `loops.*`),
+  added through `validate-config.mjs` the same way as any other schema
+  change, not invented ad hoc in the command file.
+- **`/dev-burner`'s "new high-severity tracker issues" priority check
+  (step 3) inherits `/heal`'s MCP-tool-naming gap** — it can describe the
+  shape of the query but not the literal MCP tool id, so it silently no-ops
+  (priority flag stays false) when no matching error-tracker MCP server is
+  configured in the standing session, same as `/heal` itself.
 - **The validator (`plugin/scripts/validate-config.mjs`) is hand-rolled,
   not a general JSON-Schema interpreter** — it mirrors
   `plugin/schema/maple.config.schema.json` by inspection rather than
