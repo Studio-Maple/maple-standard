@@ -4,3 +4,10 @@
 # core.autocrlf=true can't rewrite them. (Mirrors the same fix in VeHagita's
 # .gitattributes, the source this plugin's worktree scripts were ported from.)
 *.sh text eol=lf
+
+# docs/*.md must stay LF too — check-docs-drift.mjs's catalog-block/index
+# comparisons normalize \r\n on both sides now (BL-1), so a CRLF checkout no
+# longer makes the gate permanently red, but pinning LF here is defense in
+# depth: it stops core.autocrlf from ever reintroducing the mismatch on a
+# Windows checkout in the first place.
+*.md text eol=lf

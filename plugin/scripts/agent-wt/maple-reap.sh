@@ -48,12 +48,18 @@ branch_idle_hours() {
 
 reaped=0 kept=0
 
+# `git worktree list --porcelain` prints paths in git's own native form
+# (Windows-mixed `C:/...` on Windows); MAPLE_WT_ROOT is POSIX form
+# (`/c/...`) there too — normalize once so the prefix match below actually
+# fires (BL-2; see maple_norm_path in maple-lib.sh).
+MAPLE_WT_ROOT_NORM="$(maple_norm_path "$MAPLE_WT_ROOT")"
+
 # ── pass 1: worktrees under MAPLE_WT_ROOT ────────────────────────────────────
 cur_path="" cur_branch=""
 flush() {
   [ -n "$cur_path" ] || return 0
   case "$cur_path" in
-    "$MAPLE_WT_ROOT"/*) ;;        # only our human-session worktrees
+    "$MAPLE_WT_ROOT_NORM"/*) ;;   # only our human-session worktrees
     *) return 0 ;;
   esac
   [ "$(basename "$cur_path")" = "$MAPLE_PREVIEW_NAME" ] && return 0   # never reap preview

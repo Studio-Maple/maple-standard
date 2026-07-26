@@ -177,6 +177,25 @@ maple_slug_validate() {
 maple_branch_for() { printf '%s%s%s' "$MAPLE_NAME_PREFIX" "$1" "$MAPLE_NAME_SUFFIX"; }
 maple_dir_for()    { printf '%s/%s' "$MAPLE_WT_ROOT" "$1"; }
 
+# Normalize a path to the SAME form `git worktree list --porcelain` prints,
+# for STRING comparison only (never needed for filesystem calls — git-bash
+# resolves either form transparently). On Windows, `git worktree list
+# --porcelain` prints Windows-mixed form (`C:/Users/...`) while every path
+# this script builds from `git rev-parse --git-common-dir` + `pwd` (see
+# MAPLE_COMMON_DIR/MAPLE_MAIN_ROOT/MAPLE_WT_ROOT above) is POSIX form
+# (`/c/Users/...`) — a prefix `case`/`==` match between the two silently
+# never fires (BL-2: maple-reap.sh's worktree-list walk skipped every
+# worktree, reporting "0 removed"). `cygpath -m` converts POSIX -> Windows-
+# mixed; on non-Windows `cygpath` doesn't exist and paths are already one
+# consistent POSIX form on both sides, so this is a no-op passthrough there.
+maple_norm_path() {
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -m "$1" 2>/dev/null || printf '%s' "$1"
+  else
+    printf '%s' "$1"
+  fi
+}
+
 # Is $1 a branch produced by worktrees.namePattern (i.e. an agent worktree
 # branch)? If so, strip the pattern's prefix/suffix and print the slug.
 maple_is_agent_branch() {

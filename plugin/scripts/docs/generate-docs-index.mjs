@@ -145,7 +145,13 @@ export async function run({ root } = {}) {
 
   let catalogResult = "skipped (no <!-- catalog:begin/end --> markers in index.md)";
   try {
-    const indexMd = await readFile(cfg.index, "utf8");
+    // Normalize to LF before splicing (and therefore before writing back) —
+    // a CRLF checkout (Windows, no `*.md text eol=lf` yet) would otherwise
+    // leave the file with MIXED endings: CRLF outside the markers (untouched
+    // disk content) and LF inside (the freshly-generated block). Harmless
+    // for check-docs-drift.mjs's own comparison (now normalized on both
+    // sides — see BL-1), but avoids the noisy mixed-EOL diff regardless.
+    const indexMd = (await readFile(cfg.index, "utf8")).replace(/\r\n/g, "\n");
     const spliced = spliceCatalogBlock(indexMd, catalogItems.join("\n"));
     if (spliced !== null) {
       await writeFile(cfg.index, spliced, "utf8");

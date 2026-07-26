@@ -233,8 +233,16 @@ export async function run({ root, fix = false } = {}) {
     if (currentBlock === null) {
       warn(`${indexRel} has no <!-- catalog:begin/end --> markers yet — catalog auto-maintenance inactive`);
     } else {
+      // Compare with line endings normalized on BOTH sides: `currentBlock` is
+      // sliced straight out of the on-disk file, which is CRLF on Windows
+      // whenever core.autocrlf rewrites it on checkout; `expectedBlock` is
+      // built in-memory with bare `\n`. Without normalizing, this comparison
+      // is never equal on a Windows checkout — the gate reports "stale" even
+      // right after --fix regenerated it (a real regression, not
+      // hypothetical — see docs/decisions.md / the BL-1 fix note).
+      const currentNormalized = currentBlock.replace(/\r\n/g, "\n");
       const expectedBlock = computed.catalogItems.join("\n").trim();
-      if (currentBlock !== expectedBlock) {
+      if (currentNormalized !== expectedBlock) {
         catalogStale = true;
         if (!fix) error(`${indexRel} Catalog block is stale vs generated content — run: node check-docs-drift.mjs --fix`);
       }
