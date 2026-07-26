@@ -34,7 +34,8 @@ under `/loop`. Full spec: [[loop-pack]] (this file implements its
 |---|---|---|
 | `docs.gaps` | `"docs/gaps.md"` | where every detected drift is appended |
 | `docs.root` | `"docs"` | the rotation set — every `.md` file under here |
-| `loops.budgetPerCycle.turns` / `.minutes` | `40` / `20` | this cycle's hard budget |
+| `loops.budgetPerCycle.turns` / `.minutes` | `40` / `20` | this cycle's hard budget (enforced by this file's own `check` calls below) |
+| `loops.budgetPerCycle.toolCalls` | `400` | mechanical guard's runaway backstop (`plugin/hooks/loop-budget-guard.mjs`) — RAW TOOL CALLS, a different unit than `.turns` |
 | `repo.standingLoopBranch` | `"dev-burner"` | the branch every commit lands on |
 
 This loop's own verification uses the plugin's bundled
@@ -70,13 +71,15 @@ GAPS_FILE="$(maple_cfg docs.gaps docs/gaps.md)"
 DOCS_ROOT="$(maple_cfg docs.root docs)"
 TURNS_LIMIT="$(maple_cfg loops.budgetPerCycle.turns 40)"
 MINUTES_LIMIT="$(maple_cfg loops.budgetPerCycle.minutes 20)"
+TOOL_CALL_LIMIT="$(maple_cfg loops.budgetPerCycle.toolCalls 400)"   # loop-budget-guard.mjs's own backstop — NOT the same unit as TURNS_LIMIT (B2)
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
 ITER=0
 node "$CLAUDE_PLUGIN_ROOT/scripts/loops/budget.mjs" start --loop detect-drift \
-  --limit "$TURNS_LIMIT" --minutes-limit "$MINUTES_LIMIT"   # mechanical enforcement (MJ-8) — see loop-budget-guard.mjs
+  --limit "$TURNS_LIMIT" --minutes-limit "$MINUTES_LIMIT" --tool-call-limit "$TOOL_CALL_LIMIT" \
+  --root "$MAPLE_REPO_ROOT"   # mechanical enforcement (MJ-8) — see loop-budget-guard.mjs; --root pins the write to THIS worktree (M4)
 ```
 
-Load state: `node "$CLAUDE_PLUGIN_ROOT/scripts/loops/state.mjs" read detect-drift`.
+Load state: `node "$CLAUDE_PLUGIN_ROOT/scripts/loops/state.mjs" read detect-drift --root "$MAPLE_REPO_ROOT"`.
 Re-derive `openGapKeys` by reading the current `$GAPS_FILE` fresh (don't
 trust the state file's copy — a human may have already resolved an entry).
 
@@ -151,8 +154,8 @@ always ending with `rotationCursor` advanced.
 
 ```bash
 echo '{"ts":"'"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"'","loop":"detect-drift","outcome":"<outcome>","commit":<commit-sha-json-string-or-null>,"budgetUsed":{"turns":'"$ITER"',"minutes":<elapsed>}}' \
-  | node "$CLAUDE_PLUGIN_ROOT/scripts/loops/ledger.mjs" append
-node "$CLAUDE_PLUGIN_ROOT/scripts/loops/budget.mjs" end   # clear the cycle file — loop-budget-guard.mjs goes back to no-op (MJ-8)
+  | node "$CLAUDE_PLUGIN_ROOT/scripts/loops/ledger.mjs" append --root "$MAPLE_REPO_ROOT"
+node "$CLAUDE_PLUGIN_ROOT/scripts/loops/budget.mjs" end --root "$MAPLE_REPO_ROOT"   # clear the cycle file — loop-budget-guard.mjs goes back to no-op (MJ-8)
 ```
 
 Summarize in chat: pages reviewed, findings (with `low-confidence` flagged

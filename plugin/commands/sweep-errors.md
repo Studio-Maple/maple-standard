@@ -30,7 +30,8 @@ its `/sweep-errors` anatomy table exactly).
 | `errorTracker.provider` / `.sentryProject` / `.endpoint` / `.readTokenRef` / `.writeTokenRef` | — | same tracker identity `/heal` uses |
 | `errorTracker.query` | `"is:unresolved"` | issue-search query |
 | `ci.tiers.gate` | **required** | the full gate command — no configured `gate` tier → refuse to commit, report and stop (never guess a substitute) |
-| `loops.budgetPerCycle.turns` / `.minutes` | `40` / `20` | this cycle's hard budget |
+| `loops.budgetPerCycle.turns` / `.minutes` | `40` / `20` | this cycle's hard budget (enforced by this file's own `check` calls below) |
+| `loops.budgetPerCycle.toolCalls` | `400` | mechanical guard's runaway backstop (`plugin/hooks/loop-budget-guard.mjs`) — RAW TOOL CALLS, a different unit than `.turns` |
 | `repo.standingLoopBranch` | `"dev-burner"` | the branch every commit lands on |
 
 Malformed config? `node "$CLAUDE_PLUGIN_ROOT/scripts/validate-config.mjs"`.
@@ -61,13 +62,15 @@ GATE_CMD="$(maple_cfg ci.tiers.gate '')"
 [ -n "$GATE_CMD" ] || maple_die "no ci.tiers.gate configured — refusing to commit ungated"
 TURNS_LIMIT="$(maple_cfg loops.budgetPerCycle.turns 40)"
 MINUTES_LIMIT="$(maple_cfg loops.budgetPerCycle.minutes 20)"
+TOOL_CALL_LIMIT="$(maple_cfg loops.budgetPerCycle.toolCalls 400)"   # loop-budget-guard.mjs's own backstop — NOT the same unit as TURNS_LIMIT (B2)
 STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
 ITER=0
 node "$CLAUDE_PLUGIN_ROOT/scripts/loops/budget.mjs" start --loop sweep-errors \
-  --limit "$TURNS_LIMIT" --minutes-limit "$MINUTES_LIMIT"   # mechanical enforcement (MJ-8) — see loop-budget-guard.mjs
+  --limit "$TURNS_LIMIT" --minutes-limit "$MINUTES_LIMIT" --tool-call-limit "$TOOL_CALL_LIMIT" \
+  --root "$MAPLE_REPO_ROOT"   # mechanical enforcement (MJ-8) — see loop-budget-guard.mjs; --root pins the write to THIS worktree (M4)
 ```
 
-Load state: `node "$CLAUDE_PLUGIN_ROOT/scripts/loops/state.mjs" read sweep-errors`.
+Load state: `node "$CLAUDE_PLUGIN_ROOT/scripts/loops/state.mjs" read sweep-errors --root "$MAPLE_REPO_ROOT"`.
 
 ### 1. Fetch + cluster (reuses `/heal`'s logic)
 
@@ -140,8 +143,8 @@ Otherwise, for this cluster:
 
 ```bash
 echo '{"ts":"'"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"'","loop":"sweep-errors","outcome":"<outcome>","commit":<commit-sha-json-string-or-null>,"budgetUsed":{"turns":'"$ITER"',"minutes":<elapsed>}}' \
-  | node "$CLAUDE_PLUGIN_ROOT/scripts/loops/ledger.mjs" append
-node "$CLAUDE_PLUGIN_ROOT/scripts/loops/budget.mjs" end   # clear the cycle file — loop-budget-guard.mjs goes back to no-op (MJ-8)
+  | node "$CLAUDE_PLUGIN_ROOT/scripts/loops/ledger.mjs" append --root "$MAPLE_REPO_ROOT"
+node "$CLAUDE_PLUGIN_ROOT/scripts/loops/budget.mjs" end --root "$MAPLE_REPO_ROOT"   # clear the cycle file — loop-budget-guard.mjs goes back to no-op (MJ-8)
 ```
 
 Summarize in chat: outcome, clusters attempted/fixed/skipped, commit SHA(s)

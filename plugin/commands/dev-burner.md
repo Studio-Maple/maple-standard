@@ -68,9 +68,17 @@ entirely. The check now lives in `maple_ensure_loop_state_gitignored()`
 command file (`sweep-errors.md` / `burn-backlog.md` / `sweep-quality.md` /
 `detect-drift.md`) — so it runs whichever loop step 5 below hands off to,
 covering both the orchestrated and standalone paths with one mechanism.
-Idempotent (only appends + commits if the line is genuinely missing); still
-the only place any loop-pack code touches `.gitignore` (per docs/tasks.md
-#T8's brief: "scripts never edit .gitignore silently").
+Idempotent (checks for `.loop-state` or `.loop-state/` as a whole line,
+tolerant of a CRLF-terminated file — only appends when the entry is
+genuinely missing). This IS the one place any loop-pack code touches
+`.gitignore` — and, honestly, it does more than "touch": on that first
+run it appends the line AND auto-commits `.gitignore` by itself
+(`git commit --only .gitignore`, so it can never sweep up anything else
+already staged — re-review M1). Nothing about that commit needs your
+approval or is interactive; it's logged to stderr
+(`maple_log`/`maple_warn`) so it's visible, not silent, but it is
+unattended. If that's ever a problem for a given project, disable the
+loop pack there rather than relying on this to ask first — it won't.
 
 ### 2. Check the global budget
 
@@ -87,12 +95,14 @@ ceiling of its own" unless one is explicitly configured).
 
 Otherwise:
 
-1. Read/init the session marker: `node "$CLAUDE_PLUGIN_ROOT/scripts/loops/state.mjs" read dev-burner`
+1. Read/init the session marker: `node "$CLAUDE_PLUGIN_ROOT/scripts/loops/state.mjs" read dev-burner --root "$MAPLE_REPO_ROOT"`
    (state shape `{ "sessionStartedAt": "ISO" }`). Missing → this is the
    first cycle since the worktree was (re)created — set `sessionStartedAt`
-   to now and write it.
+   to now and write it. `--root "$MAPLE_REPO_ROOT"` pins this to the
+   standing worktree just sourced above, not whatever `state.mjs`'s own
+   default would otherwise guess (M4).
 2. Count cycles so far this session:
-   `node "$CLAUDE_PLUGIN_ROOT/scripts/loops/ledger.mjs" summarize --json`
+   `node "$CLAUDE_PLUGIN_ROOT/scripts/loops/ledger.mjs" summarize --json --root "$MAPLE_REPO_ROOT"`
    → `.totalCycles` (the ledger resets whenever the standing worktree is
    recreated after a land, so it naturally scopes to "this session").
 3. ```bash

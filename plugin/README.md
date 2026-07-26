@@ -25,7 +25,7 @@ single-package project.
 | `/heal` | Error-tracker-driven self-healing: fetch, cluster, triage, fix, and verify unresolved issues through a 5-tier ladder before marking them resolved. |
 | `/adopt-standard` | Bootstrap: validates + stamps `maple.config.json`, scaffolds canonical `docs/` files + `CLAUDE.md` if missing, generates the docs index, merges in the plugin's hooks, verifies the docs gate + a CI tier before declaring done. |
 | `/sweep-errors`, `/burn-backlog`, `/sweep-quality`, `/detect-drift`, `/dev-burner` | The **loop pack** — budget-bounded autonomous loops orchestrated by `/dev-burner` under `/loop`, working in an isolated standing `dev-burner` worktree that never self-merges. See "The loop pack" below. |
-| `plugin/hooks/hooks.json` | 8 always-on safety/hygiene hooks (credential-read blocking, secret scrubbing, a Bash cwd/push guard, dirty-tree + decision + docs-sync reminders, parallel-session warning). |
+| `plugin/hooks/hooks.json` | 9 always-on safety/hygiene hooks (credential-read blocking, secret scrubbing, a Bash cwd/push guard, dirty-tree + decision + docs-sync reminders, parallel-session warning, and the loop-pack's mechanical budget guard). |
 
 ## Install
 
@@ -262,8 +262,9 @@ canonical schema doesn't carry a separate budget per loop name):
 | Key | Default | Notes |
 |---|---|---|
 | `loops.enabled` | `["sweep-errors", "burn-backlog", "sweep-quality", "detect-drift"]` | which loops `/dev-burner` rotates through. An explicit `[]` means "run nothing" (`pick-loop.mjs` throws rather than silently falling back to the full set) |
-| `loops.budgetPerCycle.turns` | `40` | shared turn ceiling per loop cycle, whichever loop is running |
+| `loops.budgetPerCycle.turns` | `40` | shared turn (iteration) ceiling per loop cycle, whichever loop is running — enforced by each command's own `budget.mjs check --used $ITER` calls in its procedure |
 | `loops.budgetPerCycle.minutes` | `20` | shared wall-clock ceiling per loop cycle |
+| `loops.budgetPerCycle.toolCalls` | `400` | plugin extension (re-review B2) — `plugin/hooks/loop-budget-guard.mjs`'s own runaway backstop. Counts RAW TOOL CALLS (every Bash/Read/Edit/etc.), a DIFFERENT UNIT from `.turns` (loop iterations) — deliberately generous; this is a mechanical last-resort, not the primary per-cycle budget |
 | `loops.weights.<loopName>` | `1` for every loop | plugin extension (docs/tasks.md #T8) — `pick-loop.mjs`'s round-robin weight per loop; only keys already in `loops.enabled`'s name set are meaningful, and `validate-config.mjs` rejects any other name |
 | `loops.cooldownCycles` | `3` | plugin extension — how many ledger cycles a loop that just reported `"quiet"` is skipped for by `pick-loop.mjs`; `0` disables cooldown |
 | `loops.sessionCap.cycles` / `.hours` | unset (no cap) | plugin extension — `/dev-burner` step 2's optional global budget; unset means the standing `/loop` session's own stop mechanism is the only ceiling |
@@ -288,6 +289,17 @@ it yourself. `/dev-burner --report` at any time (including from a normal,
 non-standing session) prints the morning-review ledger summary without
 touching anything.
 
+**The mechanical budget guard (`plugin/hooks/loop-budget-guard.mjs`) is a
+ONE-SHOT stop, not a standing block.** The first PreToolUse call that finds
+a cycle over budget (wall-clock deadline, or its own `toolCalls` runaway
+backstop — see `loops.budgetPerCycle.toolCalls` above) writes `blocked:
+true` into `.loop-state/current-cycle.json` and exits 2 with the stop
+message; every call after that for the same cycle exits 0 (allow), so the
+agent can actually use Bash/Write/Edit to revert, log the outcome, and run
+the loop's Report step (`budget.mjs end`, which clears the cycle and
+un-blocks the next one). Re-blocking those exact remediation tools was an
+unrecoverable deadlock in an earlier version — fixed, re-review B1.
+
 ### `plugin/scripts/loops/` — deterministic bookkeeping, no model judgment
 
 Small, dependency-free, `node --check`-able modules, each importable AND a
@@ -300,7 +312,8 @@ runs them all, mirroring `supabase/tests/run-db-tests.mjs`):
 | `state.mjs` | Read/write `.loop-state/<loop>.json` — atomic write (tmp file + rename), tolerant read (missing file starts fresh silently; corrupt file starts fresh with a warning, never throws). |
 | `ledger.mjs` | Append one JSON line per cycle to `.loop-state/dev-burner-ledger.jsonl` (`{ts, loop, outcome, commit, budgetUsed}`) + a `summarize` mode for morning review (per-loop counts/outcomes, commit list). Tolerant read skips corrupt/partial lines with a warning rather than failing the whole read. |
 | `pick-loop.mjs` | Deterministic loop selection: weighted round-robin over `loops.enabled` (weights from `loops.weights`, ties broken by `loops.enabled` array order), a `loops.cooldownCycles` cooldown for a loop that just reported `"quiet"` (falls back to the full set if every loop is cooling down, so a cycle always picks something), and a priority override for `sweep-errors` that beats cooldown too. |
-| `budget.mjs` | One boundary check (`usedCount >= countLimit` and/or elapsed-minutes past `minutesLimit` — AT the cap counts as exceeded) reused for both each loop's per-cycle budget (`loops.budgetPerCycle`) and `/dev-burner`'s optional session-level cap (`loops.sessionCap`). |
+| `budget.mjs` | One boundary check (`usedCount >= countLimit` and/or elapsed-minutes past `minutesLimit` — AT the cap counts as exceeded; a `countLimit`/`minutesLimit` of 0 or negative means "no cap on that dimension", not "cap at zero") reused for both each loop's per-cycle budget (`loops.budgetPerCycle`) and `/dev-burner`'s optional session-level cap (`loops.sessionCap`). `start`/`end` also write/clear `.loop-state/current-cycle.json`, the mechanical guard's only input. |
+| `resolve-root.mjs` | The ONE canonical "what worktree does this loop-state file belong to" resolver — git worktree toplevel from the caller's own current location (preferred), falling back to `CLAUDE_PROJECT_DIR`, then `process.cwd()`. Shared by `state.mjs`, `budget.mjs`, and `plugin/hooks/loop-budget-guard.mjs` so a writer and a reader can never silently disagree (re-review M4). |
 
 Every loop-pack path is relative to a `root` (CLAUDE_PROJECT_DIR or cwd —
 same convention as every other bundled script), which in practice is the
