@@ -117,6 +117,19 @@ function isDocsRead(payload, docsRoot) {
 // `updatedToolOutput` is documented as a full-replacement string (see
 // header), not a structured partial update, regardless of the tool's own
 // result shape.
+//
+// m13 (documented intentionally, not a bug): joining tool_response.output /
+// .stdout / .stderr / .content with "\n" below LOSES the original field
+// boundaries — the scrubbed replacement can no longer say which line came
+// from stdout vs. stderr, or reconstruct the exact original structured
+// shape. This is accepted on purpose: `updatedToolOutput`'s own contract
+// (see header) only ever accepts ONE opaque string, so there is no
+// structured slot to preserve those boundaries INTO even if we kept them —
+// whatever we emit here is what Claude sees as "the tool's output," full
+// stop. The alternative (only scrubbing whichever single field looks most
+// "primary" and leaving the others unmodified) would be worse: any secret
+// living in a field this hook didn't pick would reach the model unscrubbed.
+// Losing field boundaries is an acceptable trade against that.
 function extractToolOutputText(payload) {
   if (typeof payload?.tool_output === 'string') return payload.tool_output;
   if (typeof payload?.tool_response === 'string') return payload.tool_response;
