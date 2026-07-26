@@ -71,11 +71,22 @@ try {
   const porcelain = execSync("git status --porcelain", {
     cwd: ROOT,
     encoding: "utf8",
-  }).trim();
-  if (!porcelain) process.exit(0);
+  });
+  if (!porcelain.trim()) process.exit(0);
 
+  // A real bug found during #T12 hook verification: this used to run
+  // `.trim()` on the WHOLE porcelain blob before splitting into lines. Every
+  // `git status --porcelain` line is a fixed `XY filename` format where the
+  // very common "modified, not staged" status is `" M"` — a LEADING SPACE.
+  // .trim()-ing the full blob strips that leading space off line 1 whenever
+  // it starts with one, shifting every `l.slice(3)` below by one character
+  // and silently corrupting the first changed file's parsed path (e.g.
+  // "src.js" -> "rc.js"). Only check emptiness against a trimmed copy above;
+  // split/parse the UNTRIMMED string so each line's fixed-width status
+  // prefix stays intact.
   const changed = porcelain
     .split(/\r?\n/)
+    .filter((l) => l.length > 0)
     .map((l) => {
       const p = l.slice(3);
       const arrow = p.indexOf(" -> ");
@@ -107,7 +118,14 @@ try {
           !p.includes("*") &&
           !p.startsWith("/") &&
           !p.startsWith("origin/") &&
-          /\//.test(p)
+          // A real bug found during #T12 hook verification: this used to
+          // require a "/" in the path, so a root-level file anchor (e.g.
+          // `code: [src.js]`) was silently dropped here even though owns()
+          // below already handles file-shaped prefixes correctly (exact
+          // match) and check-docs-drift.mjs's isCheckablePath() (the
+          // equivalent existence-check filter) accepts a bare dotted
+          // filename too. Matches that same "slash OR dot" heuristic now.
+          /[/.]/.test(p)
       );
   }
   function owns(prefix, file) {
