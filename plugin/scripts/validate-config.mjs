@@ -38,17 +38,29 @@ function isPlainObject(v) {
 function isNonEmptyString(v) {
   return typeof v === "string" && v.trim().length > 0;
 }
-// MJ-4: several path-shaped config values (worktrees.root, chief among them)
-// eventually reach a shell — historically via an unsafe `eval` in
-// maple-reap.sh's do_or_echo (removed, see maple-reap.sh), but a validator
-// that only checked "non-empty, no control bytes" would still wave through
-// a value crafted to break quoting or inject shell metacharacters into
-// *some* future/third-party consumer. Reject the classic shell-dangerous
-// characters outright — no legitimate project-relative or absolute path
-// (POSIX or Windows drive-letter form, e.g. `C:\Users\foo\wt` — backslash
-// is deliberately NOT in this set, it's a normal Windows path separator)
-// needs any of these.
-const SHELL_METACHARS = /['"`$;&|<>\n\r]/;
+// MJ-4 / re-review M3: several path-shaped config values (worktrees.root,
+// chief among them) eventually reach a shell — historically via an unsafe
+// `eval` in maple-reap.sh's do_or_echo (removed, see maple-reap.sh), but a
+// validator that only checked "non-empty, no control bytes" would still
+// wave through a value crafted to break quoting or inject shell
+// metacharacters into *some* future/third-party consumer. Reject the
+// classic shell-dangerous characters outright.
+//
+// M3: the original set here (['"`$;&|<>\n\r]) false-rejected real Windows
+// paths — `C:\Users\O'Brien\wt` (apostrophe in a surname), `C:\R&D\wt`
+// (ampersand), `\\fileserver\c$\wt` / `D:\Recovery$\wt` (dollar sign, both
+// a UNC admin share and a perfectly normal drive label) — blocking
+// /adopt-standard step 2 for real users. `'`, `&`, and `$` are dropped from
+// the blocked set for that reason. `"`, backtick, `;`, `|`, `<`, `>`,
+// newline, and CR stay blocked — the previous review's injection payload
+// (`../wt'; touch /tmp/OWNED; :'`) is STILL rejected purely on the `;`
+// characters it contains, independent of whether `'` is blocked. Note that
+// the sites that actually `eval`/`bash -c` a config STRING (maple-land.sh's
+// GATE_CMD, maple-start.sh's freshDepsCommand, maple-preview.sh's preview
+// command) are COMMAND strings, not paths — they're meant to contain shell
+// syntax and are unvalidated by design; this check exists for PATH-shaped
+// values only.
+const SHELL_METACHARS = /["`;|<>\n\r]/;
 
 /** "path-shaped": a non-empty string, no NUL/control bytes, no quote/shell-metacharacters. Doesn't require the path to exist. */
 function isPathShaped(v) {
@@ -354,9 +366,14 @@ export function validateConfig(config) {
         const b = config.loops.budgetPerCycle;
         if (!isPlainObject(b)) errors.push("loops.budgetPerCycle: must be an object");
         else {
-          checkNoExtraKeys(b, ["turns", "minutes"], "loops.budgetPerCycle", errors);
+          checkNoExtraKeys(b, ["turns", "minutes", "toolCalls"], "loops.budgetPerCycle", errors);
           if (b.turns !== undefined && !isIntMin(b.turns, 1)) errors.push("loops.budgetPerCycle.turns: must be a positive integer");
           if (b.minutes !== undefined && !isIntMin(b.minutes, 1)) errors.push("loops.budgetPerCycle.minutes: must be a positive integer");
+          // B2: loop-budget-guard.mjs's own runaway backstop over RAW TOOL
+          // CALLS — a different unit from `turns` (loop iterations). Kept
+          // as its own key precisely so it's never confused with/defaulted
+          // from `turns` again.
+          if (b.toolCalls !== undefined && !isIntMin(b.toolCalls, 1)) errors.push("loops.budgetPerCycle.toolCalls: must be a positive integer");
         }
       }
       // ---- loops.weights / .cooldownCycles / .sessionCap (plugin extensions,

@@ -187,7 +187,12 @@
           "additionalProperties": false,
           "properties": {
             "turns": { "type": "integer", "minimum": 1 },
-            "minutes": { "type": "integer", "minimum": 1 }
+            "minutes": { "type": "integer", "minimum": 1 },
+            "toolCalls": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "plugin extension (re-review B2) — plugin/hooks/loop-budget-guard.mjs's own runaway backstop, counting RAW TOOL CALLS (every Bash/Read/Edit/etc. within the cycle). A DIFFERENT UNIT from `turns` (loop iterations, enforced separately by each command's own `budget.mjs check --used $ITER` calls, never by this hook) — do not confuse the two. Default 400, deliberately generous."
+            }
           }
         },
         "weights": {
