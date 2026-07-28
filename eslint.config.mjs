@@ -28,6 +28,14 @@ export default defineConfig([
     // stay dependency-free and require()-based so they run before any
     // install step; linting them with app rules is noise.
     ".claude/**",
+    // The plugin ships that same class of infra to OTHER projects — Claude
+    // Code hooks, worktree/docs/loop scripts. Dependency-free, run before
+    // any install step, and deliberately CJS where they predate the .mjs
+    // ones. Same rationale as .claude/** above; the app's Next/TS rules
+    // (no-require-imports, react-*, require-database-generic) don't apply.
+    // Its own gate is plugin/scripts/loops/run-tests.mjs (fast tier) plus
+    // node --check / bash -n — see plugin/README.md.
+    "plugin/**",
     // Deno runtime — `deno check` (pre-commit) is the typechecker there;
     // Node-flavored ESLint rules (and the <Database> generic rule, which
     // targets the app's generated types) don't apply.
