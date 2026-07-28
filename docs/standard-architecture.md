@@ -54,7 +54,7 @@ One file, repo root, written by `/adopt-standard`, read by every plugin command.
     // Decision 7: prod/dev dual checkouts of the same repo.
     "prodCheckout": "C:/Projects/Caller",
     "devCheckout": "C:/Projects/Caller-development",
-    "prodBranch": "main",
+    "prodBranch": "production",
     "devBranch": "development",
     "standingLoopBranch": "dev-burner"   // see [[loop-pack]]
   },
@@ -81,7 +81,7 @@ One file, repo root, written by `/adopt-standard`, read by every plugin command.
     "prePushTier": "gate"
   },
   "lint": {
-    "roots": ["src", "frontend/src"],
+    "roots": ["app/src", "admin/src", "frontend/app"],
     "maxWarnings": 0
   },
   "sizeCaps": {
@@ -110,7 +110,7 @@ Every plugin command that needs a path, branch name, or CI invocation reads it f
 3. **Stamp `docs/` skeleton if missing.** Write `index.md`, `decisions.md`, `tasks.md`, `gaps.md`, `log.md` only where absent — never overwrite an existing page. A project with its own richer `docs/` (VeHagita) keeps it; `/adopt-standard` fills gaps, not replaces structure.
 4. **Generate `docs/.docs-index.json`.** Run the index generator once so the drift gate has something to check against from commit one.
 5. **Merge the `CLAUDE.md` skeleton.** If `CLAUDE.md` exists, propose insertions as a diff for approval — never a blind overwrite. This is how VeHagita "keeps its extras" per [[rollout]].
-6. **Wire hooks into `.claude/settings.json`.** Merge the plugin's generic-hook entries into whatever hook config already exists; don't clobber project-specific hooks already wired.
+6. **Reconcile `.claude/settings.json` against project-local hooks.** The plugin's own hooks apply globally once the plugin is enabled — no per-project merge needed for them. This step only checks the project's own directly-wired hooks (if any) for a filename collision with the plugin's hooks and flags it; it never merges entries in.
 7. **Verify.** Run the docs-drift gate once and one CI tier once; report red/green. Adoption isn't declared done on say-so — it's done when the gate the project just inherited actually passes.
 
 Per-step "adopted correctly" checks are detailed in [[rollout]].
