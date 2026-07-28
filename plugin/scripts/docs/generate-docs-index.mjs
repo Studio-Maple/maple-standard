@@ -198,7 +198,7 @@ async function main() {
   console.log(`Catalog (${indexPath}): ${catalogResult}`);
   const missing = entries.filter((e) => !e.audience);
   if (missing.length > 0) {
-    console.warn(`\n${missing.length} files missing an audience (frontmatter \`audience\` or legacy preamble \`**Audience:**\`):`);
+    console.warn(`\n${missing.length} files missing an audience (frontmatter \`audience\` or legacy preamble \`Audience:\` label, bold or plain):`);
     for (const m of missing) console.warn(`  ${m.path}`);
   }
 }

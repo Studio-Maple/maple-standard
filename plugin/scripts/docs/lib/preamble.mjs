@@ -39,6 +39,23 @@ function firstH1(content) {
   return m ? m[1].trim() : "";
 }
 
+// Matches a legacy preamble label at the start of a blockquote line
+// (`joined` has already had the leading `> ` stripped off each line), in
+// EITHER of the two forms real projects use: bold-wrapped (`**Audience:**
+// value`, this template's own convention) or bare (`Audience: value`, no
+// `**` at all — e.g. EasyCaller's docs/{engineering-standards,mvp-plan,
+// security,system-map}.md, all four of which use the identical blockquote
+// STRUCTURE without bold). Anchored to the start of a line (the `m` flag)
+// so a label word appearing mid-sentence elsewhere in the block can't
+// false-match. Returns the raw value string, or null if the label isn't
+// present in either form.
+function legacyLabelValue(joined, label) {
+  const esc = label.replace(/\s/g, "\\s");
+  const re = new RegExp(`^[ \\t]*\\*{0,2}${esc}:\\*{0,2}[ \\t]*(.+?)[ \\t]*$`, "m");
+  const m = joined.match(re);
+  return m ? m[1] : null;
+}
+
 function parseLegacyPreamble(content) {
   const lines = content.split(/\r?\n/);
   let i = 0;
@@ -53,12 +70,12 @@ function parseLegacyPreamble(content) {
   }
   const joined = block.join("\n");
 
-  const audienceMatch = joined.match(/\*\*Audience:\*\*\s*(.+?)(?=\n|$)/);
-  const audience = audienceMatch ? audienceMatch[1].trim().replace(/\.$/, "") : null;
+  const audienceRaw = legacyLabelValue(joined, "Audience");
+  const audience = audienceRaw ? audienceRaw.trim().replace(/\.$/, "") : null;
 
-  const authMatch = joined.match(/\*\*Authoritative for:\*\*\s*(.+?)(?=\n|$)/);
-  const authoritative_for = authMatch
-    ? authMatch[1]
+  const authRaw = legacyLabelValue(joined, "Authoritative for");
+  const authoritative_for = authRaw
+    ? authRaw
         .replace(/\.$/, "")
         .split(/,\s*/)
         .map((s) => s.trim())
@@ -68,11 +85,10 @@ function parseLegacyPreamble(content) {
   let anchorType = null;
   let anchorRaw = null;
   for (const label of ["Code", "Enforced by", "Reference for", "Updated by", "Machine-readable"]) {
-    const re = new RegExp(`\\*\\*${label.replace(/\s/g, "\\s")}:\\*\\*\\s*(.+?)(?=\\n|$)`);
-    const m = joined.match(re);
-    if (m) {
+    const v = legacyLabelValue(joined, label);
+    if (v !== null) {
       anchorType = label.toLowerCase().replace(/\s/g, "_");
-      anchorRaw = m[1];
+      anchorRaw = v;
       break;
     }
   }
@@ -89,7 +105,16 @@ function parseLegacyPreamble(content) {
     authoritative_for,
     code,
     reference_for,
-    hasAnyAnchor: anchorType !== null,
+    // Parity with the frontmatter path's hasAnyAnchor (readDocMeta below):
+    // audience/authoritative_for count as an anchor there, so they must
+    // count here too — check-docs-drift.mjs's own "no anchor" warning text
+    // (`audience/authoritative_for/code/reference_for`) already documents
+    // this as one unified anchor set, not a frontmatter-only one. Before
+    // this fix, a legacy page with Audience/Authoritative for but no
+    // Code:/Enforced by:/etc. label was always flagged "no anchor" even
+    // though it plainly has point-to-code-adjacent metadata — the same
+    // false-debt overstatement the bold/non-bold fix above addresses.
+    hasAnyAnchor: anchorType !== null || audience !== null || authoritative_for.length > 0,
   };
 }
 
