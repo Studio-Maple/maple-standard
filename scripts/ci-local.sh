@@ -48,8 +48,9 @@ run_fast() {
   step "fast 5/7: unit + component tests (vitest)"
   pnpm run test
 
-  step "fast 6/7: plugin loop-pack tests (plugin/scripts/loops — m11)"
+  step "fast 6/7: plugin tests (loops — m11; agent-wt junction safety)"
   pnpm run test:plugin-loops
+  pnpm run test:plugin-agent-wt
 
   step "fast 7/7: build (next build) + docs-drift"
   pnpm run build

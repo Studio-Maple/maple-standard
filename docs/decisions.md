@@ -14,6 +14,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D012 | 2026-07-30 | Worktree teardown strips reparse points before deleting
+git worktree remove --force follows NTFS junctions (empties the target, leaves the dir — sandbox-verified); Turbopack leaves .next/node_modules junctions targeting the main checkout's .pnpm dirs, which gutted maple-pole's node_modules 3x in 3 days (its D049). maple_remove_worktree now strips every link inside the worktree first (strip-reparse-points.ps1, a non-link-following walk); _maple_link_dir rmdirs an existing link before rm -rf. Regression: agent-wt/junction-safety.test.mjs, fast tier.
+
 ## D011 | 2026-07-25 | MapleLens lives in its own top-level repo, published private
 C:/Projects/MapleLens is a standalone git repo, not a maple-standard package - a deployable product with its own release cadence; per-app instances pin versions of it. Published to github.com/maayanmar/MapleLens as PRIVATE until deployed and hardened; open-sourcing is a deliberate later call. Extraction from VeHagita is read-only on VeHagita and MapleLens stays independent of the plugin for now.
 

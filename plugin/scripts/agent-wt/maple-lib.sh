@@ -237,6 +237,17 @@ esac
 
 _maple_link_dir() {
   local src="$1" dst="$2"
+  # If dst already exists as a LINK (re-link of an existing worktree, e.g.
+  # maple-preview), remove the link itself first — deleters that follow
+  # junctions (git's recursive delete does; rm behavior is MSYS-version-
+  # dependent) would recurse into the TARGET (the main checkout's real
+  # node_modules). rmdir/rm -f remove only the reparse point; the rm -rf
+  # below then only ever sees a plain leftover dir.
+  if $MAPLE_IS_WINDOWS; then
+    cmd //c rmdir "$(cygpath -w "$dst")" >/dev/null 2>&1 || true
+  elif [ -L "$dst" ]; then
+    rm -f "$dst" 2>/dev/null || true
+  fi
   rm -rf "$dst" 2>/dev/null || true
   if $MAPLE_IS_WINDOWS; then
     cmd //c mklink //J "$(cygpath -w "$dst")" "$(cygpath -w "$src")" >/dev/null 2>&1
@@ -361,11 +372,35 @@ maple_ensure_loop_state_gitignored() {
   fi
 }
 
-# Safely remove a worktree dir: unlink node_modules junctions first, then let
-# git remove it; fall back to a manual (now junction-free, so safe) rm + prune.
+# Strip EVERY reparse point (junction/symlink) inside a worktree — the links
+# themselves, never their targets. maple_unlink_node_modules removes the one
+# junction WE made, but build output contains links we didn't: Next.js/
+# Turbopack writes junctions under .next/node_modules/ that TARGET the main
+# checkout's real .pnpm dirs (require-in-the-middle / import-in-the-middle,
+# the Sentry require-hook externals). `git worktree remove --force` — our
+# own first teardown step — FOLLOWS junctions in its recursive delete
+# (verified by sandbox repro: it empties the target and leaves the dir;
+# current MSYS `rm -rf` and `cmd rmdir /s` unlink junctions safely), which
+# gutted the main tree's packages three times (2026-07-28..30, maple-pole).
+# POSIX rm never follows symlinks — Windows only. Delegated to
+# strip-reparse-points.ps1 (a walk that does NOT descend through links —
+# PS 5.1's -Recurse follows junctions).
+maple_strip_reparse_points() {
+  local wt="$1"
+  $MAPLE_IS_WINDOWS || return 0
+  powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
+    -File "$(cygpath -w "$(dirname "${BASH_SOURCE[0]}")/strip-reparse-points.ps1")" \
+    -Root "$(cygpath -w "$wt")" >/dev/null 2>&1 || true
+}
+
+# Safely remove a worktree dir: unlink node_modules junctions, strip every
+# remaining reparse point (see above — .next contains junctions into the main
+# tree), then let git remove it; fall back to a manual (now link-free, so
+# safe) rm + prune.
 maple_remove_worktree() {
   local wt="$1"
   maple_unlink_node_modules "$wt"
+  maple_strip_reparse_points "$wt"
   if git worktree remove --force "$wt" 2>/dev/null; then return 0; fi
   rm -rf "$wt" 2>/dev/null \
     || { $MAPLE_IS_WINDOWS && cmd //c rmdir //s //q "$(cygpath -w "$wt")" >/dev/null 2>&1; } || true

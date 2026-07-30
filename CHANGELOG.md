@@ -6,6 +6,28 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Worktree teardown no longer deletes through build-output junctions
+  (D012).** Root-caused in maple-pole (its D049, 2026-07-30) after three
+  gutted-node_modules incidents in three days: Next.js/Turbopack writes
+  junctions under a worktree's `.next/node_modules/`
+  (`require-in-the-middle-<hash>` / `import-in-the-middle-<hash>` — the
+  Sentry require-hook externals) whose targets are the MAIN checkout's real
+  `.pnpm` package dirs, and `git worktree remove --force` —
+  `maple_remove_worktree`'s first step — follows junctions during its
+  recursive delete: it empties the TARGET and leaves the dir
+  (sandbox-verified; current MSYS `rm -rf` and `cmd rmdir /s` unlink
+  junctions safely). `maple_remove_worktree` now strips every reparse point
+  inside the worktree first (new `strip-reparse-points.ps1` — a walk that
+  deliberately does NOT descend through links, since Windows PowerShell
+  5.1's `-Recurse` follows junctions and would reach the main tree), and
+  `_maple_link_dir` rmdir's an existing link instead of `rm -rf`-ing it
+  (the maple-preview re-link path). Regression test:
+  `plugin/scripts/agent-wt/junction-safety.test.mjs` (junction on Windows,
+  symlink on POSIX; asserts the link target's files survive teardown),
+  wired as `test:plugin-agent-wt` into fast 6/7 next to the loop-pack
+  tests — verified failing against the pre-fix lib (target gutted to 0
+  entries) and passing after.
+
 - `/adopt-standard` shakedown fixes from its first real adoption
   (EasyCaller/Caller-development, 10 defects): the "what this command
   writes" summary no longer contradicts step 6's hook-wiring body; step 2

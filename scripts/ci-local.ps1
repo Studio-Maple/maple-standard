@@ -52,8 +52,9 @@ function Run-Fast {
     Step "fast 5/7: unit + component tests (vitest)"
     Invoke-Checked "pnpm run test"
 
-    Step "fast 6/7: plugin loop-pack tests (plugin/scripts/loops - m11)"
+    Step "fast 6/7: plugin tests (loops - m11; agent-wt junction safety)"
     Invoke-Checked "pnpm run test:plugin-loops"
+    Invoke-Checked "pnpm run test:plugin-agent-wt"
 
     Step "fast 7/7: build (next build) + docs-drift"
     Invoke-Checked "pnpm run build"
