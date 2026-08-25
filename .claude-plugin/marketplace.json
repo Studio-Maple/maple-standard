@@ -7,7 +7,7 @@
     {
       "name": "maple-standard",
       "source": "./plugin",
-      "description": "Studio Maple's AI-workflow standard: worktree lifecycle, safety hooks, docs gate, self-healing, and the dev-burner loop pack."
+      "description": "Studio Maple's AI-workflow standard: worktree lifecycle, safety hooks, docs gate, repo-global ID allocation, self-healing, session commands, and the dev-burner loop pack."
     }
   ]
 }

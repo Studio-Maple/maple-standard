@@ -1,5 +1,5 @@
 {
-  "generated": "2026-07-26",
+  "generated": "2026-08-25",
   "generator": "plugin/scripts/docs/generate-docs-index.mjs",
   "description": "Machine-readable map of docs/**/*.md preambles (OKF v0.1 frontmatter or legacy prose — docs/decisions.md D010). Regenerate after any preamble/description change: run this script (or check-docs-drift.mjs --fix).",
   "files": [
@@ -16,10 +16,10 @@
         "node scripts/next-task-id.mjs --add --decision --title \"...\" --body \"...\""
       ],
       "related": [
+        "standard-architecture",
         "rollout",
         "loop-pack",
-        "maplelens",
-        "standard-architecture"
+        "maplelens"
       ]
     },
     {

@@ -14,6 +14,12 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D051 | 2026-08-25 | Skills and session commands ship in the plugin, not ~/.claude
+credential-manager lived in ~/.claude/skills and /todo /project-status /session-end /represent /review-aspect in ~/.claude/commands — machine-local, unversioned, invisible to a new machine or an adopting project. All six moved into plugin/skills/ and plugin/commands/. This narrows the user-global bucket [[standard-architecture]] describes to near-empty, by design: that bucket has no gate behind it. credential-manager was genericized to <Project>-<Service>-<Purpose> placeholders on the way in.
+
+## D050 | 2026-08-25 | IDs are repo-global, not per-worktree
+The #T/D/S allocator scanned only the current worktree's docs file and locked on a per-worktree `docs/tasks.md.lock`, so two parallel agent/<slug> sessions both issued the same id and only collided at /wt-land. Numbers now come from max(a counter in `<git-common-dir>/maple/id-counters.json`, a live `git worktree list` scan of every worktree's docs file) + 1, with the mutex moved to the same shared dir. Fails open to the old behaviour outside git. See [[standard-architecture]] and plugin/scripts/docs/lib/id-store.mjs.
+
 ## D012 | 2026-07-30 | Worktree teardown strips reparse points before deleting
 git worktree remove --force follows NTFS junctions (empties the target, leaves the dir — sandbox-verified); Turbopack leaves .next/node_modules junctions targeting the main checkout's .pnpm dirs, which gutted maple-pole's node_modules 3x in 3 days (its D049). maple_remove_worktree now strips every link inside the worktree first (strip-reparse-points.ps1, a non-link-following walk); _maple_link_dir rmdirs an existing link before rm -rf. Regression: agent-wt/junction-safety.test.mjs, fast tier.
 

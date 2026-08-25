@@ -24,9 +24,18 @@
  *       -> allocate the next S, prepend `## S### | YYYY-MM-DD | <title>` + body at the
  *          TOP of docs.log (newest-first session log), print the id.
  *
+ * IDs are REPO-GLOBAL, not per-worktree (docs/decisions.md D050). The number is one
+ * past the highest of (a) a counter shared by every worktree via the git common dir
+ * and (b) a live scan of every worktree's docs file — so two parallel `agent/<slug>`
+ * sessions can't both hand out `#T42` off their own branch-local tasks.md. See
+ * lib/id-store.mjs. Outside a git repo (or with MAPLE_ID_SHARED=0) it degrades to the
+ * old single-worktree behaviour rather than failing.
+ *
  * `--add` is ATOMIC vs parallel sessions: the allocate->write critical section runs
- * under an O_EXCL lockfile mutex, so two concurrent invocations can never hand out
- * the same number. It is also the FORMAT GATE — it refuses (nonzero exit, nothing
+ * under an O_EXCL lockfile mutex — held in the git common dir, so it serialises
+ * ACROSS worktrees and not just within one. Two concurrent invocations anywhere in
+ * the repo can never hand out the same number. It is also the FORMAT GATE — it
+ * refuses (nonzero exit, nothing
  * written) when the assembled entry block would exceed 600 chars (the cap
  * check-docs-drift.mjs errors on), when the named tasks section doesn't exist, or
  * when title/body are missing. The agent authors the content; the script only
@@ -37,12 +46,16 @@
  *   NEXT_TASK_ID_DECISIONS_FILE  — path to a decisions.md fixture
  *   NEXT_TASK_ID_LOG_FILE        — path to a log.md fixture
  *   NEXT_TASK_ID_TODAY           — YYYY-MM-DD to stamp decisions/sessions with
+ *   MAPLE_ID_STORE_DIR           — override the shared counter/lock dir
+ *   MAPLE_ID_SHARED=0            — disable the shared store (single-worktree mode)
  *
  * maple.config.json keys read: docs.tasks docs.decisions docs.log
  */
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { open as fsOpen, stat as fsStat, unlink as fsUnlink, readFile as fsReadFile, writeFile as fsWriteFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { resolveDocsConfig, defaultRoot } from "./lib/config.mjs";
+import { resolveStoreDir, lockPath as sharedLockPath, nextGlobalId, writeCounter } from "./lib/id-store.mjs";
 
 export const MAX_ENTRY_CHARS = 600; // matches check-docs-drift.mjs (ERROR over 600)
 
@@ -194,35 +207,59 @@ export async function releaseLock(lockPath) {
 
 // ── Allocate-and-insert (the atomic core) ────────────────────────────────────
 
-export async function allocateAndInsert({ kind, section, title, body, paths, env = process.env, lockOpts } = {}) {
+export async function allocateAndInsert({ kind, section, title, body, paths, env = process.env, root = defaultRoot(), lockOpts } = {}) {
   const file = kind === "decision" ? paths.decisions : kind === "session" ? paths.log : paths.tasks;
-  const lockPath = `${file}.lock`;
-  await acquireLock(lockPath, lockOpts);
+
+  // The mutex lives with the shared counter (git common dir) so it
+  // serialises across every worktree of the repo. `${file}.lock` is the
+  // documented fallback when there is no shared store — it only ever
+  // guards this one worktree, which is all a non-git checkout has.
+  const storeDir = resolveStoreDir(root, env);
+  let lock = `${file}.lock`;
+  if (storeDir) {
+    try {
+      mkdirSync(storeDir, { recursive: true });
+      lock = sharedLockPath(storeDir, kind);
+    } catch {
+      /* .git unwritable — keep the local lock, still allocate off the scan */
+    }
+  }
+
+  await acquireLock(lock, lockOpts);
   try {
     const text = existsSync(file) ? await fsReadFile(file, "utf8") : "";
+    const localMax = kind === "session" ? nextSessionNum(text) - 1 : kind === "decision" ? nextDecisionNum(text) - 1 : nextTaskNum(text) - 1;
+    const num = await nextGlobalId(kind, root, { storeDir, localMax });
+
     if (kind === "decision" || kind === "session") {
-      const id = kind === "session" ? padS(nextSessionNum(text)) : padD(nextDecisionNum(text));
+      const id = kind === "session" ? padS(num) : padD(num);
       const date = env.NEXT_TASK_ID_TODAY || new Date().toISOString().slice(0, 10);
       const block = formatDatedEntry(id, date, title, body);
       validateEntry({ kind, block, title, body });
       const insert = kind === "session" ? insertSessionEntry : insertDecisionEntry;
       await fsWriteFile(file, insert(text, block), "utf8");
+      // After the doc write, never before: a counter bumped ahead of a
+      // failed write burns ids, which is ugly but harmless — a counter
+      // bumped for a write that never happened while another worktree is
+      // mid-allocation is not.
+      await writeCounter(storeDir, kind, num);
       return id;
     }
-    const num = nextTaskNum(text);
+
     const entryLine = formatTaskEntry(num, title, body);
     validateEntry({ kind: "task", block: entryLine, title, body, section, tasksTxt: text });
     await fsWriteFile(file, insertTaskEntry(text, section, entryLine), "utf8");
+    await writeCounter(storeDir, kind, num);
     return `#T${num}`;
   } finally {
-    await releaseLock(lockPath);
+    await releaseLock(lock);
   }
 }
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
 export function parseArgs(argv) {
-  const out = { add: false, decision: false, session: false, check: false, section: null, title: null, body: null };
+  const out = { add: false, decision: false, session: false, check: false, section: null, title: null, body: null, root: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--add") out.add = true;
@@ -232,6 +269,12 @@ export function parseArgs(argv) {
     else if (a === "--section") out.section = argv[++i];
     else if (a === "--title") out.title = argv[++i];
     else if (a === "--body") out.body = argv[++i];
+    // --root: name the worktree explicitly rather than inferring it. Callers
+    // that already know it (any maple-lib.sh script has $MAPLE_REPO_ROOT)
+    // should pass it — CLAUDE_PROJECT_DIR is set once at session start and
+    // does NOT follow a cd into a worktree. Same convention as the loop
+    // pack's resolve-root.mjs.
+    else if (a === "--root") out.root = argv[++i];
     else throw new AllocError(`unknown argument: ${a}`);
   }
   if (out.decision && out.session) throw new AllocError("--decision and --session are mutually exclusive");
@@ -249,16 +292,25 @@ export async function run(argv, deps = {}) {
 
 async function dispatch(argv, { env = process.env, root } = {}) {
   const opts = parseArgs(argv);
-  const paths = resolvePaths(env, root);
+  // Precedence: --root (the caller KNOWS its worktree) > an embedding
+  // caller's `root` (the template's scripts/next-task-id.mjs wrapper) >
+  // defaultRoot().
+  const effectiveRoot = opts.root ? resolve(opts.root) : root || defaultRoot();
+  const paths = resolvePaths(env, effectiveRoot);
 
   if (opts.add) {
     const kind = opts.decision ? "decision" : opts.session ? "session" : "task";
-    const id = await allocateAndInsert({ kind, section: opts.section, title: opts.title, body: opts.body, paths, env });
+    const id = await allocateAndInsert({ kind, section: opts.section, title: opts.title, body: opts.body, paths, env, root: effectiveRoot });
     const where = kind === "decision" ? paths.decisions : kind === "session" ? paths.log : `"${opts.section}" in ${paths.tasks}`;
     return { stdout: id, stderr: `Allocated ${id} -> inserted at top of ${where}`, exitCode: 0 };
   }
 
   if (opts.check) {
+    // Local-only, deliberately. Two worktrees BOTH holding #T7 is normal —
+    // they branched from a main that already had it — so a cross-worktree
+    // duplicate scan would be almost entirely false positives. The
+    // cross-worktree guarantee comes from allocation (id-store.mjs), not
+    // from after-the-fact detection.
     const cols = taskCollisions(read(paths.tasks));
     if (cols.length) {
       return { stdout: "", stderr: `#T collisions (defined >1x): ${cols.map((n) => "#T" + n).join(", ")}`, exitCode: 1 };
@@ -266,17 +318,22 @@ async function dispatch(argv, { env = process.env, root } = {}) {
     return { stdout: "No #T collisions.", stderr: "", exitCode: 0 };
   }
 
+  // The read-only queries report the same REPO-GLOBAL number --add would
+  // allocate — a preview that disagreed with the allocator is worse than no
+  // preview, since it is exactly what a hand-guessing agent copies.
   if (opts.decision) {
-    return { stdout: padD(nextDecisionNum(read(paths.decisions))), stderr: "", exitCode: 0 };
+    const n = await nextGlobalId("decision", effectiveRoot, { localMax: nextDecisionNum(read(paths.decisions)) - 1 });
+    return { stdout: padD(n), stderr: "", exitCode: 0 };
   }
 
   if (opts.session) {
-    return { stdout: padS(nextSessionNum(read(paths.log))), stderr: "", exitCode: 0 };
+    const n = await nextGlobalId("session", effectiveRoot, { localMax: nextSessionNum(read(paths.log)) - 1 });
+    return { stdout: padS(n), stderr: "", exitCode: 0 };
   }
 
   const tasksTxt = read(paths.tasks);
   const cols = taskCollisions(tasksTxt);
-  const stdout = "Next free task id: #T" + nextTaskNum(tasksTxt);
+  const stdout = "Next free task id: #T" + (await nextGlobalId("task", effectiveRoot, { localMax: nextTaskNum(tasksTxt) - 1 }));
   if (cols.length) {
     return {
       stdout,

@@ -6,6 +6,54 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **IDs are repo-global across worktrees (D050).** `next-task-id.mjs`
+  allocated from `max(#T in THIS worktree's tasks.md) + 1` and serialised on
+  `docs/tasks.md.lock` — both per-worktree, so two parallel `agent/<slug>`
+  sessions each scanned their own branch-local `tasks.md`, each saw `#T41` as
+  the highest, and each handed out `#T42`; neither lock could see the other,
+  and the collision surfaced only at `/wt-land` with both branches already
+  written. The number now comes from `max(counter, live scan) + 1`, where the
+  counter is `<git-common-dir>/maple/id-counters.json` (`git rev-parse
+  --git-common-dir` resolves to the main checkout's `.git` from inside any
+  linked worktree, so all worktrees share one file — inside `.git`, so never
+  committed and never conflicting) and the scan walks every worktree from
+  `git worktree list --porcelain`, resolving each through its own
+  `maple.config.json`. The scan is not redundant: the counter doesn't exist on
+  first run, a fresh clone starts empty, and a branch can carry ids allocated
+  before this shipped. The `--add` mutex moved to
+  `<git-common-dir>/maple/id-alloc-<kind>.lock`, so it serialises across
+  worktrees. Read-only queries (bare, `--decision`, `--session`) now report
+  the same repo-global number `--add` would allocate — a preview that
+  disagreed with the allocator is exactly what a hand-guessing agent copies.
+  `--check` stays local-only on purpose: two worktrees both holding `#T7` is
+  normal (shared history), so a cross-worktree duplicate scan would be nearly
+  all false positives. New `--root <path>` names the worktree explicitly —
+  `CLAUDE_PROJECT_DIR` is set once at session start and does not follow a `cd`
+  into a worktree, the same trap `resolve-root.mjs` documents. Everything
+  fails open: no git, no `git` on PATH, or an unwritable `.git` degrades to
+  the old single-worktree behaviour rather than refusing to allocate. New
+  `plugin/scripts/docs/lib/id-store.mjs`; escape hatches `MAPLE_ID_STORE_DIR`
+  and `MAPLE_ID_SHARED=0`. Verified against a two-worktree scratch repo: 6
+  concurrent allocations across both worktrees produced 6 distinct ids,
+  `#T`/`D`/`S` all interleave correctly, and both fallback paths still
+  allocate.
+
+- **Skills and session commands ship in the plugin (D051).** The plugin had
+  no `skills/` directory at all. `credential-manager` lived only in
+  `~/.claude/skills/` and `/todo`, `/project-status`, `/session-end`,
+  `/represent`, `/review-aspect` only in `~/.claude/commands/` — machine-local,
+  unversioned, and invisible both to a second machine and to any project
+  adopting the standard. All six now ship in `plugin/skills/` and
+  `plugin/commands/`. `credential-manager` was genericized on the way in
+  (`<Project>-<Service>-<Purpose>` placeholders instead of one project's real
+  target names; the BOM-pipe incident kept as an unattributed cautionary note)
+  and is the counterpart to the `deny-credential-paths.mjs` hook — that hook
+  blocks reading `.env*`, and blocking without offering a working alternative
+  just pushes an agent toward asking the owner to paste the secret into the
+  transcript. The three allocator-aware ported commands now call the
+  plugin-bundled allocator with `--root` instead of assuming a project-local
+  `scripts/next-task-id.mjs`. Plugin bumped to 0.2.0.
+
 - **Worktree teardown no longer deletes through build-output junctions
   (D012).** Root-caused in maple-pole (its D049, 2026-07-30) after three
   gutted-node_modules incidents in three days: Next.js/Turbopack writes

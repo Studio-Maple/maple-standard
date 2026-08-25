@@ -25,6 +25,8 @@ single-package project.
 | `/heal` | Error-tracker-driven self-healing: fetch, cluster, triage, fix, and verify unresolved issues through a 5-tier ladder before marking them resolved. |
 | `/adopt-standard` | Bootstrap: validates + stamps `maple.config.json`, scaffolds canonical `docs/` files + `CLAUDE.md` if missing, generates the docs index, merges in the plugin's hooks, verifies the docs gate + a CI tier before declaring done. |
 | `/sweep-errors`, `/burn-backlog`, `/sweep-quality`, `/detect-drift`, `/dev-burner` | The **loop pack** — budget-bounded autonomous loops orchestrated by `/dev-burner` under `/loop`, working in an isolated standing `dev-burner` worktree that never self-merges. See "The loop pack" below. |
+| `/todo`, `/project-status`, `/session-end`, `/represent`, `/review-aspect` | The **session commands** — open-task list, status board, session close-out (log + tasks + docs gate), a plain-English "where are we" orientation, and a single-aspect code review. All docs-shape-agnostic and allocator-aware; previously machine-local under `~/.claude/commands/`, now bundled so every adopting project gets them. |
+| `plugin/skills/credential-manager` | The **credential skill** — read secrets from the OS credential store (Windows Credential Manager) just-in-time for local commands, instead of reading `.env*` (which `deny-credential-paths.mjs` blocks anyway) or asking the owner to paste a value. Pairs with that hook: the hook closes the wrong path, the skill supplies the right one. |
 | `plugin/hooks/hooks.json` | 9 always-on safety/hygiene hooks (credential-read blocking, secret scrubbing, a Bash cwd/push guard, dirty-tree + decision + docs-sync reminders, parallel-session warning, and the loop-pack's mechanical budget guard). |
 
 ## Install
@@ -164,6 +166,22 @@ There is no more `docs.idAllocatorScript` key either — `decision-reminder`'s
 guidance text always points at the plugin's own bundled
 `plugin/scripts/docs/next-task-id.mjs`.
 
+### Bundled skills (`plugin/skills/`)
+
+| Skill | What it does |
+|---|---|
+| `credential-manager` | Reads secrets from the OS credential store (Windows Credential Manager; Keychain / `secret-tool` noted for macOS / Linux) just-in-time for local commands — deploys, migrations, CLI auth, Docker env injection. Documents the two safe delivery patterns (process-scope env var, UTF-8-no-BOM temp file) and the PowerShell 5.1 pipe trap that silently BOM-corrupts a piped secret. |
+
+This is the other half of the `deny-credential-paths.mjs` hook. That hook
+blocks the wrong path (`.env*`, `.dev.vars`, `~/.ssh/id_*`); the skill
+supplies the right one. Blocking a read without offering a working
+alternative just pushes an agent toward asking the owner to paste the value
+into the transcript — the outcome the block existed to prevent.
+
+The skill ships with `<Project>-<Service>-<Purpose>` placeholder target
+names, not one project's real catalog. An adopting project documents its own
+catalog in its docs (conventionally `docs/quality/secrets-handling.md`).
+
 ### Bundled docs tooling (`plugin/scripts/docs/`) — #T13
 
 Canonical, generalized implementations of the four scripts a project's docs
@@ -174,7 +192,8 @@ free instead of owning its own copies:
 |---|---|
 | `check-docs-drift.mjs` | The structural docs-drift gate — see its own header comment for the full ERROR/WARN inventory. `--fix` regenerates the index + catalog. |
 | `generate-docs-index.mjs` | Walks `docs.root`, emits `docs.docsIndexJson`, and maintains the generated Catalog block in `docs.index` (see "OKF v0.1 frontmatter" below). |
-| `next-task-id.mjs` | Collision-free `#T`/`D`/`S` id allocator (atomic lockfile mutex). Depended on by `/sync-docs`, `decision-reminder`, and this template's own `pnpm next-id`. |
+| `next-task-id.mjs` | Collision-free `#T`/`D`/`S` id allocator — **repo-global across worktrees** (see below). Depended on by `/todo`, `/session-end`, `/project-status`, `/sync-docs`, `decision-reminder`, and this template's own `pnpm next-id`. |
+| `lib/id-store.mjs` | The shared high-water mark the allocator reads: a counter in the git common dir plus a live scan of every worktree's docs file. |
 | `doc-search/search.mjs` | BM25 doc search. Imported directly by `ask-gate.mjs` (both ESM) for its relevance signal — always on, no config key. |
 
 All four are plain Node, zero new dependencies, and read this **canonical**
@@ -196,6 +215,53 @@ This template's own `scripts/check-docs-drift.mjs` / `generate-docs-index.mjs`
 / `next-task-id.mjs` / `doc-search/search.mjs` are now thin delegates to
 these bundled versions (same repo, so a relative import just works) — the
 template's `package.json` scripts, husky hooks, and CI tiers are unaffected.
+
+#### Repo-global IDs across worktrees
+
+`next-task-id.mjs` used to allocate from `max(ids in THIS worktree's
+tasks.md) + 1` and lock on `docs/tasks.md.lock`. Both are per-worktree, so
+two parallel `/wt-start` sessions each scanned their own branch-local
+`tasks.md`, each saw `#T41` as the highest, and each handed out `#T42` —
+with neither lock aware of the other. The collision only surfaced at
+`/wt-land`, once both branches were already written.
+
+IDs are now **repo-global**. The allocated number is one past the highest of:
+
+1. a **counter** at `<git-common-dir>/maple/id-counters.json`. `git rev-parse
+   --git-common-dir` resolves to the *main* checkout's `.git` from inside any
+   linked worktree, so every worktree reads and writes the same file. It's
+   inside `.git`, so it is never committed, never merges, and never conflicts;
+   machine-local is the correct scope, because worktrees are.
+2. a **live scan** of every worktree's docs file (`git worktree list
+   --porcelain`, each worktree resolved through its own
+   `maple.config.json`). The counter alone isn't enough — it doesn't exist on
+   first run, a fresh clone starts empty, and a branch can carry ids allocated
+   before this shipped.
+
+The `--add` mutex moved to `<git-common-dir>/maple/id-alloc-<kind>.lock`, so
+it now serialises across worktrees rather than within one. Read-only queries
+(`next-task-id.mjs`, `--decision`, `--session`) report the same repo-global
+number `--add` would allocate — a preview that disagreed with the allocator
+is worse than no preview, since it's exactly what a hand-guessing agent
+copies.
+
+`--check` stays **local-only** on purpose: two worktrees both holding `#T7`
+is normal (they branched from a main that already had it), so a
+cross-worktree duplicate scan would be nearly all false positives. The
+cross-worktree guarantee comes from allocation, not from after-the-fact
+detection.
+
+Everything fails **open**: outside a git repo, without `git` on PATH, or with
+an unwritable `.git`, allocation degrades to the old single-worktree
+behaviour rather than refusing. Losing the shared counter costs
+collision-freedom across worktrees — exactly where you already were — it must
+never cost you the ability to file a task.
+
+| Flag / env | Effect |
+|---|---|
+| `--root <path>` | Name the worktree explicitly. Pass it: `CLAUDE_PROJECT_DIR` is set once at session start and does **not** follow a `cd` into a worktree (same trap `plugin/scripts/loops/resolve-root.mjs` documents). Any `maple-lib.sh` script already has `$MAPLE_REPO_ROOT`. |
+| `MAPLE_ID_STORE_DIR` | Use this dir for the counter + lock instead of the git common dir (tests; also an escape hatch for a read-only `.git`). |
+| `MAPLE_ID_SHARED=0` | Disable the shared store — behave exactly as before this existed. |
 
 #### OKF v0.1 frontmatter (docs/decisions.md D010)
 
