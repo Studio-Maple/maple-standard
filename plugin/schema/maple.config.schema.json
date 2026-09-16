@@ -36,7 +36,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "root": { "type": "string", "minLength": 1, "format": "path" },
+        "root": { "type": "string", "minLength": 1, "format": "path", "description": "Absolute, or relative to the repo root. Default \".worktrees\" — inside the repo, gitignored (maple-start self-heals the .gitignore entry)." },
         "namePattern": { "type": "string", "minLength": 1, "pattern": "<slug>" },
         "nodeModulesDirs": { "type": "array", "items": { "type": "string", "format": "path" } },
         "envFiles": { "type": "array", "items": { "type": "string", "format": "path" } },

@@ -155,18 +155,49 @@ couldn't safely infer or detect unambiguously. Cover at least:
   `[]`) unless the owner explicitly wants loops running now. Don't let one
   answer stand in for the other.
 - **Worktrees** (usually confirm-not-ask — surface the resolved default,
-  ask only if it needs overriding): `worktrees.root` defaults to a sibling
-  directory named `<basename-of-the-git-common-dir's-parent>-wt` — i.e.
-  derived from the **main** checkout's directory name via `git rev-parse
-  --git-common-dir`, which resolves to the same place regardless of which
-  worktree the command happens to run from. This is worktree-topology
-  aware on purpose: a project's prod/dev "checkouts" may be two
-  independent clones, or two **linked worktrees sharing one `.git`** (real
-  topology, not hypothetical — see step 1's dual-checkout detection); the
-  wrong assumption here silently points `wt-start`/`wt-land`/etc. at the
-  wrong directory. Confirm/correct `worktrees.root` and
-  `worktrees.namePattern` (default `"agent/<slug>"`) explicitly — every
-  `wt-*` command depends on both being right.
+  ask only if it needs overriding): `worktrees.root` defaults to
+  `.worktrees` **inside** the repo (relative to the main checkout's root,
+  resolved via `git rev-parse --git-common-dir` so it's stable regardless
+  of which worktree the command happens to run from). Omit the key
+  entirely rather than stamping it, unless the owner overrides it — the
+  schema default already resolves to `.worktrees`, and omitting keeps
+  future default changes flowing through (see "Validate before writing"
+  below). This is worktree-topology aware on purpose: a project's
+  prod/dev "checkouts" may be two independent clones, or two **linked
+  worktrees sharing one `.git`** (real topology, not hypothetical — see
+  step 1's dual-checkout detection); the wrong assumption here silently
+  points `wt-start`/`wt-land`/etc. at the wrong directory. Confirm/correct
+  `worktrees.root` (if overridden) and `worktrees.namePattern` (default
+  `"agent/<slug>"`) explicitly — every `wt-*` command depends on both
+  being right.
+  - **Self-heal the gitignore entry.** Whatever `worktrees.root` resolves
+    to (default `.worktrees`, or the owner's override if it's also inside
+    the repo), ensure it's gitignored — call
+    `plugin/scripts/agent-wt/maple-lib.sh`'s `maple_ensure_gitignored
+    '<root>/'` (source the lib, then call it) rather than hand-rolling the
+    append; it already handles CRLF tolerance and a missing trailing
+    newline correctly. `maple-start.sh` also self-heals this on every run,
+    so this step is a courtesy, not the only safety net.
+  - **Stamp the tool-exclusion entries — detect-and-warn, don't
+    silently skip.** A nested worktree under `.worktrees/` is a full
+    source checkout; every tool that globs the whole tree (TypeScript,
+    ESLint, a bundler, a docs-drift/index generator, a dependency-graph
+    linter, test runners) will otherwise walk into it and can report
+    phantom duplicates/collisions. This plugin cannot know every stack's
+    config shape, so:
+    - For configs this command recognizes on sight (`tsconfig.json`
+      `exclude`, `.gitignore`, `eslint.config.*`/`.eslintrc*` ignores,
+      `.dependency-cruiser.cjs`/`.js`/`.json` `exclude` if present) — add
+      a `.worktrees` (or `**/.worktrees/**`, matching that tool's own
+      idiom) entry directly, following the file's existing style.
+    - For everything else — a test runner config, a bundler config, a
+      project-specific docs/drift script under `scripts/` — **detect
+      whether it globs the repo tree at all** (look for `readdir`, `glob`,
+      `**/*`, or an explicit include/exclude list) and if so, **warn
+      loudly in the step-8 report** rather than guessing at an edit: name
+      the file, say it likely needs a `.worktrees` exclusion, and don't
+      touch it. Never silently skip a file that clearly globs the tree —
+      an unflagged one is worse than an unstamped one.
 - **CI tier commands** (`ci.tiers.fast`/`.gate`/`.core`/`.full`, and
   `ci.prePushTier` — which tier `/wt-land` runs by default). Guess from
   `package.json` scripts if they follow the `ci:fast`/`ci:gate`/`ci:core`/
