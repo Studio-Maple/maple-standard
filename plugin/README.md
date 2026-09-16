@@ -56,7 +56,7 @@ node plugin/scripts/sync-plugin-cache.mjs --force   # re-sync even if the conten
 
 1. **Add the marketplace** (once per machine, from this repo):
    ```
-   /plugin marketplace add C:\Projects\Studio-Maple\maple-standard
+   /plugin marketplace add C:\Projects\Maple-Standard
    ```
    (or a git remote URL once this repo is pushed somewhere Claude Code can
    reach — `owner/maple-standard` on GitHub, etc.)

@@ -14,6 +14,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D056 | 2026-09-16 | maple-standard lives at C:/Projects/Maple-Standard, not under Studio-Maple
+The standard stopped being a Studio-Maple sub-project once Caller, MapleLens, Nekuda and VeHagita all consumed it; the nested path made it look like website-2's dependency. It is now a top-level sibling of the projects it serves. Studio-Maple never tracked it, so the move is a directory rename plus the marketplace path in ~/.claude/settings.json and known_marketplaces.json — which sync-plugin-cache.mjs (D053) self-heals by basename when it runs from a directory other than the registered one.
+
 ## D055 | 2026-09-16 | Worktrees live inside the repo at .worktrees/, not a sibling dir
 worktrees.root now defaults to $MAPLE_MAIN_ROOT/.worktrees instead of ../<repo>-wt: a project is one filesystem path, nothing outside the checkout. maple_ensure_gitignored (generalized from the .loop-state helper) self-heals the entry on every wt-start/wt-preview/dev-burner; tsconfig/eslint/dep-cruiser exclude it. New hazard the sibling layout lacked: git clean -xffd deletes nested worktrees and follows their node_modules junctions into the main tree (D012) — blocked by bash-guard's clean-guard.
 

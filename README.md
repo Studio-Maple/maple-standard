@@ -48,7 +48,7 @@ this repo also ships a Claude Code **plugin** (`plugin/`) that installs
 into any project via the marketplace, no cloning required:
 
 ```
-/plugin marketplace add C:\Projects\Studio-Maple\maple-standard
+/plugin marketplace add C:\Projects\Maple-Standard
 /plugin install maple-standard@maple-standard
 /adopt-standard   # from inside the target project — stamps config + docs
 ```
