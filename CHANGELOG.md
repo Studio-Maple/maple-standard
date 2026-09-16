@@ -6,6 +6,18 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **knip survives Windows Application Control.** knip's `oxc-resolver`
+  ships an unsigned native module that Windows Application Control refused
+  to load ("An Application Control policy has blocked this file"), turning
+  the fast tier red and blocking every push on an environment fault rather
+  than a finding. `pnpm run knip` now goes through `scripts/run-knip.mjs`,
+  which runs the same knip in a `node:24-bookworm` container only when that
+  exact error is detected; any other failure and every real finding still
+  fail, and a missing Docker fails loud. Its node_modules and pnpm store live
+  in a per-repo named volume so the host install is untouched.
+  `KNIP_FORCE_CONTAINER=1` exercises the fallback. (The block itself turned
+  out to be path-scoped: the same binary loads from the relocated repo.)
+
 - **The standard now reaches the projects that use it (D053).** The
   maple-standard ships as a `directory`-source plugin marketplace, but
   Claude Code does not read that directory live — it COPIES it into

@@ -15,7 +15,7 @@
     "lint": "eslint .",
     "lint:ci": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "knip": "knip",
+    "knip": "node scripts/run-knip.mjs",
     "depcruise": "depcruise --config .dependency-cruiser.cjs --output-type err src",
     "depcruise:report": "depcruise --config .dependency-cruiser.cjs --output-type err-html --output-to depcruise-report.html src",
     "test": "vitest run",
