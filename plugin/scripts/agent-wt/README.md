@@ -57,7 +57,7 @@ one key set now); the subset these scripts read:
 | `repo.remote` | `"origin"` | all |
 | `repo.devBranch` / `repo.prodBranch` | origin's default branch, else `"main"` | all (devBranch wins if set, D008) |
 | `worktrees.namePattern` | `"agent/<slug>"` | all |
-| `worktrees.root` | `"../<repo-name>-wt"` | all |
+| `worktrees.root` | `".worktrees"` (inside the repo, gitignored) | all |
 | `worktrees.nodeModulesDirs` | `["."]` | start, preview, reap (unlink) |
 | `worktrees.envFiles` | `[]` | start, preview |
 | `worktrees.freshDepsCommand` | `"npm ci"` | start `--fresh-deps` |

@@ -25,7 +25,7 @@ Canonical keys per `docs/standard-architecture.md` (reconciled #T11 — see
 | `repo.remote` | `"origin"` |
 | `repo.devBranch` / `repo.prodBranch` | origin's default branch, else `"main"` (devBranch wins if set — D008 dual-checkout) |
 | `worktrees.namePattern` | `"agent/<slug>"` |
-| `worktrees.root` | `"../<repo-name>-wt"` (sibling dir) |
+| `worktrees.root` | `".worktrees"` (inside the repo, gitignored — self-healed into `.gitignore` on every `/wt-start`) |
 | `worktrees.nodeModulesDirs` | `["."]` — dirs (relative to repo root) whose `node_modules` gets linked into the new worktree |
 | `worktrees.envFiles` | `[]` — gitignored env files (relative to repo root) hardlinked into the worktree |
 | `worktrees.freshDepsCommand` | `"npm ci"` — used only with `--fresh-deps` |

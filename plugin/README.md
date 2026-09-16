@@ -123,7 +123,7 @@ branch falls back to the origin's detected default branch
 
 | Key | Default | Notes |
 |---|---|---|
-| `worktrees.root` | `"../<repo-name>-wt"` | sibling dir holding all worktrees; relative paths resolve against the repo root |
+| `worktrees.root` | `".worktrees"` | dir inside the repo holding all worktrees, gitignored (`/wt-start` self-heals the `.gitignore` entry); relative paths resolve against the repo root |
 | `worktrees.namePattern` | `"agent/<slug>"` | `<slug>` is substituted; replaces the old invented `branchPrefix` key — prefix/suffix around the placeholder are derived from this pattern |
 | `worktrees.nodeModulesDirs` | `["."]` | plugin extension — dirs (repo-root-relative) whose `node_modules` gets junction/symlinked into a new worktree |
 | `worktrees.envFiles` | `[]` | plugin extension — gitignored env files (repo-root-relative) hardlinked into a new worktree |

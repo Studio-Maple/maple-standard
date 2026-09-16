@@ -20,7 +20,7 @@ Canonical keys per `docs/standard-architecture.md` (reconciled #T11):
 | `repo.remote` | `"origin"` |
 | `repo.devBranch` / `repo.prodBranch` | origin's default branch, else `"main"` |
 | `worktrees.namePattern` | `"agent/<slug>"` |
-| `worktrees.root` | `"../<repo-name>-wt"` |
+| `worktrees.root` | `".worktrees"` (inside the repo, gitignored) |
 | `worktrees.reap.staleHours` | `24` — idle threshold for `--force` |
 
 Malformed config? Run

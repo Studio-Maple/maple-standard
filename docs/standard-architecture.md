@@ -59,7 +59,7 @@ One file, repo root, written by `/adopt-standard`, read by every plugin command.
     "standingLoopBranch": "dev-burner"   // see [[loop-pack]]
   },
   "worktrees": {
-    "root": "../Caller-wt",
+    "root": ".worktrees",
     "namePattern": "agent/<slug>"
   },
   "docs": {
