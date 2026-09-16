@@ -44,6 +44,8 @@ if [ -z "$FROM" ]; then
   git rev-parse --verify --quiet "$BASE" >/dev/null || BASE="$MAPLE_TARGET"
 fi
 
+maple_ensure_gitignored '.worktrees/'   # self-heal even if /adopt-standard never ran
+
 mkdir -p "$MAPLE_WT_ROOT"
 maple_log "creating worktree $DIR on $BRANCH (base: $BASE)"
 git worktree add -b "$BRANCH" "$DIR" "$BASE" >&2

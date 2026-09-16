@@ -49,6 +49,7 @@ git show-ref --verify --quiet "refs/heads/$BRANCH" \
 
 # Ensure the dedicated preview worktree exists (detached HEAD).
 if [ ! -d "$PREVIEW_DIR" ]; then
+  maple_ensure_gitignored '.worktrees/'   # self-heal even if /adopt-standard never ran
   mkdir -p "$MAPLE_WT_ROOT"
   maple_log "creating preview worktree $PREVIEW_DIR"
   git worktree add --detach "$PREVIEW_DIR" "$BRANCH" >&2

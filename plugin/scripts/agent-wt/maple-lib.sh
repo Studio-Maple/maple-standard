@@ -22,7 +22,8 @@
 #   repo.devBranch / repo.prodBranch target branch: devBranch if set (dual-
 #                                     checkout, D008), else prodBranch, else
 #                                     origin/HEAD's branch, else "main"
-#   worktrees.root                   default "../<repo-name>-wt" (sibling dir)
+#   worktrees.root                   default ".worktrees" (inside the repo,
+#                                     gitignored — see maple_ensure_gitignored)
 #   worktrees.namePattern            default "agent/<slug>" — `<slug>` is
 #                                     substituted; the branch prefix/suffix
 #                                     are derived from this pattern, no
@@ -164,7 +165,7 @@ _maple_default_wt_root() {
     esac
     return
   fi
-  printf '%s/%s-wt' "$(dirname "$MAPLE_MAIN_ROOT")" "$MAPLE_PROJECT_NAME"
+  printf '%s/.worktrees' "$MAPLE_MAIN_ROOT"
 }
 MAPLE_WT_ROOT="${MAPLE_WT_ROOT:-$(_maple_default_wt_root)}"
 
@@ -313,38 +314,42 @@ maple_unlink_node_modules() {
   done < <(maple_cfg_array worktrees.nodeModulesDirs '.')
 }
 
-# ── loop pack: .loop-state/ must be gitignored ──────────────────────────────
-# MJ-7: this used to be dev-burner.md prose only (a manual grep + append
-# instruction Claude followed at orchestrator step 1) — a loop run
-# STANDALONE under plain `/loop` (never through /dev-burner) skipped it
-# entirely, so its `git add -A` could stage .loop-state/*.json scratch
-# files. Sourced by every agent-wt script AND every loop command file (all
-# of them already `. maple-lib.sh` at their own step 0), so calling this
-# covers both paths. Idempotent — only appends if the line is genuinely
-# missing; never touches .gitignore otherwise. Operates on the CURRENT
-# worktree (may be the standing dev-burner one, or any other), not
-# MAPLE_MAIN_ROOT, since .gitignore is branch-tracked content.
-maple_ensure_loop_state_gitignored() {
-  local wt gi
+# ── generic: ensure an entry is gitignored ──────────────────────────────────
+# MJ-7: originally written for .loop-state/ only (loop-state-gitignore was
+# dev-burner.md prose — a manual grep + append instruction Claude followed at
+# orchestrator step 1); a loop run STANDALONE under plain `/loop` (never
+# through /dev-burner) skipped it entirely, so its `git add -A` could stage
+# .loop-state/*.json scratch files. Generalized so the worktree-creation path
+# (maple-start.sh) can self-heal `.worktrees/` into .gitignore the same way,
+# without duplicating this hard-won correctness logic. Sourced by every
+# agent-wt script AND every loop command file (all of them already
+# `. maple-lib.sh` at their own step 0), so calling this covers every path.
+# Idempotent — only appends if the entry's line is genuinely missing; never
+# touches .gitignore otherwise. Operates on the CURRENT worktree (may be the
+# standing dev-burner one, or any other), not MAPLE_MAIN_ROOT, since
+# .gitignore is branch-tracked content.
+maple_ensure_gitignored() {
+  local entry="$1" wt gi pattern commit_msg
   wt="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0
   gi="$wt/.gitignore"
 
-  # m7: match `.loop-state` or `.loop-state/` as a WHOLE LINE, tolerant of a
-  # CRLF-terminated .gitignore (a Windows checkout with no `*.gitignore text
-  # eol=lf` pin) — a plain `grep -qxF '.loop-state/'` treats the trailing
-  # `\r` as part of the line content and never matches a CRLF file, so every
-  # single cycle re-appended a duplicate entry. The trailing `/?` also means
-  # a project that already wrote the bare `.loop-state` form (matches the
-  # dir either way in a .gitignore) isn't treated as missing just because it
-  # lacks the slash.
-  if [ -f "$gi" ] && grep -Eq '^\.loop-state/?\r?$' "$gi" 2>/dev/null; then
+  # m7: match the entry with or without a trailing `/` as a WHOLE LINE,
+  # tolerant of a CRLF-terminated .gitignore (a Windows checkout with no
+  # `*.gitignore text eol=lf` pin) — a plain `grep -qxF "$entry/"` treats the
+  # trailing `\r` as part of the line content and never matches a CRLF file,
+  # so every single cycle re-appended a duplicate entry. The trailing `/?`
+  # also means a project that already wrote the bare (no-slash) form
+  # (matches the dir either way in a .gitignore) isn't treated as missing
+  # just because it lacks the slash.
+  pattern="^$(printf '%s' "${entry%/}" | sed 's/[.[\*^$()+?{|]/\\&/g')/?\r?\$"
+  if [ -f "$gi" ] && grep -Eq "$pattern" "$gi" 2>/dev/null; then
     return 0
   fi
 
   # B3: a .gitignore whose last line has no trailing newline would otherwise
   # get our append glued onto it — e.g. `node_modules` (no final \n) becomes
   # `node_modules.loop-state/`, which un-ignores `node_modules` AND fails to
-  # ignore `.loop-state/`. Reproduced with a real credential file: an
+  # ignore the new entry. Reproduced with a real credential file: an
   # unterminated `.env.local` line as the last line of .gitignore became
   # `.env.local.loop-state/`, un-ignoring `.env.local` — a subsequent loop
   # `git add -A` would then stage it. Ensure the file ends in a newline
@@ -355,7 +360,7 @@ maple_ensure_loop_state_gitignored() {
     printf '\n' >> "$gi"
   fi
 
-  printf '%s\n' '.loop-state/' >> "$gi"
+  printf '%s\n' "$entry" >> "$gi"
 
   # M1: `--only` commits exactly the CURRENT WORKING-TREE content of the
   # named path, ignoring (and never staging/touching) anything else already
@@ -365,11 +370,18 @@ maple_ensure_loop_state_gitignored() {
   # nothing is left staged either way (m8) — `--only` never modifies the
   # index for other paths, and doesn't require a prior `git add` for this
   # one.
-  if (cd "$wt" && git commit --only .gitignore --quiet -m "chore(loop-pack): gitignore .loop-state/"); then
-    maple_log "added .loop-state/ to .gitignore (committed)"
+  commit_msg="chore: gitignore $entry"
+  if (cd "$wt" && git commit --only .gitignore --quiet -m "$commit_msg"); then
+    maple_log "added $entry to .gitignore (committed)"
   else
-    maple_warn "added .loop-state/ to .gitignore but could not auto-commit it — commit manually"
+    maple_warn "added $entry to .gitignore but could not auto-commit it — commit manually"
   fi
+}
+
+# Thin wrapper — kept so every existing caller (loop-pack commands + this
+# file's own callers) is untouched.
+maple_ensure_loop_state_gitignored() {
+  maple_ensure_gitignored '.loop-state/'
 }
 
 # Strip EVERY reparse point (junction/symlink) inside a worktree — the links

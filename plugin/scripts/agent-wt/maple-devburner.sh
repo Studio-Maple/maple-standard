@@ -37,6 +37,7 @@ SUB="${1:-ensure}"
 STANDING_BRANCH="$(maple_cfg repo.standingLoopBranch dev-burner)"
 DIR="$MAPLE_WT_ROOT/_dev-burner"
 
+maple_ensure_gitignored '.worktrees/'   # self-heal even if /adopt-standard never ran
 mkdir -p "$MAPLE_WT_ROOT"
 
 maple_lock_acquire "dev-burner"
