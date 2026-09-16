@@ -14,6 +14,12 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D054 | 2026-09-16 | AskUserQuestion is the exception; ask inline and recommend
+The owner's standing instruction flipped: a modal option menu stops the turn and makes him arbitrate. Default is now a plain inline question while work continues on everything not blocked by the answer; obvious calls are made, not asked. AskUserQuestion is reserved for genuinely branching decisions, and must contrast the options and mark exactly one (Recommended). Enforced by a pure Tier 0.5 in ask-gate.mjs that nudges once per question set when no single option is marked. ASK_GATE_MODALITY_DISABLE=1 opts out.
+
+## D053 | 2026-09-16 | Plugin updates propagate via a SessionStart cache sync
+A directory-source marketplace is COPIED into ~/.claude/plugins/cache/, not read live. The cache sat frozen at v0.1.0 (2026-07-27) while the repo reached v0.2.0 — every project ran July's plugin, masked by the stale ~/.claude duplicates D051 superseded (now in ~/.claude/backups/). sync-plugin-cache.mjs content-hashes plugin/ against the cache and re-mirrors on drift, driven from a ~/.claude/settings.json SessionStart hook: the plugin's own hooks.json ships inside the stale cache and cannot bootstrap itself.
+
 ## D052 | 2026-08-30 | Local Docker stacks are on-demand, never auto-start
 supabase start stamps restart:unless-stopped on every container, so Docker Desktop resurrected entire stacks at every boot regardless of use (44 containers, 4 stacks, 36 running continuously, 2 stacks orphaned - 91.4GB reclaimed via image/volume/builder prune). No container carries a restart policy other than none; dstack up re-strips it after every supabase start; stack last-used = max(StartedAt,FinishedAt), idle >14d flagged by weekly /docker-audit, archived only on approval. See [[docker]].
 
