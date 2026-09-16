@@ -142,6 +142,15 @@ function samePath(a, b) {
   return norm(a) === norm(b);
 }
 
+// Same case-insensitivity as samePath, for the post-move basename fallback.
+// Without this the self-heal misses the very rename it exists to survive: the
+// repo moved from `Studio-Maple/maple-standard` to `Projects/Maple-Standard`,
+// and a case-SENSITIVE `===` read those two basenames as different directories
+// on a filesystem that considers them the same one.
+function sameName(a, b) {
+  return path.basename(path.resolve(a)).toLowerCase() === path.basename(path.resolve(b)).toLowerCase();
+}
+
 function main() {
   const __filename = fileURLToPath(import.meta.url);
   const scriptDir = path.dirname(__filename); // .../plugin/scripts
@@ -185,7 +194,7 @@ function main() {
       needsPathHeal = false;
       break;
     }
-    if (!marketplaceKey && path.basename(path.resolve(src.path)) === path.basename(repoRoot)) {
+    if (!marketplaceKey && sameName(src.path, repoRoot)) {
       marketplaceKey = key;
       needsPathHeal = true;
       // keep scanning in case a later entry is an exact match
