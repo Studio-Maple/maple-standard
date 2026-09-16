@@ -68,7 +68,13 @@ Never use `Write-Output`, `Write-Host`, `echo`, or string interpolation with the
 
 ## Store a new credential (owner runs interactively)
 
-Use the SecureString→BSTR pattern. The `-Password` param on `New-StoredCredential` is typed `string` — passing a raw `SecureString` stringifies to the literal `"System.Security.SecureString"`. Always convert first. Pipe to `| Out-Null` — the cmdlet echoes the stored password in plaintext as part of its return object otherwise.
+Ready-made script (prompts for the value, never echoes it):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "$CLAUDE_PLUGIN_ROOT\skills\credential-manager\scripts\store-secret.ps1" -Target <Project>-<Service>-<Purpose>
+```
+
+Or inline, using the SecureString→BSTR pattern. The `-Password` param on `New-StoredCredential` is typed `string` — passing a raw `SecureString` stringifies to the literal `"System.Security.SecureString"`. Always convert first. Pipe to `| Out-Null` — the cmdlet echoes the stored password in plaintext as part of its return object otherwise.
 
 ```powershell
 function Store-Secret($target) {

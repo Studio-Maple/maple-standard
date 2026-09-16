@@ -29,6 +29,29 @@ single-package project.
 | `plugin/skills/credential-manager` | The **credential skill** — read secrets from the OS credential store (Windows Credential Manager) just-in-time for local commands, instead of reading `.env*` (which `deny-credential-paths.mjs` blocks anyway) or asking the owner to paste a value. Pairs with that hook: the hook closes the wrong path, the skill supplies the right one. |
 | `plugin/hooks/hooks.json` | 9 always-on safety/hygiene hooks (credential-read blocking, secret scrubbing, a Bash cwd/push guard, dirty-tree + decision + docs-sync reminders, parallel-session warning, and the loop-pack's mechanical budget guard). |
 
+## How updates propagate
+
+Claude Code does **not** read a `directory`-source marketplace live — on
+install (and marketplace refresh) it copies `plugin/` into a versioned
+cache (`~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`), and
+every session reads that copy, not this repo. Editing `plugin/` here has no
+effect anywhere else until something re-runs the copy.
+
+`plugin/scripts/sync-plugin-cache.mjs` is that "something". It's wired as
+a `SessionStart` hook in `~/.claude/settings.json` (not in this plugin's
+own `hooks/hooks.json` — that file lives IN the cache and can't bootstrap
+it), so it runs at the start of every session on this machine. It compares
+a content hash of `plugin/` against a manifest it wrote into the cache
+last time, and re-mirrors the tree only when they differ (new version, or
+an edit without a version bump) — a few hundred ms no-op the rest of the
+time. It self-heals the registered marketplace path if the repo has moved.
+
+```
+node plugin/scripts/sync-plugin-cache.mjs           # sync now (normally automatic via the hook)
+node plugin/scripts/sync-plugin-cache.mjs --check   # report drift only, change nothing (non-zero exit if stale)
+node plugin/scripts/sync-plugin-cache.mjs --force   # re-sync even if the content hash already matches
+```
+
 ## Install
 
 1. **Add the marketplace** (once per machine, from this repo):
