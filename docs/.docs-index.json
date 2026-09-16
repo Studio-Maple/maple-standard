@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-25",
+  "generated": "2026-08-30",
   "generator": "plugin/scripts/docs/generate-docs-index.mjs",
   "description": "Machine-readable map of docs/**/*.md preambles (OKF v0.1 frontmatter or legacy prose — docs/decisions.md D010). Regenerate after any preamble/description change: run this script (or check-docs-drift.mjs --fix).",
   "files": [
@@ -16,10 +16,35 @@
         "node scripts/next-task-id.mjs --add --decision --title \"...\" --body \"...\""
       ],
       "related": [
+        "docker",
         "standard-architecture",
         "rollout",
         "loop-pack",
         "maplelens"
+      ]
+    },
+    {
+      "path": "docs/docker.md",
+      "title": "Docker — local stacks run on demand, never at boot",
+      "topic": "root",
+      "audience": "anyone running local Supabase stacks, or wondering why Docker Desktop is busy at login",
+      "authoritative_for": [
+        "the on-demand-only restart policy",
+        "the stack last-used definition",
+        "and the 14-day archive rule"
+      ],
+      "anchor_type": "code",
+      "anchor_paths": [
+        "plugin/scripts/docker/dstack.ps1",
+        "plugin/commands/docker-audit.md",
+        "~/.claude/commands/docker-audit.md",
+        "~/.claude/docker-stacks.json"
+      ],
+      "related": [
+        "decisions",
+        "standard-architecture",
+        "loop-pack",
+        "quality"
       ]
     },
     {

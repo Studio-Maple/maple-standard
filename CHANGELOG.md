@@ -6,6 +6,32 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Local Docker stacks are on-demand, never auto-start (D052).** The
+  machine had 4 Supabase CLI stacks / 44 containers, all auto-starting on
+  every Windows boot, because `supabase start` stamps `restart:
+  unless-stopped` on every container it creates — Docker Desktop resurrects
+  the whole stack at login regardless of whether the project is being
+  worked on. 36 containers ran continuously; 3 (on dead stacks) were stuck
+  in permanent restart loops. Two of the four stacks — `maple-pole-local`
+  (12 containers) and `supabase` (12 containers, owned only by the legacy
+  `Caller/old telnyx MVP` folder) — matched no `config.toml` on disk for
+  any live project: 24 of 44 containers, 64% of the load, were orphans.
+  Removing them plus `docker image/volume/builder prune -a` reclaimed
+  91.4GB (78.48GB images, 2.97GB volumes — dead parallel-session worktree
+  DBs like `maple-pole-s4`/`s5`/`s6`/`s8b`, `caller-verify1`/`2`/`3` — 9.93GB
+  build cache), landing at 20 containers / 20 images / 5 volumes / 13.58GB.
+  The key fix is `docker update --restart=no` on every remaining container:
+  while `unless-stopped` is set, a container's `StartedAt` resets on every
+  boot, so idle time is unmeasurable; setting `restart=no` both stops the
+  auto-start and turns `StartedAt`/`FinishedAt` into a truthful last-used
+  timestamp, since a container only starts from then on when someone starts
+  it. New standard: no container carries a restart policy other than `no`;
+  `dstack up` re-strips the policy `supabase start` re-adds every time;
+  stack last-used = `max(StartedAt, FinishedAt)`, idle >14 days flags a
+  stack for archiving via the weekly `/docker-audit`, which reports and
+  asks — never removes on its own; an orphan (no matching `config.toml`)
+  can be archived immediately regardless of age. See [[docker]].
+
 - **IDs are repo-global across worktrees (D050).** `next-task-id.mjs`
   allocated from `max(#T in THIS worktree's tasks.md) + 1` and serialised on
   `docs/tasks.md.lock` — both per-worktree, so two parallel `agent/<slug>`

@@ -14,6 +14,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D052 | 2026-08-30 | Local Docker stacks are on-demand, never auto-start
+supabase start stamps restart:unless-stopped on every container, so Docker Desktop resurrected entire stacks at every boot regardless of use (44 containers, 4 stacks, 36 running continuously, 2 stacks orphaned - 91.4GB reclaimed via image/volume/builder prune). No container carries a restart policy other than none; dstack up re-strips it after every supabase start; stack last-used = max(StartedAt,FinishedAt), idle >14d flagged by weekly /docker-audit, archived only on approval. See [[docker]].
+
 ## D051 | 2026-08-25 | Skills and session commands ship in the plugin, not ~/.claude
 credential-manager lived in ~/.claude/skills and /todo /project-status /session-end /represent /review-aspect in ~/.claude/commands — machine-local, unversioned, invisible to a new machine or an adopting project. All six moved into plugin/skills/ and plugin/commands/. This narrows the user-global bucket [[standard-architecture]] describes to near-empty, by design: that bucket has no gate behind it. credential-manager was genericized to <Project>-<Service>-<Purpose> placeholders on the way in.
 

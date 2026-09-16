@@ -24,6 +24,7 @@ is untouched by the generator.
 
 <!-- catalog:begin -->
 - [[decisions]] — decision ledger (`D###` entries, newest first). Check before re-litigating anything.
+- [[docker]] — why local Supabase/Docker stacks were auto-starting on every boot, the one-line fix that also makes idle-time honest, and the 14-day archive-candidate rule enforced via /docker-audit.
 - [[gaps]] — things the owner flagged as missing or wrong. Check at session start.
 - [[log]] — append-only session history (`S###`, 1-2 sentences each).
 - [[loop-pack]] — the dev-burner overnight loop pack, four autonomous loops, the orchestrator, morning review.
