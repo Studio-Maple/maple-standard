@@ -6,6 +6,21 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **`maple-reap` no longer deletes worktrees it doesn't own.** Reported from
+  MapleLens: a session kept a worktree of `main` itself at `.worktrees/main`
+  as its merge base; reap treated "under worktrees.root" as ownership, found
+  `main` "merged into origin/main" (trivially true), and deleted both the
+  worktree and the local `main` branch, taking a running app's build output
+  with it. That assumption held while the root was a sibling dir only our
+  scripts wrote to; D055 moved it inside the repo, where anyone parks
+  worktrees. Pass 1 now reaps only branches matching the naming pattern and
+  never `target` / `prodBranch` / `devBranch` (pass 2 guards the same
+  branches for prefix-less patterns). The same pass also removed every
+  DETACHED worktree unconditionally — dirty trees, and commits reachable from
+  no branch — and now removes one only when clean and merged.
+  `reap-ownership.test.mjs` rebuilds the incident; against the old script it
+  fails 7 of 12, reproducing all four losses.
+
 - **knip survives Windows Application Control.** knip's `oxc-resolver`
   ships an unsigned native module that Windows Application Control refused
   to load ("An Application Control policy has blocked this file"), turning
