@@ -136,6 +136,10 @@ module.exports = {
         "next\\.config\\.ts",
         "vitest\\.config\\.ts",
         "eslint\\.config\\.mjs",
+        // A nested worktree checkout (maple.config.json worktrees.root,
+        // default ".worktrees") — already outside includeOnly's "^src/"
+        // scope, listed here too as defense-in-depth if that ever widens.
+        "\\.worktrees",
       ],
     },
     includeOnly: ["^src/"],

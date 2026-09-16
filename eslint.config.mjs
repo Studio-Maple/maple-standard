@@ -19,6 +19,11 @@ export default defineConfig([
     "build/**",
     "next-env.d.ts",
     "coverage/**",
+    // A parallel-session worktree living inside the repo (maple.config.json
+    // worktrees.root, default ".worktrees") is a full nested source
+    // checkout — linting it here would double-report the same files under a
+    // different path.
+    ".worktrees/**",
     // Playwright output — generated bundles/reports, never source.
     "playwright-report/**",
     "test-results/**",

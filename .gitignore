@@ -64,3 +64,8 @@ docs/*.lock
 # loop pack scratch state (MJ-7 — pinned here too, defense in depth
 # alongside maple_ensure_loop_state_gitignored's runtime auto-append)
 .loop-state/
+
+# parallel-session worktrees (maple.config.json worktrees.root, default
+# ".worktrees") — pinned here too, defense in depth alongside
+# maple-start.sh's runtime maple_ensure_gitignored self-heal
+/.worktrees/
