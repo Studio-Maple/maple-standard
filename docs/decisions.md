@@ -14,6 +14,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D055 | 2026-09-16 | Worktrees live inside the repo at .worktrees/, not a sibling dir
+worktrees.root now defaults to $MAPLE_MAIN_ROOT/.worktrees instead of ../<repo>-wt: a project is one filesystem path, nothing outside the checkout. maple_ensure_gitignored (generalized from the .loop-state helper) self-heals the entry on every wt-start/wt-preview/dev-burner; tsconfig/eslint/dep-cruiser exclude it. New hazard the sibling layout lacked: git clean -xffd deletes nested worktrees and follows their node_modules junctions into the main tree (D012) — blocked by bash-guard's clean-guard.
+
 ## D054 | 2026-09-16 | AskUserQuestion is the exception; ask inline and recommend
 The owner's standing instruction flipped: a modal option menu stops the turn and makes him arbitrate. Default is now a plain inline question while work continues on everything not blocked by the answer; obvious calls are made, not asked. AskUserQuestion is reserved for genuinely branching decisions, and must contrast the options and mark exactly one (Recommended). Enforced by a pure Tier 0.5 in ask-gate.mjs that nudges once per question set when no single option is marked. ASK_GATE_MODALITY_DISABLE=1 opts out.
 

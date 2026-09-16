@@ -6,6 +6,61 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **The standard now reaches the projects that use it (D053).** The
+  maple-standard ships as a `directory`-source plugin marketplace, but
+  Claude Code does not read that directory live — it COPIES it into
+  `~/.claude/plugins/cache/<name>/<version>/`. That cache had been frozen
+  at v0.1.0 since 2026-07-27 while the repo moved on to v0.2.0, so every
+  adopting project was silently running July's plugin: no `skills/`, and
+  none of the six session commands. It went unnoticed because the stale
+  `~/.claude/commands` + `~/.claude/skills` duplicates that D051 had
+  already superseded were shadowing the plugin's copies. New
+  `plugin/scripts/sync-plugin-cache.mjs` content-hashes `plugin/` against
+  the cache and re-mirrors on drift (temp-dir + atomic swap, preserves
+  `.in_use`, prunes only this plugin's older versions), driven by a
+  `~/.claude/settings.json` SessionStart hook — that layer is chosen
+  deliberately, since the plugin's own `hooks/hooks.json` ships inside the
+  very cache that goes stale and cannot bootstrap itself. `--check` and
+  `--force` for manual use; fails open so it can never block a session. The
+  shadowing globals were moved to `~/.claude/backups/`, not deleted.
+
+- **Parallel-session worktrees moved inside the repo (D055).**
+  `worktrees.root` now defaults to `<repo>/.worktrees` instead of a sibling
+  `../<repo>-wt` directory, so a project is one filesystem path and nothing
+  lives outside the checkout. The explicit `worktrees.root` override is
+  unchanged. `maple_ensure_loop_state_gitignored` was generalized into
+  `maple_ensure_gitignored <entry>` (keeping every hard-won edge case: CRLF
+  tolerance, the missing-trailing-newline guard that once un-ignored a real
+  `.env.local`, and `git commit --only`), and `wt-start` / `wt-preview` /
+  `dev-burner` each call it with `.worktrees/` so an adopting repo
+  self-heals without `/adopt-standard`. `tsconfig.json`, `eslint.config.mjs`
+  and `.dependency-cruiser.cjs` exclude it; vitest, knip, playwright and the
+  docs scripts were checked and need no change, their globs already being
+  anchored below the repo root.
+
+- **`git clean` double-force is now blocked (bash-guard guard 3).** Moving
+  worktrees inside the repo put them within reach of `git clean` for the
+  first time. Sandbox-verified: `git clean -xfd` prints `Skipping repository
+  .worktrees/<slug>` and is safe, but `-xffd` prints `Removing .worktrees/`
+  and takes every worktree with it — including the `node_modules` / `.next`
+  junctions pointing at the MAIN checkout's real directories, which a
+  recursive delete follows. That is precisely the D012 mechanism that gutted
+  a main tree three times in three days. The guard counts force flags across
+  short clusters and `--force` (stopping at `--` so a pathspec is not
+  miscounted) and blocks at two; single `-f` is untouched.
+  `hooks.bashGuard.cleanGuardEnabled=false` opts out.
+
+- **Asking style is inline-first, and enforced (D054).** A modal option menu
+  stops the turn and makes the owner arbitrate, so `AskUserQuestion` is now
+  the exception rather than the default: ask plainly inline and keep working
+  on everything the answer does not block; make the obvious calls instead of
+  asking. When a decision genuinely branches, the options must be contrasted
+  and exactly one marked `(Recommended)`. `ask-gate.mjs` gained a pure,
+  IO-free Tier 0.5 that nudges once per question set when that mark is
+  missing — it runs before any doc retrieval and has its own budget, so it
+  can never wall off a question that is actually needed.
+  `ASK_GATE_MODALITY_DISABLE=1` turns just that tier off.
+
 - **Local Docker stacks are on-demand, never auto-start (D052).** The
   machine had 4 Supabase CLI stacks / 44 containers, all auto-starting on
   every Windows boot, because `supabase start` stamps `restart:
