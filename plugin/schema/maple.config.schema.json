@@ -230,6 +230,50 @@
       }
     },
 
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "plugin extension — code-quality gates. See plugin/scripts/jev/audit/README.md and docs/decisions.md D051 (gates are canonically owned by the plugin, ported from MapleLens's tools/jev/audit.mjs).",
+      "properties": {
+        "jevAudit": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Per-function Jev code-quality audit/gate config. Every key optional; an absent block (or enabled:false) means /wt-land and /quality-gate skip the gate entirely. Defaults documented in plugin/scripts/jev/audit/config.mjs.",
+          "properties": {
+            "enabled": { "type": "boolean", "description": "Default false (opt-in — a fresh adopter should not silently start sending source to a third-party model). maple-land skips the quality-gate landing step entirely when this is false." },
+            "slug": { "type": "string", "minLength": 1, "description": "Namespaces this config's cache/report under .maplelens/audit/<slug>/ (or the plugin's own per-user state dir when that path isn't gitignored). Default: project.slug." },
+            "baseBranch": { "type": "string", "minLength": 1, "description": "Explicit base branch for changed-function scoping. Default: the landing target passed by maple-land, else repo.devBranch, else \"main\"." },
+            "scopeDirs": { "type": "array", "items": { "type": "string", "format": "path" }, "description": "Directories (repo-relative) the audit/gate looks inside." },
+            "extensions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "excludeGlobs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "denylistPatterns": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Case-insensitive regex patterns matched against a file path or function name; a match means the function's source is NEVER sent to Jev." },
+            "denylistFiles": { "type": "array", "items": { "type": "string", "format": "path" } },
+            "denylistDirs": { "type": "array", "items": { "type": "string", "format": "path" } },
+            "moduleLabels": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 }, "description": "scopeDirs entry -> report heatmap label override, for scopeDirs that would otherwise collapse to the same top-level segment." },
+            "trivialMaxStatements": { "type": "integer", "minimum": 1 },
+            "trivialMaxLines": { "type": "integer", "minimum": 1 },
+            "maxSourceBytes": { "type": "integer", "minimum": 1 },
+            "shingleSize": { "type": "integer", "minimum": 1 },
+            "jaccardThreshold": { "type": "number", "minimum": 0, "maximum": 1 },
+            "jevPairCap": { "type": "integer", "minimum": 0 },
+            "thresholds": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Blocking-rule constants for --gate mode. Uncalibrated (docs/decisions.md D051's porting brief) — env-overridable per constant, see plugin/scripts/jev/audit/config.mjs.",
+              "properties": {
+                "nearDuplicateProbability": { "type": "number", "minimum": 0, "maximum": 1 },
+                "securityScoreFloor": { "type": "number", "minimum": 0, "maximum": 4 },
+                "securityConfidenceFloor": { "type": "number", "minimum": 0, "maximum": 1 },
+                "canFailFloor": { "type": "number", "minimum": 0, "maximum": 1 },
+                "errorHandlingCeiling": { "type": "number", "minimum": 0, "maximum": 1 },
+                "efficiencyScoreFloor": { "type": "number", "minimum": 0, "maximum": 4 }
+              }
+            }
+          }
+        }
+      }
+    },
+
     "hooks": {
       "type": "object",
       "additionalProperties": false,

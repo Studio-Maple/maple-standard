@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 
 const HERE = join(fileURLToPath(import.meta.url), "..");
 const HOOKS_DIR = join(HERE, "..", "..", "hooks");
+const AUDIT_DIR = join(HERE, "audit");
 
 const testFiles = [
   ...readdirSync(HERE)
@@ -25,6 +26,13 @@ const testFiles = [
   // too rather than standing up a whole new plugin/hooks test runner for
   // one file.
   join(HOOKS_DIR, "jev-validate-subagent.test.mjs"),
+  // The quality-gate audit engine (docs/decisions.md D051) lives one level
+  // down in jev/audit/ — same "no framework, exit code is the verdict"
+  // style, so it's swept in here rather than getting its own runner.
+  ...readdirSync(AUDIT_DIR)
+    .filter((f) => f.endsWith(".test.mjs"))
+    .sort()
+    .map((f) => join(AUDIT_DIR, f)),
 ];
 
 if (testFiles.length === 0) {

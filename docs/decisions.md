@@ -14,6 +14,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D059 | 2026-09-23 | Per-function Jev quality gate lives in the plugin
+Every landing checks the functions it created or edited: the plugin audit (opt-in, maple.config.json quality.jevAudit) runs in maple-land.sh after CI and in MapleLens missions, which call the plugin, not a copy. Exact duplicates block deterministically; Jev rules fail open. Accepting a finding takes a visible jev-audit accept comment, never a flag. See [[quality-gate]].
+
 ## D058 | 2026-09-23 | jev-model-routing: invert to Pi-first, add a 5-rung ladder + credential cache
 Default executor is now the cheapest: Pi/gpt-5.6-luna whenever Pi is available; Jev escalates (small->luna, medium->terra, big/risky->sonnet/opus) only at confidence >=0.8, never defaults to opus on fail-open. Ladder + escalation in ladder.mjs; pi-run.mjs takes --model. client.mjs adds a short-TTL DPAPI-encrypted per-user credential cache (never plaintext on disk) to cut the ~1.5s PowerShell round trip. See plugin/README.md Jev section.
 

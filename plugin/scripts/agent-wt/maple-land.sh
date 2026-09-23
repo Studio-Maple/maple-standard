@@ -81,6 +81,23 @@ if ! ( cd "$WT_DIR" && eval "$GATE_CMD" ); then
 fi
 maple_ok "gate passed"
 
+# ── quality gate: per-function Jev audit of changed functions only ──────────
+# Runs AFTER the repo's own CI gate is green and BEFORE the merge/push, so a
+# red quality gate never lands. Skipped entirely when the target repo has no
+# quality.jevAudit block, or has one with enabled:false — see
+# plugin/scripts/jev/audit/README.md and docs/decisions.md D051.
+QUALITY_ENABLED="$(maple_cfg quality.jevAudit.enabled false)"
+if [ "$QUALITY_ENABLED" = "true" ]; then
+  QUALITY_SCRIPT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/../..}/scripts/jev/audit/run.mjs"
+  maple_log "running quality gate (changed functions vs $BASE) …"
+  if ! ( cd "$WT_DIR" && node "$QUALITY_SCRIPT" --gate --base "$MAPLE_TARGET" ); then
+    maple_die "quality gate FAILED — nothing pushed. See the findings above; fix or add a documented 'jev-audit: accept <rule> — <reason>' comment, then re-run maple-land."
+  fi
+  maple_ok "quality gate passed"
+else
+  maple_log "quality gate skipped (quality.jevAudit.enabled is not true)"
+fi
+
 # ── push: a guaranteed fast-forward, because we held the lock end-to-end ─────
 if $PUSH; then
   maple_log "pushing $BRANCH -> $MAPLE_REMOTE/$MAPLE_TARGET (fast-forward) …"

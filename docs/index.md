@@ -29,6 +29,7 @@ is untouched by the generator.
 - [[log]] — append-only session history (`S###`, 1-2 sentences each).
 - [[loop-pack]] — the dev-burner overnight loop pack, four autonomous loops, the orchestrator, morning review.
 - [[maplelens]] — MapleLens error tracker: shared core vs. per-instance config, deploy runbook, the MCP contract `/sweep-errors` reads.
+- [[quality-gate]] — the per-function Jev gate every landing passes: what it checks, what blocks, how to accept a finding.
 - [[quality]] — the enforcement matrix: every gate/hook, what it enforces, where it runs.
 - [[rollout]] — ordered rollout plan (plugin v1 → EasyCaller → VeHagita → MapleLens → loops live) with per-step verification.
 - [[standard-architecture]] — the standard's four-way split (plugin / user-global / stamped files / template), the `maple.config.json` schema, and the `/adopt-standard` sequence.

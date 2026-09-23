@@ -16,6 +16,7 @@
         "node scripts/next-task-id.mjs --add --decision --title \"...\" --body \"...\""
       ],
       "related": [
+        "quality-gate",
         "docker",
         "standard-architecture",
         "rollout",
@@ -122,6 +123,23 @@
       ]
     },
     {
+      "path": "docs/quality-gate.md",
+      "title": "Jev quality gate",
+      "topic": "root",
+      "audience": "anyone whose landing was blocked by the quality gate, or configuring it for a repo",
+      "authoritative_for": [
+        "the per-function quality gate's rules",
+        "suppression syntax and config"
+      ],
+      "anchor_type": "code",
+      "anchor_paths": [
+        "plugin/scripts/jev/audit/",
+        "plugin/scripts/agent-wt/maple-land.sh",
+        "plugin/commands/quality-gate.md"
+      ],
+      "related": []
+    },
+    {
       "path": "docs/quality.md",
       "title": "Quality — the enforcement matrix",
       "topic": "root",
@@ -142,7 +160,8 @@
         "scripts/check-types-fresh.mjs"
       ],
       "related": [
-        "../CLAUDE.md"
+        "../CLAUDE.md",
+        "quality-gate"
       ]
     },
     {

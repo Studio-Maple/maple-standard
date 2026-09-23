@@ -111,7 +111,7 @@ export function validateConfig(config) {
   }
   checkNoExtraKeys(
     config,
-    ["$schema", "project", "repo", "worktrees", "docs", "ci", "lint", "sizeCaps", "errorTracker", "loops", "hooks", "jev"],
+    ["$schema", "project", "repo", "worktrees", "docs", "ci", "lint", "sizeCaps", "errorTracker", "loops", "hooks", "jev", "quality"],
     "root",
     errors
   );
@@ -438,6 +438,73 @@ export function validateConfig(config) {
       if (config.jev.timeoutMs !== undefined && !isIntMin(config.jev.timeoutMs, 1)) errors.push("jev.timeoutMs: must be a positive integer");
       if (config.jev.credentialCacheTtlSeconds !== undefined && !isIntMin(config.jev.credentialCacheTtlSeconds, 0)) {
         errors.push("jev.credentialCacheTtlSeconds: must be a non-negative integer");
+      }
+    }
+  }
+
+  // ---- quality ------------------------------------------------------------------------
+  if (config.quality !== undefined) {
+    if (!isPlainObject(config.quality)) {
+      errors.push("quality: must be an object");
+    } else {
+      checkNoExtraKeys(config.quality, ["jevAudit"], "quality", errors);
+      if (config.quality.jevAudit !== undefined) {
+        const q = config.quality.jevAudit;
+        if (!isPlainObject(q)) {
+          errors.push("quality.jevAudit: must be an object");
+        } else {
+          checkNoExtraKeys(
+            q,
+            [
+              "enabled", "slug", "baseBranch", "scopeDirs", "extensions", "excludeGlobs",
+              "denylistPatterns", "denylistFiles", "denylistDirs", "moduleLabels",
+              "trivialMaxStatements", "trivialMaxLines", "maxSourceBytes",
+              "shingleSize", "jaccardThreshold", "jevPairCap", "thresholds",
+            ],
+            "quality.jevAudit",
+            errors
+          );
+          if (q.enabled !== undefined && !isBool(q.enabled)) errors.push("quality.jevAudit.enabled: must be a boolean");
+          if (q.slug !== undefined && !isNonEmptyString(q.slug)) errors.push("quality.jevAudit.slug: must be a non-empty string");
+          if (q.baseBranch !== undefined && !isNonEmptyString(q.baseBranch)) errors.push("quality.jevAudit.baseBranch: must be a non-empty string");
+          if (q.scopeDirs !== undefined && !isPathArray(q.scopeDirs)) errors.push("quality.jevAudit.scopeDirs: must be an array of path-shaped strings");
+          if (q.extensions !== undefined && !isStringArray(q.extensions)) errors.push("quality.jevAudit.extensions: must be an array of strings");
+          if (q.excludeGlobs !== undefined && !isStringArray(q.excludeGlobs)) errors.push("quality.jevAudit.excludeGlobs: must be an array of strings");
+          if (q.denylistPatterns !== undefined && !isStringArray(q.denylistPatterns)) errors.push("quality.jevAudit.denylistPatterns: must be an array of strings");
+          if (q.denylistFiles !== undefined && !isPathArray(q.denylistFiles)) errors.push("quality.jevAudit.denylistFiles: must be an array of path-shaped strings");
+          if (q.denylistDirs !== undefined && !isPathArray(q.denylistDirs)) errors.push("quality.jevAudit.denylistDirs: must be an array of path-shaped strings");
+          if (q.moduleLabels !== undefined) {
+            if (!isPlainObject(q.moduleLabels)) errors.push("quality.jevAudit.moduleLabels: must be an object");
+            else {
+              for (const [k, v] of Object.entries(q.moduleLabels)) {
+                if (!isNonEmptyString(v)) errors.push(`quality.jevAudit.moduleLabels.${k}: must be a non-empty string`);
+              }
+            }
+          }
+          for (const key of ["trivialMaxStatements", "trivialMaxLines", "maxSourceBytes", "shingleSize"]) {
+            if (q[key] !== undefined && !isIntMin(q[key], 1)) errors.push(`quality.jevAudit.${key}: must be a positive integer`);
+          }
+          if (q.jevPairCap !== undefined && !isIntMin(q.jevPairCap, 0)) errors.push("quality.jevAudit.jevPairCap: must be a non-negative integer");
+          if (q.jaccardThreshold !== undefined && (typeof q.jaccardThreshold !== "number" || q.jaccardThreshold < 0 || q.jaccardThreshold > 1)) {
+            errors.push("quality.jevAudit.jaccardThreshold: must be a number between 0 and 1");
+          }
+          if (q.thresholds !== undefined) {
+            const t = q.thresholds;
+            if (!isPlainObject(t)) {
+              errors.push("quality.jevAudit.thresholds: must be an object");
+            } else {
+              const zeroToOne = ["nearDuplicateProbability", "securityConfidenceFloor", "canFailFloor", "errorHandlingCeiling"];
+              const zeroToFour = ["securityScoreFloor", "efficiencyScoreFloor"];
+              checkNoExtraKeys(t, [...zeroToOne, ...zeroToFour], "quality.jevAudit.thresholds", errors);
+              for (const key of zeroToOne) {
+                if (t[key] !== undefined && (typeof t[key] !== "number" || t[key] < 0 || t[key] > 1)) errors.push(`quality.jevAudit.thresholds.${key}: must be a number between 0 and 1`);
+              }
+              for (const key of zeroToFour) {
+                if (t[key] !== undefined && (typeof t[key] !== "number" || t[key] < 0 || t[key] > 4)) errors.push(`quality.jevAudit.thresholds.${key}: must be a number between 0 and 4`);
+              }
+            }
+          }
+        }
       }
     }
   }
