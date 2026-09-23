@@ -1,7 +1,7 @@
 {
   "name": "maple-standard",
-  "version": "0.2.0",
-  "description": "Studio Maple's AI-workflow standard: worktree lifecycle, safety hooks, docs gate, repo-global ID allocation, self-healing, session commands, and the dev-burner loop pack.",
+  "version": "0.3.0",
+  "description": "Studio Maple's AI-workflow standard: worktree lifecycle, safety hooks, docs gate, repo-global ID allocation, self-healing, session commands, the dev-burner loop pack, and Jev-backed model routing/skill-select/search/sub-agent validation.",
   "author": {
     "name": "Maayan Margolin"
   },
@@ -13,7 +13,10 @@
     "loop-pack",
     "id-allocator",
     "credentials",
-    "studio-maple"
+    "studio-maple",
+    "jev",
+    "typesafe",
+    "model-routing"
   ],
   "hooks": "./hooks/hooks.json"
 }

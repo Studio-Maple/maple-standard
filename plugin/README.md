@@ -360,6 +360,17 @@ canonical schema doesn't carry a separate budget per loop name):
 
 See `repo.standingLoopBranch` above for the branch these loops work on.
 
+### `jev.*` — Jev decision-model integration
+
+| Key | Default | Notes |
+|---|---|---|
+| `jev.enabled` | `true` | Every `jev.*` call fails open (routing falls back to `sonnet`, validation never blocks, search/skill-select return "no verdict") when no key is configured — leaving this `true` with no TypeSafe key costs nothing but one credential-store miss per call |
+| `jev.credentialTarget` | `null` | Credential-store target name to try first; `plugin/scripts/jev/client.mjs` then tries `Maple-TypeSafe-APIKey`, then `MapleLens-TypeSafe-APIKey` |
+| `jev.confidenceFloor` | `0.5` | Below this confidence, a Jev CHOICE answer is treated as "don't know" and the caller uses its own fallback |
+| `jev.timeoutMs` | `3000` | Fail-open budget per Jev call — deliberately short; these calls run inline in a hook or skill |
+
+See "Jev" below for what each feature does with these.
+
 ## The loop pack
 
 Four budget-bounded autonomous loops (`/sweep-errors`, `/burn-backlog`,
@@ -506,6 +517,55 @@ tuning or lock timing) is nested under the matching **canonical** top-level
 block (`repo.*` / `worktrees.*` / `docs.*` / `errorTracker.*`) — never a
 new sibling block — and is marked "plugin extension" in the tables above.
 
+## Jev — decision-model routing, skill-select, search, sub-agent validation
+
+Jev (TypeSafe System One) is a typed decision model — choice/score/
+probability answers in well under a second, never prose — used four ways in
+this plugin instead of spending a full Claude turn on a decision a
+calibrated probability answers better:
+
+| Feature | Skill / hook | What it decides |
+|---|---|---|
+| **Model routing** | `plugin/skills/jev-model-routing` | Before delegating to a sub-agent: `haiku`, `sonnet`, `opus`, or `pi` (the Pi coding agent, headless, on the owner's ChatGPT subscription) |
+| **Skill selection** | `plugin/skills/jev-skill-select` | Ranks the installed skill catalog against a request; may say none apply |
+| **Search decisions** | `plugin/skills/jev-search` | After a search round: which results to read, whether that's enough, which caller-written query to run next |
+| **Sub-agent validation** | `plugin/hooks/jev-validate-subagent.mjs` (`SubagentStop`) | Judges a sub-agent's task + final report before the main session trusts it; blocks once (never twice — guarded by `stop_hook_active`) with Jev's concerns if the report looks incomplete |
+
+Shared code: `plugin/scripts/jev/client.mjs` (the API client — direct
+TypeSafe endpoint, not a gateway; ported from `C:\Projects\MapleLens\tools\jev\client.mjs`,
+same endpoint/model pin/question shapes), `config.mjs` (`jev.*` resolver),
+`redact.mjs` (masks emails/tokens/hex/phone-shaped numbers before anything
+is sent), `log.mjs` (`.maple/jev-decisions.jsonl`, gitignored — review with
+`node plugin/scripts/jev/report.mjs [root]`), `validate.mjs` (the shared
+"did this agent finish the task" judge used by both the SubagentStop hook
+and `pi-run.mjs`), `pi-run.mjs` (headless Pi in an isolated
+`.worktrees/pi-*` worktree — trimmed from MapleLens's
+`tools/jev/worker-pi.mjs` + `worktree.mjs`; no checkpoint/revert/patch-cap
+machinery, this is single-shot).
+
+**What leaves the machine**, per feature: routing sends a clipped+redacted
+task description (~900 chars) and short context (~300 chars); skill-select
+sends a clipped request (~600 chars) and each skill's `name`+description
+(~200 chars each); search sends the question (~400 chars), queries already
+tried, and up to 12 results' title+snippet (~300 chars each); sub-agent
+validation sends the task prompt and final report (~1500 chars each). All
+five go through `redact.mjs` first, and anything that looks like it holds a
+secret or password/private-key block is not sent at all — the feature falls
+back instead.
+
+**Credential**: OS credential store only (`plugin/skills/credential-manager`)
+— target name resolution order is `jev.credentialTarget` →
+`Maple-TypeSafe-APIKey` → `MapleLens-TypeSafe-APIKey`. No key configured is
+the normal, fully-supported "Jev off" state — every feature above fails
+open to its non-Jev default, never an error.
+
+**Gaps** (see also "Gaps" below): `pi-run.mjs` is single-shot only (no
+supervised multi-turn mission loop, unlike MapleLens's `supervise.mjs`);
+`jev-skill-select`/`jev-search` are one-request simplifications of
+hermes-jev-skills' batched/two-round-trip designs (see each skill's
+`NOTICE`) — fine for a single session's catalog/result-set size, not
+load-tested at fleet scale.
+
 ## Layer map
 
 Four layers, each owned differently — knowing which layer a file lives in
@@ -588,3 +648,22 @@ tells you who's allowed to edit it and when it updates:
   hooks already wired directly in the adopting project's own
   `.claude/settings.json` against the plugin's hook filenames, flagging
   collisions rather than resolving them automatically.
+- **`jev-validate-subagent.mjs`'s block mechanism uses the confirmed
+  `SubagentStop` exit-code-2 contract** (stderr fed back as the reason the
+  sub-agent must continue — same convention `ask-gate.mjs` already uses for
+  `PreToolUse`), not a documented JSON `decision`/`hookSpecificOutput`
+  shape for `Stop`/`SubagentStop` — Claude Code's docs describe the exit-2
+  behavior but the excerpted schema didn't include a worked JSON-output
+  example for this event pair to cross-check against. If a future Claude
+  Code version adds one, prefer it; exit 2 + stderr is the confirmed
+  fallback either way.
+- **`pi-run.mjs` is single-shot** — one prompt, one worktree, one diff, no
+  supervised multi-turn mission loop, checkpoint/revert, or patch-size cap
+  (unlike MapleLens's `tools/jev/supervise.mjs` + the fuller
+  `tools/jev/worktree.mjs`). A `pi` executor pick that needs back-and-forth
+  isn't supported yet — `jev-model-routing`'s prompt asks Jev to only
+  choose `pi` for well-scoped, self-contained work for this reason.
+- **`jev-skill-select` and `jev-search` are one-request simplifications**
+  of hermes-jev-skills' batched/two-round-trip designs (see each skill's
+  `NOTICE`) — correct for a single Claude Code session's catalog/result-set
+  size, not measured at the fleet scale those designs were built for.

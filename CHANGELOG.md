@@ -6,6 +6,22 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Jev decision-model integration (plugin v0.3.0).** Three new skills —
+  `jev-model-routing` (pick `haiku`/`sonnet`/`opus`/`pi` before delegating
+  to a sub-agent), `jev-skill-select` (rank the installed skill catalog,
+  may say none apply), `jev-search` (post-search sufficiency + next-query
+  decisions) — plus a `SubagentStop` hook
+  (`plugin/hooks/jev-validate-subagent.mjs`) that judges a sub-agent's
+  final report against its task before the main session trusts it, blocking
+  once (guarded by `stop_hook_active`, never twice) when Jev is confident
+  the work isn't done. Shared client/config/redact/log/validate modules
+  under `plugin/scripts/jev/`; a trimmed headless-Pi runner
+  (`pi-run.mjs`, ported from MapleLens's `tools/jev/worker-pi.mjs` +
+  `worktree.mjs`) backs the `pi` executor. Fail-open everywhere — no
+  credential, timeout, or malformed reply falls back to the non-Jev
+  default, never an error. New `jev.*` `maple.config.json` key (schema +
+  `validate-config.mjs`). See `plugin/README.md`'s "Jev" section, D057.
+
 - **`maple-reap` no longer deletes worktrees it doesn't own.** Reported from
   MapleLens: a session kept a worktree of `main` itself at `.worktrees/main`
   as its merge base; reap treated "under worktrees.root" as ownership, found

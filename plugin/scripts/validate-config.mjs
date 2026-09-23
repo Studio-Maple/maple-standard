@@ -111,7 +111,7 @@ export function validateConfig(config) {
   }
   checkNoExtraKeys(
     config,
-    ["$schema", "project", "repo", "worktrees", "docs", "ci", "lint", "sizeCaps", "errorTracker", "loops", "hooks"],
+    ["$schema", "project", "repo", "worktrees", "docs", "ci", "lint", "sizeCaps", "errorTracker", "loops", "hooks", "jev"],
     "root",
     errors
   );
@@ -421,6 +421,21 @@ export function validateConfig(config) {
             errors.push("hooks.bashGuard.pushGuardMinTimeoutMs: must be a non-negative integer");
         }
       }
+    }
+  }
+
+  // ---- jev --------------------------------------------------------------------------
+  if (config.jev !== undefined) {
+    if (!isPlainObject(config.jev)) {
+      errors.push("jev: must be an object");
+    } else {
+      checkNoExtraKeys(config.jev, ["enabled", "credentialTarget", "confidenceFloor", "timeoutMs"], "jev", errors);
+      if (config.jev.enabled !== undefined && !isBool(config.jev.enabled)) errors.push("jev.enabled: must be a boolean");
+      if (config.jev.credentialTarget !== undefined && !isNullableString(config.jev.credentialTarget)) errors.push("jev.credentialTarget: must be a string or null");
+      if (config.jev.confidenceFloor !== undefined && (typeof config.jev.confidenceFloor !== "number" || config.jev.confidenceFloor < 0 || config.jev.confidenceFloor > 1)) {
+        errors.push("jev.confidenceFloor: must be a number between 0 and 1");
+      }
+      if (config.jev.timeoutMs !== undefined && !isIntMin(config.jev.timeoutMs, 1)) errors.push("jev.timeoutMs: must be a positive integer");
     }
   }
 

@@ -14,6 +14,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D057 | 2026-09-23 | Jev decision-model integration: routing, skill-select, search, sub-agent validation
+Wired TypeSafe's Jev (typed choice/score/probability, ~0.5s, never text) into the plugin: jev-model-routing/jev-skill-select/jev-search skills + a SubagentStop validator hook, shared client/config/redact/log under plugin/scripts/jev/. Fail-open everywhere (no key/timeout/malformed -> allow/fallback); new jev.* schema key. Concept ported from kerpopule/hermes-jev-skills (MIT); client shape from MapleLens tools/jev/client.mjs. See plugin/README.md Jev section.
+
 ## D056 | 2026-09-16 | maple-standard lives at C:/Projects/Maple-Standard, not under Studio-Maple
 The standard stopped being a Studio-Maple sub-project once Caller, MapleLens, Nekuda and VeHagita all consumed it; the nested path made it look like website-2's dependency. It is now a top-level sibling of the projects it serves. Studio-Maple never tracked it, so the move is a directory rename plus the marketplace path in ~/.claude/settings.json and known_marketplaces.json — which sync-plugin-cache.mjs (D053) self-heals by basename when it runs from a directory other than the registered one.
 
