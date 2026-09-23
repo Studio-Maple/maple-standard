@@ -41,6 +41,7 @@ of problems — the script itself only warns once and falls back to defaults.
 `$ARGUMENTS` — `<slug>` (lowercase-kebab, e.g. `reader-rail`), plus optional flags:
 - `--from <ref>` → branch off something other than the configured target's remote tip (use `--from <targetBranch>` if local is ahead of origin and you need its commits).
 - `--fresh-deps` → run `worktrees.freshDepsCommand` for a real install in the worktree (use only when the task bumps a dependency; default junction-links the main checkout's `node_modules`).
+- `--task <ref>` → record the task ref on the branch and set that task ledger entry's `worktree: <branch>` field (ledger update failures warn but do not block worktree creation).
 
 ## Run
 

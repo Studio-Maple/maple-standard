@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# maple-start <slug> [--fresh-deps] [--no-launch] [--from <ref>]
+# maple-start <slug> [--fresh-deps] [--no-launch] [--from <ref>] [--task <ref>]
 #
 # Create an isolated worktree + ephemeral `<branchPrefix><slug>` branch for
 # one parallel Claude session, branched off the latest target branch. Links
@@ -15,12 +15,13 @@
 set -euo pipefail
 . "$(dirname "$0")/maple-lib.sh"
 
-SLUG="" FRESH_DEPS=false LAUNCH=true FROM=""
+SLUG="" FRESH_DEPS=false LAUNCH=true FROM="" TASK_REF=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --fresh-deps) FRESH_DEPS=true ;;
     --no-launch)  LAUNCH=false ;;
     --from)       FROM="${2:-}"; shift ;;
+    --task)       TASK_REF="${2:-}"; shift ;;
     -*)           maple_die "unknown flag: $1" ;;
     *)            [ -z "$SLUG" ] && SLUG="$1" || maple_die "unexpected arg: $1" ;;
   esac
@@ -49,6 +50,14 @@ maple_ensure_gitignored '.worktrees/'   # self-heal even if /adopt-standard neve
 mkdir -p "$MAPLE_WT_ROOT"
 maple_log "creating worktree $DIR on $BRANCH (base: $BASE)"
 git worktree add -b "$BRANCH" "$DIR" "$BASE" >&2
+
+if [ -n "$TASK_REF" ]; then
+  git config "branch.$BRANCH.maple-task" "$TASK_REF"
+  TASK_FIELDS_SCRIPT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/../..}/scripts/agent-wt/task-fields.mjs"
+  if ! TASK_FIELDS_OUT="$(node "$TASK_FIELDS_SCRIPT" --root "$MAPLE_MAIN_ROOT" --task "$TASK_REF" --set "worktree=$BRANCH" 2>&1)"; then
+    maple_warn "could not update task $TASK_REF: $(printf '%s' "$TASK_FIELDS_OUT" | tr '\r\n' '  ')"
+  fi
+fi
 
 if $FRESH_DEPS; then
   FRESH_CMD="$(maple_cfg worktrees.freshDepsCommand 'npm ci')"

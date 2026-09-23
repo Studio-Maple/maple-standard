@@ -50,7 +50,7 @@ Preconditions the script enforces (relay failures, don't paper over them):
 - The working tree must be clean — **commit the work first**; `/wt-land` integrates commits.
 - The tier you asked for (or the default) must have a `ci.tiers.<name>` command configured.
 
-On success it reports the branch landed + pruned. On a red gate it prints
+On success it reports the branch landed + pruned. If the branch was started with `--task <ref>`, a successful push also sets that task's `landed: <date> <short-sha>` and `status: review` fields (ledger update failures only warn). On a red gate it prints
 the failing step — fix it in this worktree and re-run. Do **not** bypass the
 gate (no `--no-verify`, no skipping the configured tier) — the gate is the
 enforcement.

@@ -88,6 +88,14 @@ if $PUSH; then
     maple_die "push to $MAPLE_TARGET rejected (non-ff?). Another machine may have advanced it — re-run maple-land to re-rebase. NOT force-pushing."
   fi
   maple_ok "landed: $BRANCH integrated into $MAPLE_TARGET"
+  if TASK_REF="$(git config --get "branch.$BRANCH.maple-task" 2>/dev/null)" && [ -n "$TASK_REF" ]; then
+    TASK_FIELDS_SCRIPT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/../..}/scripts/agent-wt/task-fields.mjs"
+    LANDED_VALUE="$(date +%F) $(git rev-parse --short HEAD)"
+    if ! TASK_FIELDS_OUT="$(node "$TASK_FIELDS_SCRIPT" --root "$MAPLE_MAIN_ROOT" --task "$TASK_REF" --set "landed=$LANDED_VALUE" --set "status=review" 2>&1)"; then
+      maple_warn "could not update task $TASK_REF: $(printf '%s' "$TASK_FIELDS_OUT" | tr '\r\n' '  ')"
+    fi
+    git config --unset "branch.$BRANCH.maple-task" 2>/dev/null || true
+  fi
 else
   maple_warn "--no-push: rebased + gated but NOT pushed. Branch left in place."
 fi
