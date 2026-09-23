@@ -23,6 +23,8 @@ is (or becomes) one.
 | `core` | fast + types-freshness + RLS + all E2E (desktop) | pre-merge |
 | `full` | core breadth + all E2E projects + pnpm audit | nightly |
 
+On landing, after the tier is green, the per-function [[quality-gate|Jev quality gate]] checks every created or edited function (D059).
+
 Escape hatch for a no-Docker box: `SKIP_LIVE_GATE=1` (runs fast only,
 loudly). `--no-verify` is forbidden — see CLAUDE.md "No bypass".
 
