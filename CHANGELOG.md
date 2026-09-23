@@ -6,6 +6,35 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Jev per-function code-quality GATE (plugin v0.4.0, D051).** Ported
+  MapleLens's `tools/jev/audit.mjs` per-function audit (extraction via the
+  TypeScript compiler API, typed Jev questions, exact/near-duplicate
+  detection, severity scoring) into the plugin as the canonical copy —
+  `plugin/scripts/jev/audit/{extract,fingerprint,questions,report,config,
+  state-dir,gate,run}.mjs`, using this plugin's own Jev client (Pi-first
+  routing, DPAPI credential cache), config from the target repo's
+  `maple.config.json` `quality.jevAudit` block (new schema key, opt-in —
+  `enabled` defaults to false), and cache/report under
+  `<repo>/.maplelens/audit/<slug>/` only when that path is gitignored,
+  else a per-user plugin-owned state dir. New `--gate` mode audits only
+  changed/edited functions and fails when any trips a BLOCKING rule: an
+  exact duplicate (deterministic, fails CLOSED), a Jev-confirmed
+  near-duplicate (p >= 0.9), a Serious+ security score at confidence >=
+  0.6, a can-fail function with no visible error handling (excluding a
+  documented best-effort catch), or a Wasteful+ efficiency score —
+  everything else is a non-blocking warning. Every Jev-dependent rule
+  fails OPEN (prints "quality gate: Jev unavailable, only deterministic
+  checks ran" and never blocks on it) while the deterministic duplicate
+  rule always still applies; a sensitive/denylisted function is never sent
+  to Jev and never blocks. An inline `// jev-audit: accept <rule> —
+  <reason>` comment suppresses one rule for one function, visible in code
+  review — there is no flag to skip the gate itself. Wired into
+  `maple-land.sh` as a landing step after the repo's own CI gate is green
+  and before the push, skipped when `quality.jevAudit.enabled` isn't true;
+  a new `/quality-gate` command runs it by hand (`--full`/`--report`).
+  `docs/decisions.md`/doc-page text is proposed, not applied — see the
+  session's task report.
+
 - **jev-model-routing inverted to Pi-first, plus a credential cache (plugin
   v0.3.1, D058).** Owner decision: the default executor is now the
   cheapest — Pi on `gpt-5.6-luna` — whenever Pi is available; Jev only
