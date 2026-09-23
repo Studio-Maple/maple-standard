@@ -20,7 +20,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { safeEvaluate } from "../client.mjs";
-import { discoverAllFiles, discoverChangedFiles, discoverTestFiles, extractFromSource, makeDenylistTest, moduleOf } from "./extract.mjs";
+import { discoverAllFiles, discoverChangedFiles, discoverTestFiles, extractFromSource, loadTypeScript, makeDenylistTest, moduleOf } from "./extract.mjs";
 import { dedupeNearDuplicatePairs, dupCacheKey, findCandidatePairs, findExactDuplicateClusters, selectPairsForJev } from "./fingerprint.mjs";
 import { DUPLICATE_QUESTION, FUNCTION_QUESTIONS, QUESTIONS_VERSION, hasTestReference } from "./questions.mjs";
 import { buildReport, renderHtmlReport } from "./report.mjs";
@@ -97,6 +97,7 @@ async function extractAll(files, { cwd, config, isDenylisted, readFileFn }) {
       continue; // deleted between discovery and read
     }
     const fns = extractFromSource(relFile, text, {
+      repoRoot: cwd,
       trivialMaxStatements: config.trivialMaxStatements,
       trivialMaxLines: config.trivialMaxLines,
       maxSourceBytes: config.maxSourceBytes,
@@ -183,6 +184,8 @@ export async function runAudit(opts) {
     discoverTestFilesFn = discoverTestFiles,
   } = opts;
 
+  // Fail early and plainly if the compiler cannot be found (see extract.mjs).
+  loadTypeScript(cwd);
   const isDenylisted = makeDenylistTest(config);
 
   const scopeFiles =
