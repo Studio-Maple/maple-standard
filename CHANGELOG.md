@@ -6,6 +6,22 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **jev-model-routing inverted to Pi-first, plus a credential cache (plugin
+  v0.3.1, D058).** Owner decision: the default executor is now the
+  cheapest — Pi on `gpt-5.6-luna` — whenever Pi is available; Jev only
+  escalates (small->luna, medium->terra, big/high-risk/production/security
+  ->sonnet/opus) at confidence >= 0.8, and fail-open never lands on opus.
+  New `plugin/scripts/jev/ladder.mjs` (`PI_MODEL_LADDER`, `startModelFor()`,
+  `nextRung()` for escalating after a failed validation).
+  `route.mjs`'s `chooseExecutor()` now returns `{model, kind}` instead of
+  `{executor}`. `pi-run.mjs` takes a `model` param, defaults to
+  `gpt-5.6-luna`, and gained a `--model`/`--task`/`--prompt` CLI. Also:
+  `client.mjs` now caches the OS-credential-store read in a short-TTL
+  (`jev.credentialCacheTtlSeconds`, default 300s), DPAPI-encrypted
+  per-user file — never the plaintext key on disk — cutting the
+  Get-StoredCredential PowerShell round trip roughly in half on a cache
+  hit. See `plugin/README.md`'s Jev section.
+
 - **Jev decision-model integration (plugin v0.3.0).** Three new skills —
   `jev-model-routing` (pick `haiku`/`sonnet`/`opus`/`pi` before delegating
   to a sub-agent), `jev-skill-select` (rank the installed skill catalog,

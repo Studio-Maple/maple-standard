@@ -21,13 +21,17 @@ try {
 
   writeFileSync(
     join(sandbox, "maple.config.json"),
-    JSON.stringify({ project: { name: "x", slug: "x" }, jev: { enabled: false, credentialTarget: "Acme-TypeSafe-APIKey", confidenceFloor: 0.8, timeoutMs: 5000 } }),
+    JSON.stringify({
+      project: { name: "x", slug: "x" },
+      jev: { enabled: false, credentialTarget: "Acme-TypeSafe-APIKey", confidenceFloor: 0.8, timeoutMs: 5000, credentialCacheTtlSeconds: 60 },
+    }),
   );
   eq("reads an explicit jev block", resolveJevConfig(sandbox), {
     enabled: false,
     credentialTarget: "Acme-TypeSafe-APIKey",
     confidenceFloor: 0.8,
     timeoutMs: 5000,
+    credentialCacheTtlSeconds: 60,
   });
 
   writeFileSync(join(sandbox, "maple.config.json"), "{ not valid json");

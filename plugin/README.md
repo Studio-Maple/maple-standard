@@ -364,10 +364,11 @@ See `repo.standingLoopBranch` above for the branch these loops work on.
 
 | Key | Default | Notes |
 |---|---|---|
-| `jev.enabled` | `true` | Every `jev.*` call fails open (routing falls back to `sonnet`, validation never blocks, search/skill-select return "no verdict") when no key is configured — leaving this `true` with no TypeSafe key costs nothing but one credential-store miss per call |
+| `jev.enabled` | `true` | Every `jev.*` call fails open (routing falls back to the default ladder rung, validation never blocks, search/skill-select return "no verdict") when no key is configured — leaving this `true` with no TypeSafe key costs nothing but one credential-store miss per call |
 | `jev.credentialTarget` | `null` | Credential-store target name to try first; `plugin/scripts/jev/client.mjs` then tries `Maple-TypeSafe-APIKey`, then `MapleLens-TypeSafe-APIKey` |
-| `jev.confidenceFloor` | `0.5` | Below this confidence, a Jev CHOICE answer is treated as "don't know" and the caller uses its own fallback |
+| `jev.confidenceFloor` | `0.5` | Below this confidence, a Jev CHOICE answer is treated as "don't know" and the caller uses its own fallback (jev-model-routing uses its own separate, higher floor — see below — for escalating past the default executor) |
 | `jev.timeoutMs` | `3000` | Fail-open budget per Jev call — deliberately short; these calls run inline in a hook or skill |
+| `jev.credentialCacheTtlSeconds` | `300` | How long `client.mjs`'s DPAPI-encrypted per-user credential cache stays fresh before the next call re-reads Windows Credential Manager directly. `0` disables the cache. |
 
 See "Jev" below for what each feature does with these.
 
@@ -526,22 +527,28 @@ calibrated probability answers better:
 
 | Feature | Skill / hook | What it decides |
 |---|---|---|
-| **Model routing** | `plugin/skills/jev-model-routing` | Before delegating to a sub-agent: `haiku`, `sonnet`, `opus`, or `pi` (the Pi coding agent, headless, on the owner's ChatGPT subscription) |
+| **Model routing** | `plugin/skills/jev-model-routing` | Before delegating to a sub-agent: which rung on the ladder `gpt-5.6-luna -> gpt-5.6-terra -> gpt-5.6-sol -> sonnet -> opus` to start on. **The default is the cheapest rung (Pi on gpt-5.6-luna)** — Jev only escalates when confident (>= 0.8) the task needs more; see `ladder.mjs`/D057. |
 | **Skill selection** | `plugin/skills/jev-skill-select` | Ranks the installed skill catalog against a request; may say none apply |
 | **Search decisions** | `plugin/skills/jev-search` | After a search round: which results to read, whether that's enough, which caller-written query to run next |
-| **Sub-agent validation** | `plugin/hooks/jev-validate-subagent.mjs` (`SubagentStop`) | Judges a sub-agent's task + final report before the main session trusts it; blocks once (never twice — guarded by `stop_hook_active`) with Jev's concerns if the report looks incomplete |
+| **Sub-agent validation** | `plugin/hooks/jev-validate-subagent.mjs` (`SubagentStop`) | Judges a sub-agent's task + final report before the main session trusts it; blocks once (never twice — guarded by `stop_hook_active`) with Jev's concerns if the report looks incomplete. The same judge (`validate.mjs`) applies to a `pi-run.mjs` result too. |
 
 Shared code: `plugin/scripts/jev/client.mjs` (the API client — direct
 TypeSafe endpoint, not a gateway; ported from `C:\Projects\MapleLens\tools\jev\client.mjs`,
-same endpoint/model pin/question shapes), `config.mjs` (`jev.*` resolver),
-`redact.mjs` (masks emails/tokens/hex/phone-shaped numbers before anything
-is sent), `log.mjs` (`.maple/jev-decisions.jsonl`, gitignored — review with
-`node plugin/scripts/jev/report.mjs [root]`), `validate.mjs` (the shared
-"did this agent finish the task" judge used by both the SubagentStop hook
-and `pi-run.mjs`), `pi-run.mjs` (headless Pi in an isolated
-`.worktrees/pi-*` worktree — trimmed from MapleLens's
-`tools/jev/worker-pi.mjs` + `worktree.mjs`; no checkpoint/revert/patch-cap
-machinery, this is single-shot).
+same endpoint/model pin/question shapes, plus a DPAPI-encrypted per-user
+credential cache — see its module docstring), `config.mjs` (`jev.*`
+resolver), `redact.mjs` (masks emails/tokens/hex/phone-shaped numbers
+before anything is sent), `log.mjs` (`.maple/jev-decisions.jsonl`,
+gitignored — review with `node plugin/scripts/jev/report.mjs [root]`),
+`ladder.mjs` (the five-rung executor ladder — `PI_MODEL_LADDER`,
+`startModelFor()`, `nextRung()` — both what `route.mjs` routes TO and what
+a caller escalates ALONG after a failed validation), `validate.mjs` (the
+shared "did this agent finish the task" judge used by both the
+SubagentStop hook and `pi-run.mjs`'s caller), `pi-run.mjs` (headless Pi in
+an isolated `.worktrees/pi-*` worktree, on a caller-chosen model — trimmed
+from MapleLens's `tools/jev/worker-pi.mjs` + `worktree.mjs`; no
+checkpoint/revert/patch-cap machinery or auto-escalation loop, this is
+single-shot; also runnable as a CLI, `node plugin/scripts/jev/pi-run.mjs
+--task ... --prompt ... [--model gpt-5.6-terra]`).
 
 **What leaves the machine**, per feature: routing sends a clipped+redacted
 task description (~900 chars) and short context (~300 chars); skill-select
@@ -557,7 +564,15 @@ back instead.
 — target name resolution order is `jev.credentialTarget` →
 `Maple-TypeSafe-APIKey` → `MapleLens-TypeSafe-APIKey`. No key configured is
 the normal, fully-supported "Jev off" state — every feature above fails
-open to its non-Jev default, never an error.
+open to its non-Jev default, never an error. Since each hook/skill
+invocation is a fresh Node process, `client.mjs` also keeps a short-TTL
+(`jev.credentialCacheTtlSeconds`, default 300s) per-user cache file under
+`%LOCALAPPDATA%\maple-standard\jev\`, DPAPI-encrypted via PowerShell's
+built-in `ConvertFrom-SecureString` (never the plaintext key on disk) —
+cuts the credential-read leg of a call roughly in half by skipping the
+CredentialManager module import on a cache hit; see the module docstring
+for the full threat-model reasoning and why the PowerShell process-startup
+cost itself isn't avoidable without a new dependency.
 
 **Gaps** (see also "Gaps" below): `pi-run.mjs` is single-shot only (no
 supervised multi-turn mission loop, unlike MapleLens's `supervise.mjs`);
@@ -667,3 +682,16 @@ tells you who's allowed to edit it and when it updates:
   of hermes-jev-skills' batched/two-round-trip designs (see each skill's
   `NOTICE`) — correct for a single Claude Code session's catalog/result-set
   size, not measured at the fleet scale those designs were built for.
+- **`ladder.mjs`'s `nextRung()` is a pure function, not an automatic retry
+  loop** — nothing in this plugin re-dispatches a failed sub-agent at the
+  next rung on its own; a caller (a command, a future loop-pack entry)
+  reads `nextRung(previousModel)` and drives the retry itself. See
+  jev-model-routing's SKILL.md "Escalating after a failed validation"
+  section.
+- **The credential cache's DPAPI decrypt path was live-tested, not just
+  unit-tested** — `parseCacheFile`/`isCacheFresh`/`cacheFilePathFor` are
+  pure and covered by `client.test.mjs`, but the actual
+  `ConvertTo-SecureString`/`ConvertFrom-SecureString` round trip only runs
+  against the real credential store, so it's exercised by the live smoke
+  test each release rather than by CI (no Windows Credential Manager in
+  the plugin's own test environment).

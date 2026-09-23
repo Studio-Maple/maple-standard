@@ -26,6 +26,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 No code from jevkit/route.py was copied — this skill's script
-(plugin/scripts/jev/route.mjs) is a from-scratch Node implementation for a
-different (Claude Code sub-agent / haiku-sonnet-opus-pi) executor model, not
-hermes-jev-skills' multi-vendor OpenRouter pool system.
+(plugin/scripts/jev/route.mjs, plugin/scripts/jev/ladder.mjs) is a
+from-scratch Node implementation for a different executor model (a
+five-rung ladder spanning the Pi coding agent's gpt-5.6-luna/terra/sol and
+Claude's sonnet/opus, Pi-first by default — see D058), not hermes-jev-skills'
+multi-vendor OpenRouter pool system.

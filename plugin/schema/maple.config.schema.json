@@ -224,8 +224,9 @@
       "properties": {
         "enabled": { "type": "boolean", "description": "Default true. Every jev.* call still fails open (allow / fall back to sonnet) with no key configured, so leaving this true costs nothing on a project with no TypeSafe key." },
         "credentialTarget": { "type": ["string", "null"], "description": "OS credential-store target name to try FIRST (plugin/scripts/jev/client.mjs then tries 'Maple-TypeSafe-APIKey', then 'MapleLens-TypeSafe-APIKey'). Default null." },
-        "confidenceFloor": { "type": "number", "minimum": 0, "maximum": 1, "description": "Default 0.5 — the confidence below which a Jev choice answer is treated as 'don't know' and the caller falls back to its own default." },
-        "timeoutMs": { "type": "integer", "minimum": 1, "description": "Default 3000 — fail-open budget per Jev call. Deliberately short: these calls run inline in a hook or skill and must never be worth blocking a turn over." }
+        "confidenceFloor": { "type": "number", "minimum": 0, "maximum": 1, "description": "Default 0.5 — the confidence below which a Jev choice answer is treated as 'don't know' and the caller falls back to its own default. jev-model-routing uses its own separate, higher constant (ladder.mjs ESCALATION_CONFIDENCE_FLOOR, 0.8) for escalating past the default executor — not configurable via this key." },
+        "timeoutMs": { "type": "integer", "minimum": 1, "description": "Default 3000 — fail-open budget per Jev call. Deliberately short: these calls run inline in a hook or skill and must never be worth blocking a turn over." },
+        "credentialCacheTtlSeconds": { "type": "integer", "minimum": 0, "description": "Default 300 — how long client.mjs's DPAPI-encrypted per-user credential cache stays fresh before the next call re-reads Windows Credential Manager directly. 0 disables the cache." }
       }
     },
 
