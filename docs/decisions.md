@@ -14,6 +14,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D058 | 2026-09-23 | jev-model-routing: invert to Pi-first, add a 5-rung ladder + credential cache
+Default executor is now the cheapest: Pi/gpt-5.6-luna whenever Pi is available; Jev escalates (small->luna, medium->terra, big/risky->sonnet/opus) only at confidence >=0.8, never defaults to opus on fail-open. Ladder + escalation in ladder.mjs; pi-run.mjs takes --model. client.mjs adds a short-TTL DPAPI-encrypted per-user credential cache (never plaintext on disk) to cut the ~1.5s PowerShell round trip. See plugin/README.md Jev section.
+
 ## D057 | 2026-09-23 | Jev decision-model integration: routing, skill-select, search, sub-agent validation
 Wired TypeSafe's Jev (typed choice/score/probability, ~0.5s, never text) into the plugin: jev-model-routing/jev-skill-select/jev-search skills + a SubagentStop validator hook, shared client/config/redact/log under plugin/scripts/jev/. Fail-open everywhere (no key/timeout/malformed -> allow/fallback); new jev.* schema key. Concept ported from kerpopule/hermes-jev-skills (MIT); client shape from MapleLens tools/jev/client.mjs. See plugin/README.md Jev section.
 

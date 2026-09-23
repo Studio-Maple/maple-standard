@@ -2,7 +2,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { decide, scoreOf, likely, candidateTargets, DEFAULT_CONFIDENCE_FLOOR } from "./client.mjs";
+import { decide, scoreOf, likely, candidateTargets, cacheFilePathFor, parseCacheFile, isCacheFresh, DEFAULT_CONFIDENCE_FLOOR } from "./client.mjs";
 
 let failed = 0;
 const check = (name, ok, detail = "") => {
@@ -55,6 +55,35 @@ try {
   );
 } finally {
   rmSync(sandbox, { recursive: true, force: true });
+}
+
+// --- DPAPI cache file helpers (pure) ---
+{
+  const p1 = cacheFilePathFor("Maple-TypeSafe-APIKey");
+  const p2 = cacheFilePathFor("Maple-TypeSafe-APIKey");
+  const p3 = cacheFilePathFor("Other-Target");
+  check("cacheFilePathFor is deterministic for the same target", p1 === p2);
+  check("cacheFilePathFor differs for a different target", p1 !== p3);
+  check("cacheFilePathFor never embeds the target name in plaintext", !p1.includes("Maple-TypeSafe-APIKey"));
+  check("cacheFilePathFor ends in .cache", p1.endsWith(".cache"));
+}
+
+{
+  const future = Date.now() + 60_000;
+  const parsed = parseCacheFile(`${future}\nSOME_DPAPI_BLOB_HEX==`);
+  check("parseCacheFile reads expiresAt and blob", parsed?.expiresAt === future && parsed?.blob === "SOME_DPAPI_BLOB_HEX==", JSON.stringify(parsed));
+
+  check("parseCacheFile rejects a file with no newline", parseCacheFile("no-newline-here") === null);
+  check("parseCacheFile rejects a non-numeric expiry", parseCacheFile("not-a-number\nblob") === null);
+  check("parseCacheFile rejects an empty blob", parseCacheFile(`${future}\n`) === null);
+  check("parseCacheFile rejects non-string input", parseCacheFile(undefined) === null);
+}
+
+{
+  const now = 1_000_000;
+  check("isCacheFresh true before expiry", isCacheFresh(now + 1000, now) === true);
+  check("isCacheFresh false at/after expiry", isCacheFresh(now, now) === false && isCacheFresh(now - 1, now) === false);
+  check("isCacheFresh false for a non-finite expiry", isCacheFresh(NaN, now) === false);
 }
 
 if (failed > 0) {

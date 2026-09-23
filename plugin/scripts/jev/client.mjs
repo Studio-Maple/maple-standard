@@ -17,10 +17,40 @@
  * It never goes through an environment variable: callers here run inside
  * hooks/skills that spawn further processes, and a child inherits its
  * parent's environment.
+ *
+ * CROSS-PROCESS CACHE (owner decision — cut the ~1.5s Get-StoredCredential
+ * PowerShell round trip most calls were paying): each hook/skill invocation
+ * is a FRESH Node process, so the in-process `keyCache` Map below never
+ * helps across calls — only within one process's lifetime (multiple
+ * evaluate() calls from the same script run). To amortize across
+ * processes within one Claude Code session, readKey() also maintains a
+ * small per-user cache file under `%LOCALAPPDATA%\maple-standard\jev\`
+ * (falls back to the OS temp dir if LOCALAPPDATA is unset), short-TTL
+ * (`jev.credentialCacheTtlSeconds`, default 300s; 0 disables it).
+ *
+ * The cache file is NEVER the plaintext key. It holds ciphertext produced
+ * by PowerShell's built-in `ConvertFrom-SecureString` — Windows DPAPI,
+ * bound to the current user AND machine, the same primitive Credential
+ * Manager itself is built on. A copy of the file is useless to anyone who
+ * isn't this Windows user on this machine (a stolen-disk / offline-copy
+ * scenario gets nothing from it, same guarantee Credential Manager gives).
+ * Best-effort `icacls` also restricts the file to the current user as
+ * defense in depth. The win comes from `ConvertTo-SecureString` (built-in,
+ * no module import) being materially cheaper to shell out to than
+ * `Get-StoredCredential` (the CredentialManager binary module's import),
+ * not from skipping PowerShell entirely — decrypting DPAPI ciphertext from
+ * plain Node without a native addon isn't possible, and this repo takes on
+ * no new dependencies (see plugin/README.md). If that tradeoff ever stops
+ * being worth it, set `jev.credentialCacheTtlSeconds: 0` — every call goes
+ * straight back to Get-StoredCredential, unchanged from v0.3.0.
  */
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { resolveJevConfig } from "./config.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -54,11 +84,134 @@ export function candidateTargets(root) {
   return [...new Set(targets)];
 }
 
+// ---- cross-process DPAPI credential cache (see module docstring) ---------
+
+function cacheDir() {
+  const base = process.env.LOCALAPPDATA || tmpdir();
+  return join(base, "maple-standard", "jev");
+}
+
+/** @param {string} target @returns {string} deterministic, non-reversible path — never embeds the target name in plaintext on disk. */
+export function cacheFilePathFor(target) {
+  const hash = createHash("sha256").update(target).digest("hex").slice(0, 32);
+  return join(cacheDir(), `${hash}.cache`);
+}
+
 /**
- * Read the key from Windows Credential Manager, trying each candidate
- * target in order and caching the first that resolves. Only the target
- * NAME is passed as an argument; the value returns on stdout, captured
- * in-process and never logged.
+ * Parse the cache file's own format: line 1 = expiry (epoch ms), line 2+ =
+ * the DPAPI ciphertext blob (PowerShell's ConvertFrom-SecureString output —
+ * never the plaintext key). Pure, so it's unit-testable without touching disk.
+ * @param {string} raw @returns {{expiresAt:number, blob:string}|null}
+ */
+export function parseCacheFile(raw) {
+  if (typeof raw !== "string") return null;
+  const nl = raw.indexOf("\n");
+  if (nl === -1) return null;
+  const expiresAt = Number(raw.slice(0, nl).trim());
+  const blob = raw.slice(nl + 1).trim();
+  if (!Number.isFinite(expiresAt) || !blob) return null;
+  return { expiresAt, blob };
+}
+
+/** @param {number} expiresAt epoch ms @param {number} [now] injectable for tests */
+export function isCacheFresh(expiresAt, now = Date.now()) {
+  return Number.isFinite(expiresAt) && now < expiresAt;
+}
+
+function stripBom(s) {
+  return s.charCodeAt(0) === 0xfeff ? s.slice(1) : s;
+}
+
+/**
+ * Cheap path: decrypt an on-disk DPAPI blob. No CredentialManager module
+ * import. Returns null on any failure (missing/corrupt file, expired,
+ * decrypted on a different user/machine, etc.) — the caller falls through
+ * to the full Get-StoredCredential fetch, which also refreshes the cache.
+ */
+async function readCachedKey(target, ttlSeconds) {
+  if (!ttlSeconds || ttlSeconds <= 0) return null;
+  const file = cacheFilePathFor(target);
+  let raw;
+  try {
+    raw = readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
+  const parsed = parseCacheFile(raw);
+  if (!parsed || !isCacheFresh(parsed.expiresAt)) return null;
+
+  // NOTE: the try/finally block below is ONE array element, joined with the
+  // rest via "; " — PowerShell's parser rejects a `;` immediately before
+  // `finally` ("The Try statement is missing its Catch or Finally block"),
+  // so `try { ... } finally { ... }` must stay together, unseparated, on
+  // one line. This cost a real debugging session (live-tested, D058 —
+  // see plugin/README.md's Jev section) before it was caught: it silently
+  // broke every cache HIT, so every call fell through to the slow fetch
+  // and re-wrote the cache, making "warm" calls consistently SLOWER than
+  // cold ones (paying for a failed decrypt attempt, then the full fetch).
+  const decryptScript = [
+    "$ErrorActionPreference='Stop'",
+    `$secure = ConvertTo-SecureString '${parsed.blob}'`,
+    "$ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)",
+    "try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8; [Console]::Out.Write([Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)) } finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }",
+  ].join("; ");
+
+  try {
+    const { stdout } = await execFileAsync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", decryptScript],
+      { encoding: "utf8", windowsHide: true, timeout: 10_000 },
+    );
+    const key = stripBom(stdout).trim();
+    return key || null;
+  } catch {
+    return null; // corrupt/cross-user blob — full fetch below will refresh it
+  }
+}
+
+/**
+ * Slow path: Get-StoredCredential (imports the CredentialManager module),
+ * and — when caching is enabled — refresh the DPAPI cache file in the SAME
+ * PowerShell invocation (one process spawn either way, not two).
+ */
+async function fetchAndCacheKey(target, ttlSeconds) {
+  const cacheEnabled = ttlSeconds > 0;
+  const file = cacheEnabled ? cacheFilePathFor(target) : null;
+  const expiresAt = cacheEnabled ? Date.now() + ttlSeconds * 1000 : 0;
+
+  const lines = [
+    "$ErrorActionPreference='Stop'",
+    `$c = Get-StoredCredential -Target '${target}'`,
+    "if (-not $c) { exit 3 }",
+    "$key = $c.GetNetworkCredential().Password",
+  ];
+  if (cacheEnabled) {
+    lines.push(
+      "$secure = ConvertTo-SecureString $key -AsPlainText -Force",
+      "$enc = ConvertFrom-SecureString $secure",
+      `$cacheFile = '${file.replace(/'/g, "''")}'`,
+      "New-Item -ItemType Directory -Force -Path (Split-Path $cacheFile) | Out-Null",
+      `Set-Content -LiteralPath $cacheFile -Value @('${expiresAt}', $enc) -Encoding ascii`,
+      'try { icacls $cacheFile /inheritance:r /grant:r "$($env:USERNAME):(R,W)" 2>$null | Out-Null } catch {}',
+    );
+  }
+  lines.push("[Console]::OutputEncoding=[System.Text.Encoding]::UTF8", "[Console]::Out.Write($key)");
+  const script = lines.join("; ");
+
+  const { stdout } = await execFileAsync(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-Command", script],
+    { encoding: "utf8", windowsHide: true, timeout: 10_000 },
+  );
+  return stripBom(stdout).trim();
+}
+
+/**
+ * Read the key from Windows Credential Manager (via the DPAPI cache when
+ * fresh, else Credential Manager directly), trying each candidate target
+ * in order and caching the first that resolves. Only the target NAME ever
+ * appears in a script string; the plaintext value returns on stdout,
+ * captured in-process and never logged, never written to disk.
  * @param {string} root
  */
 async function readKey(root) {
@@ -66,25 +219,20 @@ async function readKey(root) {
   if (process.platform !== "win32") {
     throw new Error(`Jev: credential store read not implemented for ${process.platform}`);
   }
+  const { credentialCacheTtlSeconds } = resolveJevConfig(root);
 
   let lastErr;
   for (const target of candidateTargets(root)) {
     if (!/^[A-Za-z0-9._-]+$/.test(target)) continue;
-    const script = [
-      "$ErrorActionPreference='Stop'",
-      `$c = Get-StoredCredential -Target '${target}'`,
-      "if (-not $c) { exit 3 }",
-      "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8",
-      "[Console]::Out.Write($c.GetNetworkCredential().Password)",
-    ].join("; ");
 
     try {
-      const { stdout } = await execFileAsync(
-        "powershell.exe",
-        ["-NoProfile", "-NonInteractive", "-Command", script],
-        { encoding: "utf8", windowsHide: true, timeout: 10_000 },
-      );
-      const key = stdout.replace(/^\uFEFF/, "").trim();
+      const cached = await readCachedKey(target, credentialCacheTtlSeconds);
+      if (cached) {
+        keyCache.set(root, cached);
+        return cached;
+      }
+
+      const key = await fetchAndCacheKey(target, credentialCacheTtlSeconds);
       if (key) {
         keyCache.set(root, key);
         return key;
