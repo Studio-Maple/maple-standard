@@ -6,6 +6,8 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Quality gate finds `typescript` from the audited repo (plugin v0.4.1).** The installed plugin cache has no node_modules, so the bare `import "typescript"` failed and the gate silently ran as a no-op in every mission. The compiler is now resolved at run time from the audited repo, then the plugin checkout, with a plain error if neither has it.
+
 - **Jev per-function code-quality GATE (plugin v0.4.0, D051).** Ported
   MapleLens's `tools/jev/audit.mjs` per-function audit (extraction via the
   TypeScript compiler API, typed Jev questions, exact/near-duplicate

@@ -17,7 +17,34 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import ts from "typescript";
+import { createRequire } from "node:module";
+import path from "node:path";
+
+// The TypeScript compiler is resolved at run time, not imported: the
+// installed plugin cache has no node_modules, so a bare `import "typescript"`
+// fails there and the gate silently degrades to a no-op. The audited repo
+// almost always has typescript; the plugin's own checkout is the fallback.
+let ts = null;
+
+/**
+ * Load the TypeScript compiler from `repoRoot` (walking up its node_modules),
+ * falling back to wherever this module lives. Cached after the first success.
+ */
+export function loadTypeScript(repoRoot = process.cwd()) {
+  if (ts) return ts;
+  const bases = [path.join(path.resolve(repoRoot), "noop.js"), import.meta.url];
+  for (const base of bases) {
+    try {
+      ts = createRequire(base)("typescript");
+      return ts;
+    } catch {
+      // try the next base
+    }
+  }
+  throw new Error(
+    `quality gate needs the 'typescript' package: not found from ${repoRoot} or the plugin — install it in the audited repo`,
+  );
+}
 
 const execFileAsync = promisify(execFile);
 
@@ -270,6 +297,7 @@ function isFunctionExpressionOfInterest(node) {
  * @returns {Array<object>} extracted function records (see fields below)
  */
 export function extractFromSource(relPath, sourceText, opts) {
+  loadTypeScript(opts?.repoRoot);
   const sourceFile = ts.createSourceFile(relPath, sourceText, ts.ScriptTarget.Latest, true, scriptKindFor(relPath));
   const imports = importLines(sourceText);
   const records = [];
