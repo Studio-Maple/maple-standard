@@ -70,3 +70,6 @@ docs/*.lock
 # maple-start.sh's runtime maple_ensure_gitignored self-heal
 /.worktrees/
 .worktrees/
+
+# maple-standard jev decision log (plugin/scripts/jev/log.mjs)
+.maple/

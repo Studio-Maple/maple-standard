@@ -15,6 +15,8 @@ A `#T` is for real future work, not a band-aid over rot you could fix now.
 
 ## Inbox
 
+- [ ] **#T14 — Give pi-run.mjs a supervised multi-turn mission loop.** plugin/scripts/jev/pi-run.mjs is single-shot (one prompt, one diff). Port MapleLens tools/jev/supervise.mjs + the fuller worktree.mjs (checkpoint/revert/patch cap) so jev-model-routing's pi executor can handle work that needs back-and-forth, not just well-scoped one-shot tasks.
+
 - [ ] **#T13 — Bundle generic docs tooling into the plugin.** check-docs-drift.mjs + generate-docs-index.mjs are referenced by config but not bundled - non-template adopters have no copies. Generalize and ship them in plugin/scripts/, OKF-aligned per D010: frontmatter-aware gate, catalog generated from description fields, both wikilinks and markdown links validated.
 
 - [ ] **#T12 — Harden generic safety hooks in the plugin.** Ported: deny-credential-paths, scrub-secrets, bash-guard, dirty-tree-guard, ask-gate, decision-reminder, docs-sync-reminder, parallel-session-warn. Verify each fires correctly from plugin context on a scratch project.

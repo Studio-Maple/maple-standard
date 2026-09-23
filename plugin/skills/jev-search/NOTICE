@@ -1,0 +1,32 @@
+Portions of this skill's approach (asking a fast decision model whether
+search results are sufficient and which caller-supplied candidate query to
+run next, never letting the model invent a query, screening results before
+they're sent) are adapted from kerpopule/hermes-jev-skills
+(skills/jev-search/SKILL.md, jevkit/search.py), MIT licensed:
+
+MIT License
+
+Copyright (c) 2026 Steve Darlow
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+No code from jevkit/search.py was copied — this skill's script
+(plugin/scripts/jev/search.mjs) is a from-scratch Node implementation and a
+one-request simplification of search.py's two-request (rank, then
+sufficiency+next-query) design.

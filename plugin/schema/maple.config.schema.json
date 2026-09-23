@@ -217,6 +217,18 @@
       }
     },
 
+    "jev": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "plugin extension — Jev (TypeSafe System One) decision-model integration: model routing, skill selection, search decisions, and SubagentStop validation. See plugin/README.md 'Jev' section.",
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Default true. Every jev.* call still fails open (allow / fall back to sonnet) with no key configured, so leaving this true costs nothing on a project with no TypeSafe key." },
+        "credentialTarget": { "type": ["string", "null"], "description": "OS credential-store target name to try FIRST (plugin/scripts/jev/client.mjs then tries 'Maple-TypeSafe-APIKey', then 'MapleLens-TypeSafe-APIKey'). Default null." },
+        "confidenceFloor": { "type": "number", "minimum": 0, "maximum": 1, "description": "Default 0.5 — the confidence below which a Jev choice answer is treated as 'don't know' and the caller falls back to its own default." },
+        "timeoutMs": { "type": "integer", "minimum": 1, "description": "Default 3000 — fail-open budget per Jev call. Deliberately short: these calls run inline in a hook or skill and must never be worth blocking a turn over." }
+      }
+    },
+
     "hooks": {
       "type": "object",
       "additionalProperties": false,
