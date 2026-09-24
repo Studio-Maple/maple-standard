@@ -90,7 +90,13 @@ QUALITY_ENABLED="$(maple_cfg quality.jevAudit.enabled false)"
 if [ "$QUALITY_ENABLED" = "true" ]; then
   QUALITY_SCRIPT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/../..}/scripts/jev/audit/run.mjs"
   maple_log "running quality gate (changed functions vs $BASE) …"
-  if ! ( cd "$WT_DIR" && node "$QUALITY_SCRIPT" --gate --base "$MAPLE_TARGET" ); then
+  # $BASE (the just-fetched remote tip we rebased onto), NOT the bare
+  # "$MAPLE_TARGET": the audit merge-bases against whatever ref it is given,
+  # and the LOCAL target branch in the main checkout is routinely stale or
+  # diverged, which turned every landing into an audit of dozens of other
+  # people's commits (EasyCaller, 2026-09-24: 638 functions for a bash-only
+  # change, 10 unrelated blocking findings).
+  if ! ( cd "$WT_DIR" && node "$QUALITY_SCRIPT" --gate --base "$BASE" ); then
     maple_die "quality gate FAILED — nothing pushed. See the findings above; fix or add a documented 'jev-audit: accept <rule> — <reason>' comment, then re-run maple-land."
   fi
   maple_ok "quality gate passed"
