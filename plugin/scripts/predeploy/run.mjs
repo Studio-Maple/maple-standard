@@ -75,10 +75,11 @@ async function runCheck(check, pd, ctx) {
       let spec;
       if (check.preset) spec = PRESETS[check.preset].build(check.options || {}, ctx);
       else spec = { command: check.command, parse: check.parse || "exit-code", reports: check.reports || [], cwd: "root", env: check.env };
-      for (const f of spec.emptyFiles || []) writeFileSync(join(ctx.outDir, f), "");
+      for (const f of spec.emptyFiles || []) writeFileSync(join(ctx.outDir, f), /\.ya?ml$/.test(f) ? "{}\n" : "");
       const cwd = spec.cwd === "scan" ? ctx.scanRoot : check.cwd ? join(ctx.root, check.cwd) : ctx.root;
       const out = runShell(spec.command, { cwd, env: { ...(spec.env || {}), PREDEPLOY_OUT: ctx.outDir, PREDEPLOY_SHA: ctx.sha }, timeoutSec: check.timeoutSec || 1800 });
       res.raw = { status: out.status };
+      res.text = out.stdout + "\n" + out.stderr;
       if (out.timedOut) res.findings.push({ id: "timeout", severity: "high", message: `exceeded ${check.timeoutSec || 1800}s`, location: "" });
       else if (out.spawnError) res.findings.push({ id: "spawn-failed", severity: "high", message: out.spawnError, location: "" });
       else if (out.status === 127) res.findings.push({ id: "tool-missing", severity: "high", message: `command not found: ${out.stderr.trim().split(/\r?\n/).pop()}`, location: "" });
@@ -95,7 +96,14 @@ async function runCheck(check, pd, ctx) {
     if (e instanceof ToolMissing) res.findings = [{ id: "tool-missing", severity: "high", message: `${e.tool}: ${e.message}. Install: ${installHints(e.tool)}`, location: "" }];
     else res.findings = [{ id: "check-crashed", severity: "high", message: String(e.stack || e).split("\n").slice(0, 3).join(" | "), location: "" }];
   }
-  res.findings = res.findings.map((f) => ({ ...f, check: check.id }));
+  const rel = (p) => String(p || "").split(ctx.scanRootPosix + "/").join("").split(ctx.scanRoot.replace(/\\/g, "/") + "/").join("");
+  if (check.countPattern && res.findings.length && res.raw) {
+    const text = res.text || "";
+    let total = 0;
+    for (const m of text.matchAll(new RegExp(check.countPattern, "g"))) total += Number(m[1]) || 0;
+    if (total) res.estimated = total;
+  }
+  res.findings = res.findings.map((f) => ({ ...f, check: check.id, location: rel(f.location) }));
   res.ms = Date.now() - t0;
   return res;
 }
@@ -170,7 +178,7 @@ export async function main(argv) {
 
   const perCheck = results.map((r) => ({
     id: r.id, kind: r.kind, ms: r.ms,
-    raw: r.findings.length, belowFloor: belowFloor[r.id],
+    raw: r.findings.length, estimated: r.estimated, belowFloor: belowFloor[r.id],
     blocking: allBlocking.filter((f) => f.check === r.id).length,
     allowlisted: allowed.filter((f) => f.check === r.id).length,
     notes: r.notes, meta: r.meta,
@@ -189,7 +197,7 @@ export async function main(argv) {
   else {
     console.log("");
     for (const c of perCheck) {
-      console.log(`${c.blocking ? "FAIL" : " ok "}  ${c.id.padEnd(22)} blocking=${c.blocking} allowlisted=${c.allowlisted}${c.belowFloor ? ` belowFloor=${c.belowFloor}` : ""}`);
+      console.log(`${c.blocking ? "FAIL" : " ok "}  ${c.id.padEnd(22)} blocking=${c.blocking}${c.estimated ? ` (~${c.estimated} underlying)` : ""} allowlisted=${c.allowlisted}${c.belowFloor ? ` belowFloor=${c.belowFloor}` : ""}`);
       for (const n of c.notes || []) console.log(`        note: ${n}`);
     }
     const extra = allBlocking.filter((f) => !perCheck.some((c) => c.id === f.check));

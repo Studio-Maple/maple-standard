@@ -54,6 +54,7 @@ export function invoke(ctx, toolName, argsFn, { env = [] } = {}) {
 const DEFAULT_EXCLUDE_DIRS = ["node_modules", "dist", "build", ".next", ".wrangler", "coverage", ".worktrees"];
 
 const q = (xs) => xs.map(shq).join(" ");
+const scoped = (o, xs, key = (x) => x) => xs.filter((x) => !(o.exclude || []).some((p) => key(x).startsWith(p)));
 
 const COMMAND_PRESETS = {
   gitleaks: {
@@ -86,7 +87,7 @@ const COMMAND_PRESETS = {
     describe: "Known-vulnerable dependencies from every tracked lockfile (dev dependencies included). osv-scanner.toml ignores are NOT honoured.",
     tools: ["osv-scanner"],
     build(o, ctx) {
-      const locks = ctx.listFiles(/(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|requirements[^/]*\.txt|poetry\.lock|Pipfile\.lock|go\.sum|Cargo\.lock|Gemfile\.lock|composer\.lock)$/);
+      const locks = scoped(o, ctx.listFiles(/(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|requirements[^/]*\.txt|poetry\.lock|Pipfile\.lock|go\.sum|Cargo\.lock|Gemfile\.lock|composer\.lock)$/));
       if (!locks.length) return { command: "echo 'no lockfiles tracked' >&2; exit 0", reports: [], parse: "exit-code", cwd: "scan" };
       const command = invoke(ctx, "osv-scanner", (P) =>
         `scan source --config ${P.out}/empty.toml ${locks.map((l) => `-L ${shq(l)}`).join(" ")} --format json --output-file ${P.out}/osv.json`);
@@ -98,7 +99,7 @@ const COMMAND_PRESETS = {
     describe: "npm audit for every lockfile directory, all severities, dev dependencies included.",
     tools: ["npm"],
     build(o, ctx) {
-      const dirs = o.dirs || ctx.lockDirs();
+      const dirs = o.dirs || scoped(o, ctx.lockDirs(), (d) => d + "/");
       const reports = [];
       const cmds = dirs.map((d) => {
         const name = `npm-audit-${d === "." ? "root" : d.replace(/[^A-Za-z0-9]+/g, "_")}.json`;
@@ -125,7 +126,7 @@ const COMMAND_PRESETS = {
     describe: "shellcheck at --severity=style over every tracked *.sh. .shellcheckrc is not read (--norc).",
     tools: ["shellcheck"],
     build(o, ctx) {
-      const files = ctx.listFiles(/\.(sh|bash)$/);
+      const files = scoped(o, ctx.listFiles(/\.(sh|bash)$/));
       if (!files.length) return { command: "true", reports: [], parse: "exit-code", cwd: "scan" };
       const command = invoke(ctx, "shellcheck", (P) => `--norc -x --severity=style --format=json1 ${q(files)} > ${P.out}/shellcheck.json`);
       return { command: wrapRedirect(ctx, command, "shellcheck.json"), reports: ["shellcheck.json"], parse: "shellcheck-json", cwd: "scan" };

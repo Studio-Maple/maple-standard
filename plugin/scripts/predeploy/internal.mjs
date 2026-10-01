@@ -59,7 +59,7 @@ async function terraform(o, ctx) {
 async function hadolint(o, ctx) {
   const { t, missing } = tool(ctx, "hadolint");
   if (missing) return { findings: [missing] };
-  const files = ctx.listFiles(/(^|\/)Dockerfile[^/]*$/);
+  const files = ctx.listFiles(/(^|\/)Dockerfile[^/]*$/).filter((f) => !(o.exclude || []).some((p) => f.startsWith(p)));
   const results = [];
   for (const f of files) {
     const abs = join(ctx.scanRoot, f);
@@ -87,7 +87,17 @@ async function trivyImage(o, ctx) {
     const tag = `predeploy/${im.name}:${ctx.sha.slice(0, 12)}`;
     const dockerfile = im.dockerfile ? `-f ${shq(join(ctx.scanRoot, im.dockerfile))}` : "";
     const args = (im.buildArgs || []).map((a) => `--build-arg ${shq(a)}`).join(" ");
-    const build = capture(`docker build -q -t ${shq(tag)} ${dockerfile} ${args} ${shq(join(ctx.scanRoot, im.context || "."))}`);
+    const secretEnv = {};
+    const secretFlags = [];
+    for (const sec of im.secrets || []) {
+      // { id, from: "gh-auth-token" | { credential: "<store target>" } } -> BuildKit --secret, value only in env of this one command
+      const value = sec.from === "gh-auth-token" ? (capture("gh auth token").stdout || "").trim() : getCredential(sec.from?.credential);
+      if (!value) { findings.push(F("secret-missing", `build secret ${sec.id} for image ${im.name} could not be resolved`, im.name)); continue; }
+      secretEnv[`PREDEPLOY_SECRET_${sec.id}`] = value;
+      secretFlags.push(`--secret id=${sec.id},env=PREDEPLOY_SECRET_${sec.id}`);
+    }
+    const platform = im.platform ? `--platform ${shq(im.platform)}` : "";
+    const build = capture(`docker build -q ${platform} ${secretFlags.join(" ")} -t ${shq(tag)} ${dockerfile} ${args} ${shq(join(ctx.scanRoot, im.context || "."))}`, { env: secretEnv });
     if (build.status !== 0) { findings.push(F("image-build-failed", `docker build ${im.name} failed: ${(build.stderr || build.stdout).trim().split(/\r?\n/).slice(-3).join(" | ")}`, im.name)); continue; }
     const tar = join(ctx.outDir, `image-${im.name}.tar`);
     const save = capture(`docker save -o ${shq(tar)} ${shq(tag)}`);
@@ -147,7 +157,7 @@ async function depsFreshness(o, ctx) {
   const maxMajors = o.maxMajorsBehind ?? 1;
   const maxMonths = o.maxMonthsBehind ?? 12;
   const now = Date.now();
-  const dirs = o.dirs || ctx.lockDirs();
+  const dirs = o.dirs || ctx.lockDirs().filter((d) => !(o.exclude || []).some((p) => (d + "/").startsWith(p)));
   const findings = [];
   const notes = [];
   const cache = new Map();

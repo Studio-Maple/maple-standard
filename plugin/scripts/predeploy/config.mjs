@@ -77,7 +77,7 @@ export function validatePredeploy(cfg) {
       else ids.add(c.id);
       const kinds = ["command", "preset", "github"].filter((k) => c[k] !== undefined);
       if (kinds.length !== 1) e.push(`${at}: exactly one of command | preset | github required (got ${kinds.join(",") || "none"})`);
-      const allowed = ["id", "description", "command", "preset", "github", "options", "parse", "reports", "cwd", "env", "timeoutSec", "minSeverity", "tools", "why", "credentials"];
+      const allowed = ["id", "description", "command", "preset", "github", "options", "parse", "reports", "cwd", "env", "timeoutSec", "minSeverity", "tools", "why", "credentials", "countPattern"];
       for (const k of Object.keys(c)) if (!allowed.includes(k)) e.push(`${at}.${k}: unknown key`);
       if (c.preset !== undefined && !PRESET_NAMES.includes(c.preset)) e.push(`${at}.preset: unknown "${c.preset}" (known: ${PRESET_NAMES.join(", ")})`);
       if (c.command !== undefined) {
@@ -91,6 +91,7 @@ export function validatePredeploy(cfg) {
       if (c.parse !== undefined && !PARSER_KINDS.includes(c.parse)) e.push(`${at}.parse: one of ${PARSER_KINDS.join("|")}`);
       if (c.reports !== undefined && !(Array.isArray(c.reports) && c.reports.every(isStr))) e.push(`${at}.reports: array of file names under $PREDEPLOY_OUT`);
       if (c.minSeverity !== undefined && !SEVERITIES.includes(c.minSeverity)) e.push(`${at}.minSeverity: one of ${SEVERITIES.join("|")}`);
+      if (c.countPattern !== undefined) { try { new RegExp(c.countPattern); } catch (x) { e.push(`${at}.countPattern: ${x.message}`); } }
       if (c.timeoutSec !== undefined && !(Number.isInteger(c.timeoutSec) && c.timeoutSec >= 1)) e.push(`${at}.timeoutSec: positive integer`);
       if (c.env !== undefined && !(isObj(c.env) && Object.values(c.env).every((v) => typeof v === "string"))) e.push(`${at}.env: object of strings`);
       if (c.tools !== undefined && !(Array.isArray(c.tools) && c.tools.every(isStr))) e.push(`${at}.tools: array of tool names`);
