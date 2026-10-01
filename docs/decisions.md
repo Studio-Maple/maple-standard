@@ -14,6 +14,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D062 | 2026-10-01 | Gate scans third-party images by ref; decision entries may be rule-wide under a severity ceiling
+trivy-image takes {name, ref} to pull and scan an image exactly as deployed (the VM runs ~15 third-party images the gate never saw: a hole, not a zero). A decision-backed entry may use scope * only with an exact rule id and maxSeverity: for advisory noise that belongs to the rule, not a resource (e.g. Supabase unused_index), where one entry per finding would bury the list. A worse finding of the same rule still blocks, and the report counts what it covers. Builds on D061.
+
 ## D061 | 2026-10-01 | Pre-deploy gate: permanent decision-backed exceptions, essentials only; suppressions flagged unless backed
 Second exception list predeploy-decisions.json beside the expiring allowlist (kept empty): scanner + rule + exact file#resource scope + D### (must exist in docs.decisions) + why + reviewed date. No expiry; the gate fails on a missing D###, a stale scope, or a review older than decisionsMaxAgeDays (180). Reported as its own NOT ZERO count with the essentials-only rule. Ignore files and suppression comments stay flagged unless backed. See [[predeploy-gate]].
 

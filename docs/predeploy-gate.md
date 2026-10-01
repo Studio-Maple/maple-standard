@@ -47,6 +47,13 @@ shim, Application Control) falls back to its Docker image; a missing tool is a
 `tool-missing` finding, never a skip. `predeploy doctor` prints install
 commands.
 
+**Images** (`trivy-image`): `options.images` entries are either `{ name, context, ... }` (built
+from the candidate tree) or `{ name, ref, platform? }` — a THIRD-PARTY image run as-is, pulled by the exact
+ref that is deployed (tag or digest) and scanned for vulnerabilities and secrets. Every image that runs in
+production must be listed, ours or not: an unscanned image is a hole, not a zero. `ref` and `context` are
+mutually exclusive; an unpullable ref is an `image-pull-failed` finding. Pulled images are removed afterwards
+only if they were not already present. Findings carry `name: target` as location and `pkg@version` as resource.
+
 **Stale** (`deps-freshness`): any deprecated package in a lockfile (direct or
 transitive); a direct dependency more than 1 major behind, or not on latest
 and published more than 12 months ago. Both numbers are options.
@@ -116,6 +123,11 @@ expiring allowlist.
   `*** N DECISION-BACKED EXCEPTIONS (...) — NOT ZERO ***`, the rule `ESSENTIALS
   ONLY`, and one row per entry (`decisionExceptions` in the JSON report, plus
   `totals.decisionBacked` and a per-check `decisionBacked`).
+- **Rule-wide scope (the one sanctioned wildcard, D062)**: `"scope": "*"` with `"maxSeverity": "info"`
+  covers every finding of that exact scanner+rule up to that severity, for advisory noise that belongs to the
+  rule and not to any resource (a per-finding list would be dozens of entries). It needs the same D###, why and
+  review date, goes stale when it matches nothing, a finding of the same rule above the ceiling still blocks, and
+  the report lists it with its count (`* (rule-wide, up to info)`) — never hidden.
 - Precedence: a finding is first matched against decision entries, then against
   the allowlist. The suppression-audit scan skips both exception files.
 

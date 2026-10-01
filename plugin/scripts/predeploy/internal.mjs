@@ -81,10 +81,13 @@ async function trivyImage(o, ctx) {
   if (missing) return { findings: [missing] };
   if (!resolveTool("docker").mode.startsWith("native")) return { findings: [F("tool-missing", "docker is required to build images for trivy-image")] };
   const images = o.images || [];
-  if (!images.length) return { findings: [F("misconfigured", "trivy-image needs options.images [{name, context, dockerfile?, buildArgs?}]")] };
+  if (!images.length) return { findings: [F("misconfigured", "trivy-image needs options.images [{name, context, dockerfile?, buildArgs?} | {name, ref, platform?}]")] };
   const findings = [];
   for (const im of images) {
-    const tag = `predeploy/${im.name}:${ctx.sha.slice(0, 12)}`;
+    // { name, ref } = a THIRD-PARTY image run as-is (pulled by the exact ref that is deployed, tag or digest);
+    // { name, context } = an image we build from the candidate tree.
+    const tag = im.ref ? im.ref : `predeploy/${im.name}:${ctx.sha.slice(0, 12)}`;
+    let pulledHere = false;
     const dockerfile = im.dockerfile ? `-f ${shq(join(ctx.scanRoot, im.dockerfile))}` : "";
     const args = (im.buildArgs || []).map((a) => `--build-arg ${shq(a)}`).join(" ");
     const secretEnv = {};
@@ -97,7 +100,13 @@ async function trivyImage(o, ctx) {
       secretFlags.push(`--secret id=${sec.id},env=PREDEPLOY_SECRET_${sec.id}`);
     }
     const platform = im.platform ? `--platform ${shq(im.platform)}` : "";
-    const build = capture(`docker build -q ${platform} ${secretFlags.join(" ")} -t ${shq(tag)} ${dockerfile} ${args} ${shq(join(ctx.scanRoot, im.context || "."))}`, { env: secretEnv });
+    if (im.ref) {
+      if (im.context || im.dockerfile) { findings.push(F("misconfigured", `image ${im.name}: ref and context are mutually exclusive`, im.name)); continue; }
+      pulledHere = capture(`docker image inspect ${shq(im.ref)}`).status !== 0;
+      const pull = capture(`docker pull -q ${platform} ${shq(im.ref)}`);
+      if (pull.status !== 0) { findings.push(F("image-pull-failed", `docker pull ${im.ref} failed: ${(pull.stderr || pull.stdout).trim().split(/\r?\n/).slice(-2).join(" | ")}`, im.name)); continue; }
+    }
+    const build = im.ref ? { status: 0 } : capture(`docker build -q ${platform} ${secretFlags.join(" ")} -t ${shq(tag)} ${dockerfile} ${args} ${shq(join(ctx.scanRoot, im.context || "."))}`, { env: secretEnv });
     if (build.status !== 0) { findings.push(F("image-build-failed", `docker build ${im.name} failed: ${(build.stderr || build.stdout).trim().split(/\r?\n/).slice(-3).join(" | ")}`, im.name)); continue; }
     const tar = join(ctx.outDir, `image-${im.name}.tar`);
     const save = capture(`docker save -o ${shq(tar)} ${shq(tag)}`);
@@ -110,7 +119,8 @@ async function trivyImage(o, ctx) {
     capture(cmd);
     const text = existsSync(join(ctx.outDir, report)) ? readFileSync(join(ctx.outDir, report), "utf8") : null;
     for (const f of parseOutput("trivy-json", { reports: [report], readReport: () => text })) findings.push({ ...f, location: `${im.name}: ${f.location}` });
-    capture(`docker image rm ${shq(tag)}`);
+    // built images are always ours to remove; a pulled ref only if it was not on this machine already
+    if (!im.ref || pulledHere) capture(`docker image rm ${shq(tag)}`);
   }
   return { findings };
 }
@@ -296,7 +306,7 @@ async function suppressionAudit(o, ctx) {
 export const INTERNAL_PRESETS = {
   terraform: { describe: "terraform init -backend=false + validate (diagnostics incl. warnings) + fmt -check, per root directory.", tools: ["terraform"], run: terraform },
   hadolint: { describe: "hadolint at style level over every tracked Dockerfile.", tools: ["hadolint"], run: hadolint },
-  "trivy-image": { describe: "Build each declared image from the candidate tree and Trivy-scan it (vuln + secret).", tools: ["trivy", "docker"], run: trivyImage },
+  "trivy-image": { describe: "Trivy-scan (vuln + secret) each declared image: built from the candidate tree ({name, context}) or a third-party image pulled by its exact deployed ref ({name, ref}).", tools: ["trivy", "docker"], run: trivyImage },
   "deps-freshness": { describe: "No deprecated packages; no direct dependency too many majors or months behind (defaults 1 major / 12 months).", tools: ["node"], run: depsFreshness },
   "supabase-advisors": { describe: "Supabase security + performance advisors via the Management API (every lint level counts).", tools: [], run: supabaseAdvisors, credentials: (o) => [o.tokenCredential || "Supabase-PAT"] },
   "gh-alerts": { describe: "Open GitHub code-scanning / Dependabot / secret-scanning alerts, read locally via `gh api` (no workflow minutes).", tools: ["gh"], run: ghAlerts },

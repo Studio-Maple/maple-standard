@@ -27,6 +27,14 @@
  *
  * There is NO expiry — the review date is the forcing function.
  *
+ * RULE-WIDE SCOPE (the one sanctioned wildcard): `"scope": "*"` + `"maxSeverity": "<level>"`
+ * covers EVERY finding of that exact scanner+rule up to that severity. It exists for advisory
+ * noise that is a property of the rule, not of any resource (e.g. Supabase `unused_index` on
+ * near-empty tables), where one entry per finding would be 60+ entries. It is bounded twice —
+ * an exact rule id and a severity ceiling, so a worse finding of the same rule still blocks —
+ * it still needs a D### and a review date, goes stale when it matches nothing, and the report
+ * counts what it covers (never hidden).
+ *
  * SCOPE grammar: `path` | `path#resource`. `path` is the finding location with
  * its `:line` stripped and compared by equality (so an entry survives line
  * drift); `resource` is the scanner's own resource id (checkov/trivy
@@ -37,7 +45,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { git, isoDate, sha256 } from "./lib.mjs";
+import { SEVERITIES, git, isoDate, sevRank, sha256 } from "./lib.mjs";
 import { resolveDocsConfig } from "../docs/lib/config.mjs";
 
 export const DECISIONS_DEFAULT_PATH = "predeploy-decisions.json";
@@ -98,6 +106,7 @@ export function parseScope(scope) {
 
 export function entryMatches(e, f) {
   if (e.scanner !== f.check || e.rule !== f.id) return false;
+  if (e.scope === "*") return SEVERITIES.includes(e.maxSeverity) && sevRank(f.severity) <= sevRank(e.maxSeverity);
   const { file, resource } = parseScope(e.scope);
   const locOk = stripLine(f.location) === file || String(f.location || "") === e.scope;
   return resource === undefined ? locOk : locOk && f.resource === resource;
@@ -114,11 +123,14 @@ export function validateDecisions(dl, { checkIds, maxAgeDays = DECISIONS_MAX_AGE
     const at = `${dl.path}#entries[${i}]`;
     const bad = (m) => findings.push(F("decision-invalid", `entry ${i}: ${m}`, dl.path));
     if (!e || typeof e !== "object" || Array.isArray(e)) return bad("not an object");
-    for (const k of Object.keys(e)) if (!["scanner", "rule", "scope", "decision", "why", "reviewed"].includes(k)) bad(`unknown key "${k}"`);
+    for (const k of Object.keys(e)) if (!["scanner", "rule", "scope", "decision", "why", "reviewed", "maxSeverity"].includes(k)) bad(`unknown key "${k}"`);
+    const ruleWide = e.scope === "*";
+    if (ruleWide && !SEVERITIES.includes(e.maxSeverity)) bad(`scope "*" (rule-wide) needs maxSeverity, one of ${SEVERITIES.join("|")}`);
+    if (!ruleWide && e.maxSeverity !== undefined) bad("maxSeverity is only valid with scope \"*\"");
     if (!checkIds.includes(e.scanner)) bad(`scanner "${e.scanner}" is not a configured check`);
     if (typeof e.rule !== "string" || !e.rule.trim()) bad("rule is required (the exact finding id)");
     if (typeof e.scope !== "string" || !e.scope.trim()) bad("scope is required (exact `path` or `path#resource`)");
-    else if (WILDCARD.test(e.scope) || /\/$/.test(e.scope.split("#")[0]) || e.scope.split("#")[0] === "" || e.scope.split("#").length > 2 || e.scope.endsWith("#")) bad(`scope "${e.scope}" must be one exact file or file#resource — no wildcards, directories or relative escapes`);
+    else if (!ruleWide && (WILDCARD.test(e.scope) || /\/$/.test(e.scope.split("#")[0]) || e.scope.split("#")[0] === "" || e.scope.split("#").length > 2 || e.scope.endsWith("#"))) bad(`scope "${e.scope}" must be one exact file or file#resource — no wildcards, directories or relative escapes`);
     if (typeof e.decision !== "string" || !/^D\d+$/.test(e.decision)) bad("decision must be a decision id like D123");
     if (typeof e.why !== "string" || e.why.trim().length < WHY_MIN || e.why.length > WHY_MAX) bad(`why must say why it cannot be fixed (${WHY_MIN}-${WHY_MAX} chars)`);
     const key = [e.scanner, e.rule, e.scope].join("\u0000");
@@ -152,13 +164,13 @@ export function decisionsCommitted(root, dl) {
  * checks that executed in this invocation.
  */
 export function applyDecisions(findings, dl, { ranChecks = [] } = {}) {
-  const usable = dl.entries.filter((e) => e && typeof e === "object" && typeof e.scope === "string" && e.scope.trim() && !WILDCARD.test(e.scope) && typeof e.rule === "string" && typeof e.scanner === "string");
+  const usable = dl.entries.filter((e) => e && typeof e === "object" && typeof e.scope === "string" && e.scope.trim() && (e.scope === "*" ? SEVERITIES.includes(e.maxSeverity) : !WILDCARD.test(e.scope)) && typeof e.rule === "string" && typeof e.scanner === "string");
   const used = new Set();
   const blocking = [];
   const backed = [];
   for (const f of findings) {
     const hit = usable.find((e) => entryMatches(e, f));
-    if (hit) { used.add(hit); backed.push({ ...f, decisionBacked: { decision: hit.decision, why: hit.why, reviewed: hit.reviewed } }); }
+    if (hit) { used.add(hit); backed.push({ ...f, decisionBacked: { decision: hit.decision, why: hit.why, reviewed: hit.reviewed, scope: hit.scope, maxSeverity: hit.maxSeverity } }); }
     else blocking.push(f);
   }
   const stale = usable.filter((e) => ranChecks.includes(e.scanner) && !used.has(e))

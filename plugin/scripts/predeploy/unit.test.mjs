@@ -214,4 +214,19 @@ t("ledger ids: heading and bullet definitions count, bare mentions do not", () =
   assert.deepEqual([...ids].sort(), ["D14", "D161", "D37", "D9"]);
 });
 
+const wide = { scanner: "checkov", rule: "perf:unused_index", scope: "*", maxSeverity: "info", decision: "D160", why: "advisory noise that depends on traffic, not on any one resource", reviewed: "2026-09-20" };
+t("rule-wide scope: valid with maxSeverity; any other wildcard, or maxSeverity without '*', is invalid", () => {
+  assert.deepEqual(dval([wide]), []);
+  assert.deepEqual(dval([{ ...wide, maxSeverity: undefined }]), ["decision-invalid"]);
+  assert.deepEqual(dval([{ ...wide, maxSeverity: "nope" }]), ["decision-invalid"]);
+  assert.deepEqual(dval([{ ...dgood, maxSeverity: "info" }]), ["decision-invalid"]);
+  assert.ok(dval([{ ...wide, scope: "infra/*" }]).every((i) => i === "decision-invalid"));
+});
+t("rule-wide scope covers every finding of that exact rule up to the ceiling; worse or other rules still block", () => {
+  const f = (extra) => ({ check: "checkov", id: "perf:unused_index", severity: "info", location: "idx_" + Math.random(), ...extra });
+  const r = applyDecisions([f(), f(), f({ severity: "high" }), f({ id: "other:rule" })], dl([wide]), { ranChecks: ["checkov"] });
+  assert.equal(r.backed.length, 2); assert.equal(r.blocking.length, 2); assert.equal(r.backed[0].decisionBacked.scope, "*");
+  assert.equal(applyDecisions([], dl([wide]), { ranChecks: ["checkov"] }).stale[0].id, "decision-stale", "goes stale when it matches nothing");
+});
+
 console.log(`\n${n} unit tests passed`);

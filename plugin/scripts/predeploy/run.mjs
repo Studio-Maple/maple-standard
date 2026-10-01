@@ -126,7 +126,7 @@ const stripLine = (loc) => String(loc || "").replace(/:\d+(-\d+)?$/, "");
 function decisionItems(backed) {
   const m = new Map();
   for (const f of backed) {
-    const scope = f.resource ? stripLine(f.location) + "#" + f.resource : stripLine(f.location);
+    const scope = f.decisionBacked.scope === "*" ? `* (rule-wide, up to ${f.decisionBacked.maxSeverity})` : f.resource ? stripLine(f.location) + "#" + f.resource : stripLine(f.location);
     const k = [f.check, f.id, scope].join("|");
     const cur = m.get(k) || { scanner: f.check, rule: f.id, scope, decision: f.decisionBacked.decision, reviewed: f.decisionBacked.reviewed, count: 0 };
     cur.count++;

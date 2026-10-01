@@ -6,6 +6,12 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Third-party image scanning + rule-wide decision entries (plugin v0.7.0, D062).** `trivy-image` accepts
+  `{ name, ref }` to pull and scan an image exactly as deployed (the VM runs many third-party images the gate
+  never saw). Decision-backed entries may be rule-wide: `scope: "*"` + `maxSeverity` + an exact rule id, for
+  advisory noise that belongs to the rule; a worse finding still blocks and the report counts what the entry
+  covers. New `trivy-ref.test.mjs` (Docker + network) pulls an EOL alpine and asserts it is scanned.
+
 - **Decision-backed exceptions + checkov fixes (plugin v0.6.0, D061).** A second, permanent exception file
   `predeploy-decisions.json` (`predeploy.decisions`) beside the expiring allowlist: scanner + rule + exact
   `file[#resource]` scope (no wildcards) + a `D###` that must exist in `docs.decisions` + why-it-cannot-be-fixed +
