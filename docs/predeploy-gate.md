@@ -21,7 +21,8 @@ one thing that must run on GitHub.
 | Key | Meaning |
 |---|---|
 | `checks[]` | each `{ id, command \| preset \| github }`. `command` runs locally (non-zero exit = finding, or a `parse` kind). `preset` is a built-in scanner (see below). `github: <workflow>` is remote-only and must carry a written `why`. |
-| `allowlist` | committed exceptions file, default `predeploy-allowlist.json` |
+| `allowlist` | committed, **expiring** exceptions file, default `predeploy-allowlist.json` |
+| `decisions`, `decisionsMaxAgeDays` | committed **permanent** decision-backed exceptions file, default `predeploy-decisions.json`; max review age 1..365 days, default 180 (D061) |
 | `minSeverity` | per gate / per check floor, default `info` (everything counts) |
 | `stampTtlHours`, `allowlistMaxDays` | defaults 72 / 90 |
 | `remote` | `{ workflow, ref?, timeoutMin, pollSec }` for the single dispatch workflow |
@@ -32,7 +33,7 @@ one thing that must run on GitHub.
 Validation (`validate-config.mjs`) rejects any check command that hides its
 own failure (`|| true`, `--exit-zero`, `--no-exit-code`, `--max-warnings=N`,
 raised audit/severity floors) and a disabled guard. There are no silent
-thresholds: the only exception mechanism is the allowlist.
+thresholds: exceptions live in exactly two files, the expiring allowlist and the decision-backed list below.
 
 ## Presets
 
@@ -50,9 +51,22 @@ commands.
 transitive); a direct dependency more than 1 major behind, or not on latest
 and published more than 12 months ago. Both numbers are options.
 
-**Suppressions** (`nosemgrep`, `checkov:skip`, `.trivyignore`, `.semgrepignore`,
-`osv-scanner.toml`, `gitleaks:allow`, ...) are findings in themselves
-(`suppression-audit`) and are disabled where the tool has a flag for it.
+**Suppressions** (`nosemgrep`, `checkov:skip`, `eslint-disable`, `.trivyignore`,
+`.semgrepignore`, `.snyk`, `osv-scanner.toml`, `gitleaks:allow`, a `.gitleaks.toml`
+with an allowlist, a knip config with `ignore*` keys, ...) are findings in
+themselves (`suppression-audit`). Policy (D061): **flagged, not mirrored.** A
+suppression survives only if it is removed (preferred), or backed by a
+decision-backed entry with `scanner: "suppression-audit"`, `rule:
+"suppression-file:<name>"` / `"suppression:<marker>"` and the exact file as
+`scope`. Where a tool has a flag the gate also disables it (semgrep
+`--disable-nosem`, gitleaks `--ignore-gitleaks-allow`, trivy/osv empty ignore
+files), and the scan copy never contains `.checkov.yaml`/`.checkov.baseline`,
+`.semgrepignore`, `.trivyignore`, `trivy.yaml`, `.hadolint.yaml` or
+`.shellcheckrc` (checkov, for one, loads `.checkov.yaml` even next to
+`--config-file`). Two honest limits: the project's gitleaks config is still
+honoured for its custom rules (only its allowlist blocks are flagged), and an
+eslint flat-config `ignores:` array is not detected (config is code); `eslint-disable`
+comments and `.eslintignore` are.
 
 ## Allowlist
 
@@ -66,6 +80,45 @@ Expired entries fail the gate; expiry further than `allowlistMaxDays` is
 invalid; entries matching nothing fail (`allowlist-unused`); the file must be
 committed and unmodified. The guard hook asks the owner before any edit to it.
 
+## Decision-backed exceptions (permanent, essentials only)
+
+The allowlist stays empty by design. The few findings that can never be fixed
+(a KMS key policy's root `kms:*` statement, data residency vs. replication, a
+carrier allow-listed public IP, a scanner false positive) live in a second,
+**permanent** file, `predeploy-decisions.json`. The rule is **essentials only**:
+if it can be fixed, it is fixed; if it can merely be deferred, it goes in the
+expiring allowlist.
+
+```json
+{ "version": 1, "entries": [
+  { "scanner": "checkov", "rule": "CKV_AWS_109",
+    "scope": "infra/aws/kms.tf#aws_kms_key.recordings",
+    "decision": "D160", "why": "why it cannot be fixed (20-600 chars)",
+    "reviewed": "2026-10-01" } ] }
+```
+
+- **scope** is one exact `file` or `file#resource` (resource = the scanner's own id:
+  checkov/trivy `aws_kms_key.x`, osv `name@version`). The finding's `:line` is
+  ignored so entries survive line drift. No wildcards, directories or `..`.
+  A path-only scope covers that rule in that one file only, so prefer
+  `file#resource`.
+- **decision** must exist in the project's decisions ledger (`maple.config.json`
+  `docs.decisions`), else `decision-missing`; an unreadable ledger fails closed.
+- **No expiry, but a forcing function**: `reviewed` older than
+  `decisionsMaxAgeDays` (180) fails as `decision-review-overdue`; re-review means
+  confirming it is still unfixable, then bumping the date.
+- `decision-stale` when the scope matches no finding of a check that ran;
+  `decision-invalid` for bad shape, duplicates, wildcard scope, unknown scanner,
+  future date; `decision-uncommitted` when the file is untracked or modified.
+  The file is hash-bound into the stamp and the guard hook asks the owner
+  before any edit.
+- The report prints these as their **own** line, never folded into a zero:
+  `*** N DECISION-BACKED EXCEPTIONS (...) — NOT ZERO ***`, the rule `ESSENTIALS
+  ONLY`, and one row per entry (`decisionExceptions` in the JSON report, plus
+  `totals.decisionBacked` and a per-check `decisionBacked`).
+- Precedence: a finding is first matched against decision entries, then against
+  the allowlist. The suppression-audit scan skips both exception files.
+
 ## Stamp and enforcement
 
 `/predeploy-gate` (`plugin/scripts/predeploy/run.mjs`) runs every check on a
@@ -75,7 +128,7 @@ bound to the sha, a hash of the `predeploy` config and a hash of the allowlist.
 `predeploy-guard.mjs` PreToolUse hook (Bash, PowerShell, Write, Edit) blocks any
 command matching `deployGuard.patterns` unless the stamp verifies (sha, TTL,
 config + allowlist hashes, clean tracked tree, no unscanned live deploy), and
-blocks tool writes to the stamp directory itself. An unparseable
+blocks tool writes to the stamp directory itself. Stamps also bind a hash of the decision-backed file. An unparseable
 `maple.config.json` fails closed. Projects also call `verify.mjs` from their
 deploy script's preflight (belt and braces).
 

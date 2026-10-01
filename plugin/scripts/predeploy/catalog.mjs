@@ -145,7 +145,7 @@ const COMMAND_PRESETS = {
   },
 
   checkov: {
-    describe: "checkov over Terraform, Dockerfiles and GitHub Actions. .checkov.yaml is replaced by an empty config; inline checkov:skip is caught by suppression-audit.",
+    describe: "checkov over Terraform, Dockerfiles and GitHub Actions. Repo .checkov.yaml/.baseline files are deleted from the scan copy (checkov auto-loads .checkov.yaml even with --config-file) and an empty `{}` config is passed; inline checkov:skip is caught by suppression-audit.",
     tools: ["checkov"],
     build(o, ctx) {
       const dirs = o.dirs || ["."];

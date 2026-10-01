@@ -242,17 +242,46 @@ async function ghAlerts(o, ctx) {
 }
 
 // ── suppression-audit ───────────────────────────────────────────────────────
-const SUPPRESSION_RE = "nosemgrep|\\bnosec\\b|checkov:skip|tfsec:ignore|trivy:ignore|gitleaks:allow|#[[:space:]]*shellcheck[[:space:]]+disable|hadolint[[:space:]]+ignore|snyk:ignore|NOSONAR|codeql\\[";
-const IGNORE_FILES = /(^|\/)(\.semgrepignore|\.trivyignore(\.yaml)?|trivy\.ya?ml|osv-scanner\.toml|\.checkov\.ya?ml|\.hadolint\.ya?ml|\.shellcheckrc|\.gitleaksignore|\.snyk|actionlint\.ya?ml)$/;
+const SUPPRESSION_RE = "nosemgrep|\\bnosec\\b|checkov:skip|tfsec:ignore|trivy:ignore|gitleaks:allow|#[[:space:]]*shellcheck[[:space:]]+disable|hadolint[[:space:]]+ignore|snyk:ignore|NOSONAR|codeql\\[|eslint-disable";
+const IGNORE_FILES = /(^|\/)(\.eslintignore|\.semgrepignore|\.trivyignore(\.yaml)?|trivy\.ya?ml|osv-scanner\.toml|\.checkov\.ya?ml|\.hadolint\.ya?ml|\.shellcheckrc|\.gitleaksignore|\.snyk|actionlint\.ya?ml)$/;
 
 /**
- * Scanners honour in-source and side-file suppressions silently. The only
- * sanctioned exception path is the expiring allowlist, so any such marker is
- * itself a finding (allowlist it by `suppression:<marker>` + location).
+ * Config files that are ONLY a suppression when they carry certain content
+ * (a gitleaks config with an allowlist, a knip config with ignore* keys). A
+ * gitleaks config that merely extends the default ruleset is not flagged.
+ */
+const GITLEAKS_CONFIG = /(^|\/)\.?gitleaks\.toml$/;
+const GITLEAKS_ALLOW = /^\s*\[\[?(rules\.)?allowlists?\]\]?/im;
+const KNIP_CONFIG = /(^|\/)(\.?knip\.(jsonc?|ya?ml|[cm]?[jt]s)|knip\.config\.[cm]?[jt]s)$/;
+const KNIP_IGNORE = /["']?ignore(Dependencies|Binaries|ExportsUsedInFile|Members|Unresolved|Workspaces|Issues)?["']?\s*[:=]/;
+
+function contentSuppressions(ctx) {
+  const out = [];
+  const read = (f) => { try { return readFileSync(join(ctx.scanRoot, f), "utf8"); } catch { return ""; } };
+  for (const f of ctx.listFiles(GITLEAKS_CONFIG)) if (GITLEAKS_ALLOW.test(read(f))) out.push(F("suppression-file:" + f.split("/").pop(), "gitleaks config declares an allowlist — silently suppresses findings", f, "medium"));
+  for (const f of ctx.listFiles(KNIP_CONFIG)) if (KNIP_IGNORE.test(read(f))) out.push(F("suppression-file:" + f.split("/").pop(), "knip config declares ignore* entries — silently suppresses findings", f, "medium"));
+  for (const f of ctx.listFiles(/(^|\/)package\.json$/)) {
+    let k;
+    try { k = JSON.parse(read(f)).knip; } catch { continue; }
+    if (k && typeof k === "object" && Object.keys(k).some((key) => /^ignore/.test(key))) out.push(F("suppression-file:package.json#knip", 'package.json "knip" key declares ignore* entries — silently suppresses findings', f, "medium"));
+  }
+  return out;
+}
+
+/**
+ * Scanners honour in-source and side-file suppressions silently, so every such
+ * marker/file is ITSELF a finding (D061 policy: flagged, not mirrored). The
+ * only ways a suppression survives the gate:
+ *   1. it is removed (preferred; the gate ignores scanner ignore files anyway), or
+ *   2. it is backed by a decision-backed entry in predeploy-decisions.json:
+ *      { scanner: "suppression-audit", rule: "suppression-file:osv-scanner.toml" |
+ *        "suppression:eslint-disable", scope: "<exact file path>", decision: "D###", ... }
+ *      — a permanent, ledger-referenced, periodically re-reviewed exception.
+ * (The expiring allowlist can also except one, by id suppression:<marker> + location.)
  */
 async function suppressionAudit(o, ctx) {
   const findings = [];
-  const out = git(ctx.root, ["grep", "-I", "-n", "-i", "-E", o.pattern || SUPPRESSION_RE, ctx.sha, "--", ".", ":(exclude)*.md", ":(exclude)docs", ...(o.excludePaths || []).map((p) => `:(exclude)${p}`)]);
+  const out = git(ctx.root, ["grep", "-I", "-n", "-i", "-E", o.pattern || SUPPRESSION_RE, ctx.sha, "--", ".", ":(exclude)*.md", ":(exclude)docs", ...(ctx.exemptFiles || []).map((p) => `:(exclude)${p}`), ...(o.excludePaths || []).map((p) => `:(exclude)${p}`)]);
   for (const line of (out || "").split(/\r?\n/).filter(Boolean)) {
     const m = /^[0-9a-f]{40}:([^:]+):(\d+):(.*)$/.exec(line);
     if (!m) continue;
@@ -260,6 +289,7 @@ async function suppressionAudit(o, ctx) {
     findings.push(F(`suppression:${marker}`, m[3].trim().slice(0, 140), `${m[1]}:${m[2]}`, "medium"));
   }
   for (const f of ctx.listFiles(IGNORE_FILES)) findings.push(F(`suppression-file:${f.split("/").pop()}`, "scanner ignore/config file present — silently suppresses findings", f, "medium"));
+  findings.push(...contentSuppressions(ctx));
   return { findings };
 }
 
@@ -270,7 +300,7 @@ export const INTERNAL_PRESETS = {
   "deps-freshness": { describe: "No deprecated packages; no direct dependency too many majors or months behind (defaults 1 major / 12 months).", tools: ["node"], run: depsFreshness },
   "supabase-advisors": { describe: "Supabase security + performance advisors via the Management API (every lint level counts).", tools: [], run: supabaseAdvisors, credentials: (o) => [o.tokenCredential || "Supabase-PAT"] },
   "gh-alerts": { describe: "Open GitHub code-scanning / Dependabot / secret-scanning alerts, read locally via `gh api` (no workflow minutes).", tools: ["gh"], run: ghAlerts },
-  "suppression-audit": { describe: "Scanner suppression markers and ignore files are findings; only the allowlist may except anything.", tools: ["git"], run: suppressionAudit },
+  "suppression-audit": { describe: "Scanner suppression markers (nosemgrep, checkov:skip, eslint-disable, ...) and ignore files/configs (osv-scanner.toml, .snyk, gitleaks allowlists, knip ignore*) are findings unless backed by a decision-backed entry (or the expiring allowlist).", tools: ["git"], run: suppressionAudit },
 };
 
 export { credentialExists, nativePath };

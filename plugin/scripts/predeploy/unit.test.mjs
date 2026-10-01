@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { applyAllowlist, validateEntries } from "./allowlist.mjs";
 import { validatePredeploy } from "./config.mjs";
+import { applyDecisions, summarizeDecisions, validateDecisions } from "./decisions.mjs";
 import { parseOutput } from "./parsers.mjs";
 import { buildPlan } from "./livescan.mjs";
 import { matchDeploy, touchesGateState } from "../../hooks/predeploy-guard.mjs";
@@ -141,6 +142,71 @@ t("docs-drift-text keys findings by check header", () => {
   const out = "── dead-hostname (1) ──\n  docs/a.md:4  bad host\n";
   const f = parseOutput("docs-drift-text", { stdout: out, status: 1, stderr: "", reports: [], readReport: () => null });
   assert.equal(f[0].id, "dead-hostname"); assert.equal(f[0].location, "docs/a.md:4");
+});
+
+// ── decision-backed exceptions (D061) ───────────────────────────────────────
+const dtoday = new Date("2026-10-01T12:00:00Z");
+const dl = (entries) => ({ path: "predeploy-decisions.json", entries, problems: [], present: true, raw: "" });
+const ledgerOk = { ids: new Set(["D160", "D93"]), file: "decisions.md", error: null };
+const dgood = { scanner: "checkov", rule: "CKV_AWS_109", scope: "infra/aws/kms.tf#aws_kms_key.rec", decision: "D160", why: "key policy root statement must be kms:* so IAM can delegate", reviewed: "2026-09-20" };
+const dval = (entries, extra = {}) => validateDecisions(dl(entries), { checkIds: ["checkov", "osv-scanner", "suppression-audit"], today: dtoday, ledger: ledgerOk, ...extra }).map((f) => f.id);
+t("decision entry: valid passes", () => assert.deepEqual(dval([dgood]), []));
+t("decision entry: id missing from the ledger fails; unreadable ledger fails closed", () => {
+  assert.deepEqual(dval([{ ...dgood, decision: "D999" }]), ["decision-missing"]);
+  assert.deepEqual(dval([dgood], { ledger: { ids: new Set(), file: "x", error: "decisions ledger not found" } }), ["decision-ledger-unreadable"]);
+});
+t("decision entry: review older than max age fails (configurable), future date invalid", () => {
+  assert.deepEqual(dval([{ ...dgood, reviewed: "2026-03-01" }]), ["decision-review-overdue"]);
+  assert.deepEqual(dval([{ ...dgood, reviewed: "2026-03-01" }], { maxAgeDays: 365 }), []);
+  assert.deepEqual(dval([{ ...dgood, reviewed: "2027-01-01" }]), ["decision-invalid"]);
+});
+t("decision entry: wildcard / directory / traversal scopes rejected", () => {
+  for (const scope of ["infra/**", "infra/*.tf", "infra/aws/", "../x.tf", "a.tf#", "a.tf#b#c", "infra/aws/k?.tf"]) assert.deepEqual(dval([{ ...dgood, scope }]), ["decision-invalid"], scope);
+});
+t("decision entry: why length, unknown scanner, bad id, duplicates, unknown keys all invalid", () => {
+  assert.deepEqual(dval([{ ...dgood, why: "too short" }]), ["decision-invalid"]);
+  assert.deepEqual(dval([{ ...dgood, why: "x".repeat(601) }]), ["decision-invalid"]);
+  assert.deepEqual(dval([{ ...dgood, scanner: "nope" }]), ["decision-invalid"]);
+  assert.deepEqual(dval([{ ...dgood, decision: "160" }]), ["decision-invalid"]);
+  assert.deepEqual(dval([dgood, dgood]), ["decision-invalid"]);
+  assert.deepEqual(dval([{ ...dgood, expires: "2027-01-01" }]), ["decision-invalid"]);
+});
+const cf = (extra = {}) => ({ check: "checkov", id: "CKV_AWS_109", location: "infra/aws/kms.tf:12", resource: "aws_kms_key.rec", ...extra });
+t("decision scope: exact file#resource; survives line drift; other resource/rule/file does not match", () => {
+  const r = applyDecisions([cf(), cf({ location: "infra/aws/kms.tf:99" }), cf({ resource: "aws_kms_key.other" }), cf({ id: "CKV_AWS_1" }), cf({ location: "infra/aws/other.tf:1" })], dl([dgood]), { ranChecks: ["checkov"] });
+  assert.equal(r.backed.length, 2); assert.equal(r.blocking.length, 3); assert.equal(r.stale.length, 0);
+});
+t("decision scope: path-only entry covers that one file only", () => {
+  const e = { ...dgood, scope: "infra/aws/kms.tf" };
+  const r = applyDecisions([cf(), cf({ resource: "aws_kms_key.other" }), cf({ location: "infra/aws/other.tf:1" })], dl([e]), { ranChecks: [] });
+  assert.equal(r.backed.length, 2); assert.equal(r.blocking.length, 1);
+});
+t("decision scope: wildcard entries can never except anything", () => {
+  const r = applyDecisions([cf()], dl([{ ...dgood, scope: "infra/**" }]), { ranChecks: [] });
+  assert.equal(r.backed.length, 0);
+});
+t("decision entry matching nothing is stale only for checks that ran", () => {
+  assert.equal(applyDecisions([], dl([dgood]), { ranChecks: ["checkov"] }).stale[0].id, "decision-stale");
+  assert.equal(applyDecisions([], dl([dgood]), { ranChecks: ["semgrep"] }).stale.length, 0);
+});
+t("decision summary is a separate prominent NOT ZERO line that states the rule", () => {
+  const r = applyDecisions([cf()], dl([dgood]), { ranChecks: [] });
+  const s = summarizeDecisions(r.backed, dl([dgood]));
+  assert.match(s.lines[0], /1 DECISION-BACKED EXCEPTION .*NOT ZERO/); assert.match(s.lines[1], /ESSENTIALS ONLY/); assert.equal(s.total, 1);
+});
+t("config: decisionsMaxAgeDays bounded, decisions path must differ from allowlist", () => {
+  const c = base(); c.predeploy.decisionsMaxAgeDays = 400; assert.ok(validatePredeploy(c).some((x) => /decisionsMaxAgeDays/.test(x)));
+  c.predeploy.decisionsMaxAgeDays = 90; assert.deepEqual(validatePredeploy(c), []);
+  c.predeploy.decisions = "predeploy-allowlist.json"; assert.ok(validatePredeploy(c).some((x) => /must differ/.test(x)));
+});
+t("parsers carry the scanner's resource id (checkov, osv, trivy) and strip checkov's leading slash", () => {
+  const ck = JSON.stringify({ results: { failed_checks: [{ check_id: "CKV_X", check_name: "n", resource: "aws_s3_bucket.b", file_path: "/infra/main.tf", file_line_range: [3, 9] }] } });
+  const f = parseOutput("checkov-json", { reports: ["r"], readReport: () => ck })[0];
+  assert.equal(f.resource, "aws_s3_bucket.b"); assert.equal(f.location, "infra/main.tf:3");
+  const osv = JSON.stringify({ results: [{ source: { path: "package-lock.json" }, packages: [{ package: { name: "xlsx", version: "0.18.5" }, vulnerabilities: [{ id: "GHSA-1", summary: "s" }], groups: [] }] }] });
+  assert.equal(parseOutput("osv-json", { reports: ["r"], readReport: () => osv })[0].resource, "xlsx@0.18.5");
+  const tv = JSON.stringify({ Results: [{ Target: "infra/main.tf", Misconfigurations: [{ ID: "AWS-0001", Severity: "HIGH", Title: "t", CauseMetadata: { Resource: "aws_s3_bucket.b", StartLine: 4 } }] }] });
+  assert.equal(parseOutput("trivy-json", { reports: ["r"], readReport: () => tv })[0].resource, "aws_s3_bucket.b");
 });
 
 console.log(`\n${n} unit tests passed`);

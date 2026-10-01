@@ -22,6 +22,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, write
 import { join } from "node:path";
 import { allowlistCommitted, allowlistHash, loadAllowlist } from "./allowlist.mjs";
 import { configHash, normalize } from "./config.mjs";
+import { decisionsCommitted, decisionsHash, loadDecisions } from "./decisions.mjs";
 import { headSha, loadMapleConfig, nowIso, stateDir, trackedDirty } from "./lib.mjs";
 
 function sub(root, name) {
@@ -131,8 +132,11 @@ export function verifyStamp(root) {
   if (stamp.configHash !== configHash(pd)) return { ok: false, sha, reason: "predeploy config changed since the stamp was issued — re-run the gate" };
   const al = loadAllowlist(root, pd.allowlist);
   if (stamp.allowlistHash !== allowlistHash(al)) return { ok: false, sha, reason: "allowlist changed since the stamp was issued — re-run the gate" };
+  const dl = loadDecisions(root, pd.decisions);
+  if (stamp.decisionsHash !== decisionsHash(dl)) return { ok: false, sha, reason: "decision-backed exceptions changed since the stamp was issued — re-run the gate" };
   if (trackedDirty(root)) return { ok: false, sha, reason: "tracked files differ from HEAD — the stamp covers the committed tree only; commit or stash" };
   if (!allowlistCommitted(root, al)) return { ok: false, sha, reason: "allowlist is not committed" };
+  if (!decisionsCommitted(root, dl)) return { ok: false, sha, reason: "decision-backed exceptions file is not committed" };
   const debt = liveScanDebt(root, pd, { stampSha: sha, stampIssuedAt: stamp.issuedAt });
   if (!debt.ok) return { ok: false, sha, reason: debt.reason };
   return { ok: true, sha, stamp, reason: `valid stamp for ${sha.slice(0, 8)} issued ${stamp.issuedAt}, expires ${stamp.expiresAt}` };

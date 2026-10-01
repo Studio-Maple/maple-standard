@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, existsSync, readFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { main as runGate } from "./run.mjs";
-import { appendLedger, readLedger, liveScanDebt, stampPath } from "./state.mjs";
+import { appendLedger, readLedger, liveScanDebt, reportPath, stampPath } from "./state.mjs";
 import { headSha, stateDir } from "./lib.mjs";
 import { normalize } from "./config.mjs";
 
@@ -21,7 +21,7 @@ const cfgOf = (checks, extra = {}) => ({
 });
 const commit = (cfg, files = {}) => {
   writeFileSync(join(repo, "maple.config.json"), JSON.stringify(cfg, null, 2));
-  for (const [k, v] of Object.entries(files)) writeFileSync(join(repo, k), v);
+  for (const [k, v] of Object.entries(files)) { mkdirSync(dirname(join(repo, k)), { recursive: true }); writeFileSync(join(repo, k), v); }
   sh(["add", "-A"]); sh(["commit", "-q", "-m", "c", "--allow-empty"]);
 };
 const hook = (command, tool = "Bash") => spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ tool_name: tool, tool_input: { command }, cwd: repo }), encoding: "utf8" });
@@ -125,6 +125,109 @@ await t("live-scan debt: no scan blocks; clean scan unblocks; a new deploy re-bl
   assert.equal(liveScanDebt(repo, pd).ok, false, "but a fresh stamp (no stamp context) sees the unscanned deploys");
   commit(cfgOf([OK], { liveScan: live }), { "y.txt": "1" });
   assert.equal(await gate(), 1, "new sha cannot be stamped until the live scan covers the last deploy");
+});
+
+
+// ── decision-backed exceptions + suppression-audit (D061) ───────────────────
+const SUP = { id: "suppress", preset: "suppression-audit" };
+const report = () => JSON.parse(readFileSync(reportPath(repo, headSha(repo)), "utf8"));
+const blockingIds = () => report().blocking.map((f) => `${f.check}:${f.id}`);
+const daysAgo = (d) => new Date(Date.now() - d * 86400000).toISOString().slice(0, 10);
+const LEDGER = "# Decisions\n\n## D161 | 2026-10-01 | Test exception decision\nbody\n";
+const SUPP_FILES = {
+  "docs/decisions.md": LEDGER,
+  "src/a.ts": "// eslint-disable-next-line no-console\nconsole.log(1);\n",
+  ".gitleaks.toml": "[allowlist]\npaths = ['x']\n",
+  "knip.json": '{ "ignoreDependencies": ["left-pad"] }\n',
+  "osv-scanner.toml": "[[IgnoredVulns]]\nid = 'GHSA-xxxx'\n",
+};
+const dEntry = (rule, scope, extra = {}) => ({ scanner: "suppress", rule, scope, decision: "D161", why: "test fixture: this suppression cannot be removed in the fixture", reviewed: daysAgo(10), ...extra });
+const ALL_ENTRIES = [
+  dEntry("suppression:eslint-disable", "src/a.ts"),
+  dEntry("suppression-file:.gitleaks.toml", ".gitleaks.toml"),
+  dEntry("suppression-file:knip.json", "knip.json"),
+  dEntry("suppression-file:osv-scanner.toml", "osv-scanner.toml"),
+];
+const withDecisions = (entries) => ({ "predeploy-decisions.json": JSON.stringify({ version: 1, entries }) });
+
+await t("suppression-audit flags eslint-disable, gitleaks allowlists, knip ignores and osv-scanner.toml", async () => {
+  commit(cfgOf([SUP]), SUPP_FILES);
+  assert.equal(await gate(), 1);
+  const ids = blockingIds();
+  for (const want of ["suppression:eslint-disable", "suppression-file:.gitleaks.toml", "suppression-file:knip.json", "suppression-file:osv-scanner.toml"]) assert.ok(ids.includes("suppress:" + want), want + " in " + ids);
+});
+
+await t("a gitleaks config that only extends the default ruleset is not a suppression", async () => {
+  commit(cfgOf([SUP]), { ".gitleaks.toml": "[extend]\nuseDefault = true\n", "src/a.ts": "console.log(1);\n", "knip.json": "{}\n", "osv-scanner.toml": "" });
+  sh(["rm", "-q", "osv-scanner.toml"]); sh(["commit", "-q", "-m", "rm"]);
+  assert.equal(await gate(), 0);
+});
+
+await t("decision-backed entries (D### in the ledger) except suppressions, are counted separately, and the stamp records them", async () => {
+  commit(cfgOf([SUP]), { ...SUPP_FILES, ...withDecisions(ALL_ENTRIES) });
+  { const c = await gate(); assert.equal(c, 0, JSON.stringify(report().blocking)); }
+  const r = report();
+  assert.equal(r.status, "pass"); assert.equal(r.totals.decisionBacked, 4); assert.equal(r.totals.allowlisted, 0); assert.equal(r.totals.blocking, 0);
+  assert.equal(r.decisionExceptions.total, 4); assert.equal(r.decisionExceptions.items.length, 4); assert.match(r.decisionExceptions.rule, /ESSENTIALS ONLY/);
+  assert.equal(r.decisionExceptions.items.find((i) => i.scope === ".gitleaks.toml").decision, "D161");
+  const stamp = JSON.parse(readFileSync(stampPath(repo, headSha(repo)), "utf8"));
+  assert.equal(stamp.decisionBacked, 4); assert.equal(typeof stamp.decisionsHash, "string");
+  assert.equal(hook("bash deploy.sh").status, 0);
+});
+
+await t("console report shows decision-backed exceptions as their own NOT ZERO line with the rule", async () => {
+  const lines = [];
+  const log = console.log; console.log = (...a) => lines.push(a.join(" "));
+  try { await runGate(["--root", repo, "--check", "suppress"]); } finally { console.log = log; }
+  const text = lines.join("\n");
+  assert.match(text, /\*\*\* 4 DECISION-BACKED EXCEPTIONS .*NOT ZERO/); assert.match(text, /ESSENTIALS ONLY/); assert.match(text, /decision-backed: suppress\/suppression-file:knip\.json knip\.json -> D161/);
+});
+
+await t("decision id missing from the ledger fails the gate", async () => {
+  commit(cfgOf([SUP]), withDecisions([...ALL_ENTRIES.slice(0, 3), dEntry("suppression-file:osv-scanner.toml", "osv-scanner.toml", { decision: "D999" })]));
+  assert.equal(await gate(), 1);
+  assert.ok(blockingIds().includes("decisions:decision-missing"));
+});
+
+await t("an entry reviewed longer ago than the max age fails (forces re-review); the age is configurable", async () => {
+  commit(cfgOf([SUP]), withDecisions([...ALL_ENTRIES.slice(0, 3), dEntry("suppression-file:osv-scanner.toml", "osv-scanner.toml", { reviewed: daysAgo(181) })]));
+  assert.equal(await gate(), 1);
+  assert.ok(blockingIds().includes("decisions:decision-review-overdue"));
+  commit(cfgOf([SUP], { decisionsMaxAgeDays: 200 }));
+  assert.equal(await gate(), 0);
+});
+
+await t("a stale entry (scope matches nothing) fails the gate", async () => {
+  commit(cfgOf([SUP]), withDecisions([...ALL_ENTRIES, dEntry("suppression:nosemgrep", "src/gone.ts")]));
+  assert.equal(await gate(), 1);
+  assert.ok(blockingIds().includes("decisions:decision-stale"));
+});
+
+await t("a wildcard scope fails and excepts nothing", async () => {
+  commit(cfgOf([SUP]), withDecisions([dEntry("suppression:eslint-disable", "src/*.ts"), ...ALL_ENTRIES.slice(1)]));
+  assert.equal(await gate(), 1);
+  const ids = blockingIds();
+  assert.ok(ids.includes("decisions:decision-invalid") && ids.includes("suppress:suppression:eslint-disable"));
+});
+
+await t("an uncommitted edit to the decisions file fails the gate; the hook asks the owner before editing it", async () => {
+  commit(cfgOf([SUP]), withDecisions(ALL_ENTRIES));
+  writeFileSync(join(repo, "predeploy-decisions.json"), JSON.stringify({ version: 1, entries: [] }));
+  assert.equal(await gate("--allow-dirty"), 1);
+  assert.ok(blockingIds().includes("decisions:decision-uncommitted"));
+  sh(["checkout", "--", "predeploy-decisions.json"]);
+  const r = spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ tool_name: "Edit", tool_input: { file_path: join(repo, "predeploy-decisions.json") }, cwd: repo }), encoding: "utf8" });
+  assert.equal(r.status, 0); const out = JSON.parse(r.stdout).hookSpecificOutput;
+  assert.equal(out.permissionDecision, "ask"); assert.match(out.permissionDecisionReason, /PERMANENT.*Essentials only/);
+});
+
+await t("changing the decisions file after the gate invalidates the stamp (hash binding)", async () => {
+  commit(cfgOf([SUP]), withDecisions(ALL_ENTRIES));
+  assert.equal(await gate(), 0);
+  assert.equal(hook("bash deploy.sh").status, 0);
+  const st = JSON.parse(readFileSync(stampPath(repo, headSha(repo)), "utf8"));
+  writeFileSync(stampPath(repo, headSha(repo)), JSON.stringify({ ...st, decisionsHash: "0".repeat(64) }));
+  assert.equal(hook("bash deploy.sh").status, 2);
 });
 
 console.log(`\n${n} e2e tests passed`);

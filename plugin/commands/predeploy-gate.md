@@ -6,8 +6,8 @@ description: Run the enforced pre-deploy gate (zero findings) and issue a stamp 
 
 Runs every check in `maple.config.json` → `predeploy.checks` against the
 exact HEAD commit and, only if **nothing** is found (warnings included, minus
-unexpired allowlist entries), writes a stamp bound to the sha, the config hash
-and the allowlist hash. The `predeploy-guard` hook refuses deploy commands
+unexpired allowlist entries and decision-backed exceptions), writes a stamp bound to the sha, the config hash,
+the allowlist hash and the decisions-file hash. The `predeploy-guard` hook refuses deploy commands
 without that stamp. Full rules: `docs/predeploy-gate.md` (D060).
 
 `$ARGUMENTS`:
@@ -24,7 +24,8 @@ node "$CLAUDE_PLUGIN_ROOT/scripts/predeploy/doctor.mjs"               # when $AR
 The gate takes many minutes: run it in the background. On failure it prints
 `[check] rule location — message` per finding and the report path
 (`<git-common-dir>/maple/predeploy/reports/<sha>.json`). Fix the cause. The
-only exception path is the allowlist file (reason, owner, expiry, committed) —
-never a flag, `|| true`, or a lowered threshold. Do not hand-edit the stamp
+only exception paths are the expiring allowlist (reason, owner, expiry) and the permanent
+`predeploy-decisions.json` (existing D###, why it cannot be fixed, review date) — essentials only,
+both committed; never a flag, `|| true`, or a lowered threshold. Do not hand-edit the stamp
 directory; the guard blocks it. Never run `--live` against anything not listed
 in config.

@@ -1,6 +1,7 @@
 /**
  * parsers.mjs — turn each scanner's raw output into normalized findings:
- *   { id, severity: info|low|medium|high|critical, message, location }
+ *   { id, severity: info|low|medium|high|critical, message, location, resource? }
+ *   (`resource` = the scanner's own resource id when it has one — used to scope decision-backed exceptions)
  *
  * RULES THAT MAKE THE GATE HONEST
  *  - A parser NEVER returns "clean" for output it could not read. Missing or
@@ -109,7 +110,7 @@ export const PARSERS = {
         for (const g of pkg.groups || []) for (const id of g.ids || []) sevByVuln.set(id, g.max_severity);
         for (const v of pkg.vulnerabilities || []) {
           const sc = sevByVuln.get(v.id);
-          out.push({ id: v.id, severity: sc !== undefined && sc !== "" ? sevFromCvss(sc) : sevFromWord(v.database_specific?.severity), message: `${pkg.package?.name}@${pkg.package?.version}: ${v.summary || v.id}`, location: res.source?.path || "" });
+          out.push({ id: v.id, severity: sc !== undefined && sc !== "" ? sevFromCvss(sc) : sevFromWord(v.database_specific?.severity), message: `${pkg.package?.name}@${pkg.package?.version}: ${v.summary || v.id}`, location: res.source?.path || "", resource: `${pkg.package?.name}@${pkg.package?.version}` });
         }
       }
     }
@@ -139,9 +140,9 @@ export const PARSERS = {
       const p = parseJson(t);
       if (!p.ok) return bad("unparseable-report", "trivy report is not JSON");
       for (const res of p.value.Results || []) {
-        for (const v of res.Vulnerabilities || []) out.push({ id: v.VulnerabilityID, severity: sevFromWord(v.Severity), message: `${v.PkgName}@${v.InstalledVersion}: ${v.Title || v.VulnerabilityID}`, location: res.Target });
+        for (const v of res.Vulnerabilities || []) out.push({ id: v.VulnerabilityID, severity: sevFromWord(v.Severity), message: `${v.PkgName}@${v.InstalledVersion}: ${v.Title || v.VulnerabilityID}`, location: res.Target, resource: `${v.PkgName}@${v.InstalledVersion}` });
         for (const m of res.Misconfigurations || []) {
-          if (m.Status !== "PASS") out.push({ id: m.ID || m.AVDID, severity: sevFromWord(m.Severity), message: m.Title || m.Message || "", location: loc(res.Target, m.CauseMetadata?.StartLine) });
+          if (m.Status !== "PASS") out.push({ id: m.ID || m.AVDID, severity: sevFromWord(m.Severity), message: m.Title || m.Message || "", location: loc(res.Target, m.CauseMetadata?.StartLine), resource: m.CauseMetadata?.Resource || undefined });
         }
         for (const s of res.Secrets || []) out.push({ id: s.RuleID, severity: sevFromWord(s.Severity), message: s.Title || "secret", location: loc(res.Target, s.StartLine) });
         for (const l of res.Licenses || []) out.push({ id: `license:${l.Name}`, severity: sevFromWord(l.Severity), message: `${l.PkgName}: ${l.Name}`, location: res.Target });
@@ -184,7 +185,7 @@ export const PARSERS = {
     const docs = Array.isArray(p.value) ? p.value : [p.value];
     const out = [];
     for (const d of docs) {
-      for (const c of d.results?.failed_checks || []) out.push({ id: c.check_id, severity: sevFromWord(c.severity || "medium"), message: `${c.check_name} [${c.resource}]`, location: loc(c.file_path, c.file_line_range?.[0]) });
+      for (const c of d.results?.failed_checks || []) out.push({ id: c.check_id, severity: sevFromWord(c.severity || "medium"), message: `${c.check_name} [${c.resource}]`, location: loc(String(c.file_path || "").replace(/^\/+/, ""), c.file_line_range?.[0]), resource: c.resource });
       for (const e of d.results?.parsing_errors || []) out.push({ id: "checkov-parse-error", severity: "high", message: String(e), location: String(e) });
     }
     return out;

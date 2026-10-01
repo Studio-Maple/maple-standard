@@ -6,6 +6,18 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Decision-backed exceptions + checkov fixes (plugin v0.6.0, D061).** A second, permanent exception file
+  `predeploy-decisions.json` (`predeploy.decisions`) beside the expiring allowlist: scanner + rule + exact
+  `file[#resource]` scope (no wildcards) + a `D###` that must exist in `docs.decisions` + why-it-cannot-be-fixed +
+  `reviewed` date. No expiry; the gate fails on a missing decision, a stale scope, an invalid/wildcard entry, an
+  uncommitted file, or a review older than `decisionsMaxAgeDays` (default 180, max 365). The report shows them as a
+  separate NOT ZERO count with the "essentials only" rule (`decisionExceptions`, `totals.decisionBacked`); stamps bind
+  the file's hash and the guard hook asks before editing it. Findings now carry the scanner's `resource` (checkov,
+  trivy, osv). Suppressions are flagged unless backed by an entry: `suppression-audit` now also catches
+  `eslint-disable`, `.eslintignore`, gitleaks allowlist blocks and knip `ignore*` config, and skips the two exception
+  files. **checkov**: the zero-byte `--config-file` rejection is fixed (a `{}` config is written) and is now proven by a new Docker test (`checkov.test.mjs`: checkov runs and fails on a planted public bucket). The test also exposed that a repo `.checkov.yaml` was still auto-loaded next to `--config-file` and could skip rules, so the scan copy now drops checkov/semgrep/trivy/hadolint/shellcheck ignore files. Docs:
+  `docs/predeploy-gate.md`.
+
 - **Enforced pre-deploy gate (plugin v0.5.0, D060).** New `predeploy` block in `maple.config.json`
   (schema + validator): a list of checks (`command` local, `preset` built-in scanner, or `github:` remote-only
   with a written reason), zero findings of any severity by default, exceptions only through a committed,

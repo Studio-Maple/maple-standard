@@ -25,6 +25,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync, copyFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { applyAllowlist, allowlistCommitted, loadAllowlist, validateEntries } from "./allowlist.mjs";
+import { applyDecisions, decisionsCommitted, ledgerDecisionIds, loadDecisions, validateDecisions } from "./decisions.mjs";
 import { normalize, validatePredeploy } from "./config.mjs";
 import { credentialExists, getCredential } from "./credentials.mjs";
 import { findProjectRoot, headSha, loadMapleConfig, nowIso, sevRank, sha256, canonicalJson, stateDir } from "./lib.mjs";
@@ -133,13 +134,17 @@ export async function main(argv) {
   const al = loadAllowlist(root, pd.allowlist);
   const floor = sevRank(ls.minSeverity || pd.minSeverity);
   const kept = findings.filter((f) => sevRank(f.severity) >= floor);
-  const { blocking, allowed } = applyAllowlist(kept, al, { ranChecks: [] });
+  const dl = loadDecisions(root, pd.decisions);
+  const decided = applyDecisions(kept, dl, { ranChecks: ["live-scan"] });
+  const { blocking, allowed } = applyAllowlist(decided.blocking, al, { ranChecks: [] });
   const structural = validateEntries(al, { checkIds: [...pd.checks.map((c) => c.id), "live-scan"], maxDays: pd.allowlistMaxDays });
   if (!allowlistCommitted(root, al)) structural.push({ check: "allowlist", id: "allowlist-uncommitted", severity: "high", message: "allowlist file is untracked or modified", location: al.path });
+  structural.push(...validateDecisions(dl, { checkIds: [...pd.checks.map((c) => c.id), "live-scan"], maxAgeDays: pd.decisionsMaxAgeDays, ledger: dl.entries.length ? ledgerDecisionIds(root) : { ids: new Set(), error: null, file: "" } }), ...decided.stale);
+  if (!decisionsCommitted(root, dl)) structural.push({ check: "decisions", id: "decision-uncommitted", severity: "high", message: "decision-backed exceptions file is untracked or modified", location: dl.path });
   const all = [...blocking, ...structural];
   const ts = nowIso();
   const record = {
-    ts, sha, coversSeq, status: all.length ? "fail" : "pass", blocking: all.length, allowlisted: allowed.length,
+    ts, sha, coversSeq, status: all.length ? "fail" : "pass", blocking: all.length, allowlisted: allowed.length, decisionBacked: decided.backed.length,
     targets: ls.targets.map((t) => t.id), targetsHash: sha256(canonicalJson(ls)), image,
     findings: all.slice(0, 500),
   };
@@ -152,7 +157,7 @@ export async function main(argv) {
   if (args.json) console.log(JSON.stringify(record, null, 2));
   else {
     for (const f of all.slice(0, 300)) console.log(`  [live-scan] ${f.id} ${f.location || ""} — ${String(f.message).split("\n")[0].slice(0, 150)}`);
-    console.log(`\nLIVE SCAN ${record.status.toUpperCase()}: ${all.length} blocking, ${allowed.length} allowlisted. Record: ${join(dir, stamp + ".json")}`);
+    console.log(`\nLIVE SCAN ${record.status.toUpperCase()}: ${all.length} blocking, ${allowed.length} allowlisted, ${decided.backed.length} DECISION-BACKED (permanent; essentials only). Record: ${join(dir, stamp + ".json")}`);
   }
   return all.length ? 1 : 0;
 }

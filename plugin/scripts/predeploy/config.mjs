@@ -5,7 +5,8 @@
  * Validation is where "no silent thresholds" is enforced for the CONFIG:
  * a check command that swallows its own failure (`|| true`, `--exit-zero`,
  * `--no-exit-code`, `--max-warnings=<n>` with n>0 ...) is rejected outright.
- * Exceptions live in the allowlist file, with an owner and an expiry.
+ * Exceptions live in the expiring allowlist (owner + expiry) or, for the few things that
+ * can never be fixed, in the decision-backed exceptions file (D### + review age).
  */
 import { canonicalJson, sha256, SEVERITIES } from "./lib.mjs";
 import { PARSER_KINDS } from "./parsers.mjs";
@@ -15,6 +16,8 @@ export const DEFAULTS = {
   enabled: true,
   allowlist: "predeploy-allowlist.json",
   allowlistMaxDays: 90,
+  decisions: "predeploy-decisions.json",
+  decisionsMaxAgeDays: 180,
   stampTtlHours: 72,
   minSeverity: "info",
   concurrency: 4,
@@ -57,11 +60,14 @@ export function validatePredeploy(cfg) {
   const p = cfg?.predeploy;
   if (p === undefined) return e;
   if (!isObj(p)) return ["predeploy: must be an object"];
-  const known = ["enabled", "policyRef", "allowlist", "allowlistMaxDays", "stampTtlHours", "minSeverity", "concurrency", "allowlistUnused", "docker", "checks", "remote", "deployGuard", "emergency", "liveScan"];
+  const known = ["enabled", "policyRef", "allowlist", "allowlistMaxDays", "decisions", "decisionsMaxAgeDays", "stampTtlHours", "minSeverity", "concurrency", "allowlistUnused", "docker", "checks", "remote", "deployGuard", "emergency", "liveScan"];
   for (const k of Object.keys(p)) if (!known.includes(k)) e.push(`predeploy.${k}: unknown key`);
   if (p.enabled !== undefined && typeof p.enabled !== "boolean") e.push("predeploy.enabled: must be a boolean");
   if (p.policyRef !== undefined && !isStr(p.policyRef)) e.push("predeploy.policyRef: must be a non-empty string (e.g. a decision id)");
   if (p.allowlist !== undefined && !isStr(p.allowlist)) e.push("predeploy.allowlist: must be a repo-relative path string");
+  if (p.decisions !== undefined && !isStr(p.decisions)) e.push("predeploy.decisions: must be a repo-relative path string (decision-backed exceptions file)");
+  if (p.decisionsMaxAgeDays !== undefined && !(Number.isInteger(p.decisionsMaxAgeDays) && p.decisionsMaxAgeDays >= 1 && p.decisionsMaxAgeDays <= 365)) e.push("predeploy.decisionsMaxAgeDays: integer 1..365 (permanent exceptions must be re-reviewed at least yearly; default 180)");
+  if (isStr(p.decisions) && p.decisions === (p.allowlist ?? DEFAULTS.allowlist)) e.push("predeploy.decisions: must differ from predeploy.allowlist");
   for (const k of ["allowlistMaxDays", "stampTtlHours", "concurrency"]) if (p[k] !== undefined && !(Number.isInteger(p[k]) && p[k] >= 1)) e.push(`predeploy.${k}: must be a positive integer`);
   if (p.allowlistUnused !== undefined && !["fail", "warn"].includes(p.allowlistUnused)) e.push("predeploy.allowlistUnused: fail | warn (default fail; warn only while a baseline allowlist is being burned down)");
   if (p.minSeverity !== undefined && !SEVERITIES.includes(p.minSeverity)) e.push(`predeploy.minSeverity: one of ${SEVERITIES.join("|")}`);

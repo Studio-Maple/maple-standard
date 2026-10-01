@@ -17,6 +17,7 @@ import { spawnSync } from "node:child_process";
 import { PRESETS, ToolMissing } from "./catalog.mjs";
 import { configHash, normalize, validatePredeploy } from "./config.mjs";
 import { applyAllowlist, allowlistCommitted, allowlistHash, loadAllowlist, validateEntries } from "./allowlist.mjs";
+import { applyDecisions, decisionsCommitted, decisionsHash, ledgerDecisionIds, loadDecisions, summarizeDecisions, validateDecisions } from "./decisions.mjs";
 import { nativePath, installHints, shq } from "./tools.mjs";
 import { parseOutput } from "./parsers.mjs";
 import { GATE_VERSION, findProjectRoot, git, headSha, loadMapleConfig, nowIso, runShell, sevRank, stateDir, trackedDirty } from "./lib.mjs";
@@ -39,6 +40,8 @@ function parseArgs(argv) {
   return a;
 }
 
+const SCANNER_IGNORE_FILES = /(^|\/)(\.checkov\.(ya?ml|baseline)|\.semgrepignore|\.trivyignore(\.yaml)?|trivy\.ya?ml|\.hadolint\.ya?ml|\.shellcheckrc)$/;
+
 const posix = (p) => nativePath(p).replace(/^([A-Za-z]):/, (_, d) => `/${d.toLowerCase()}`);
 
 function makeCtx(root, pd, sha, outDir, scanRoot, args) {
@@ -48,6 +51,7 @@ function makeCtx(root, pd, sha, outDir, scanRoot, args) {
     rootPosix: posix(root), scanRootPosix: posix(scanRoot), outDirPosix: posix(outDir),
     stateDir: stateDir(root),
     docker: pd.docker.enabled !== false,
+    exemptFiles: [pd.allowlist, pd.decisions],
     pull: args.pull || process.env.PREDEPLOY_PULL === "1",
     listFiles: (re) => tracked.filter((f) => re.test(f)),
     lockDirs: () => [...new Set(tracked.filter((f) => /(^|\/)package-lock\.json$/.test(f)).map((f) => f.replace(/\/?package-lock\.json$/, "") || "."))],
@@ -117,6 +121,21 @@ async function pool(items, n, fn) {
   return out;
 }
 
+/** One row per decision-backed entry (not per finding): scanner/rule scope -> D###, with how many findings it covers. */
+const stripLine = (loc) => String(loc || "").replace(/:\d+(-\d+)?$/, "");
+function decisionItems(backed) {
+  const m = new Map();
+  for (const f of backed) {
+    const scope = f.resource ? stripLine(f.location) + "#" + f.resource : stripLine(f.location);
+    const k = [f.check, f.id, scope].join("|");
+    const cur = m.get(k) || { scanner: f.check, rule: f.id, scope, decision: f.decisionBacked.decision, reviewed: f.decisionBacked.reviewed, count: 0 };
+    cur.count++;
+    m.set(k, cur);
+  }
+  return [...m.values()];
+}
+const decisionLines = (backed) => decisionItems(backed).map((i) => `    decision-backed: ${i.scanner}/${i.rule} ${i.scope} -> ${i.decision} (reviewed ${i.reviewed}, ${i.count} finding${i.count === 1 ? "" : "s"})`);
+
 /** Make allowlisted findings impossible to mistake for zero: counts + soonest expiry, baseline entries called out. */
 function summarizeAllowlist(allowed, al) {
   const lines = [];
@@ -156,6 +175,8 @@ export async function main(argv) {
   const sha = headSha(root);
   const al = loadAllowlist(root, pd.allowlist);
   const committed = allowlistCommitted(root, al);
+  const dl = loadDecisions(root, pd.decisions);
+  const dCommitted = decisionsCommitted(root, dl);
 
   const runDir = join(stateDir(root), "runs", sha.slice(0, 12));
   const outDir = join(runDir, "out");
@@ -164,6 +185,10 @@ export async function main(argv) {
   const scanRoot = join(runDir, "tree");
   exportTree(root, sha, scanRoot);
   const ctx = makeCtx(root, pd, sha, outDir, scanRoot, args);
+  // Scanners auto-load their own ignore/config files from the tree (checkov even alongside --config-file).
+  // The scan copy never contains them, so a suppression file cannot hide a finding; suppression-audit
+  // still flags the tracked originals.
+  for (const f of ctx.listFiles(SCANNER_IGNORE_FILES)) rmSync(join(scanRoot, f), { force: true });
 
   const selected = pd.checks.filter((c) => !subset || args.checks.includes(c.id));
   console.log(`predeploy gate — ${pd.policyRef ? "policy " + pd.policyRef + " — " : ""}${selected.length} check(s) on ${sha.slice(0, 8)}${dirty ? " (DIRTY — no stamp)" : ""}`);
@@ -184,16 +209,22 @@ export async function main(argv) {
     allFindings.push(...kept);
   }
   const ranChecks = results.map((r) => r.id);
+  const allCheckIds = [...pd.checks.map((c) => c.id), "live-scan"];
+  const decided = applyDecisions(allFindings, dl, { ranChecks });
   const structural = [
-    ...validateEntries(al, { checkIds: [...pd.checks.map((c) => c.id), "live-scan"], maxDays: pd.allowlistMaxDays }),
+    ...validateEntries(al, { checkIds: allCheckIds, maxDays: pd.allowlistMaxDays }),
+    ...validateDecisions(dl, { checkIds: allCheckIds, maxAgeDays: pd.decisionsMaxAgeDays, ledger: dl.entries.length ? ledgerDecisionIds(root) : { ids: new Set(), error: null, file: "" } }),
+    ...decided.stale,
+    ...(dCommitted ? [] : [{ check: "decisions", id: "decision-uncommitted", severity: "high", message: "decision-backed exceptions file is untracked or modified — permanent exceptions must be committed and reviewed", location: dl.path }]),
     ...(committed ? [] : [{ check: "allowlist", id: "allowlist-uncommitted", severity: "high", message: "allowlist file is untracked or modified — exceptions must be committed and reviewed", location: al.path }]),
   ];
-  const { blocking, allowed, unused } = applyAllowlist(allFindings, al, { ranChecks });
+  const { blocking, allowed, unused } = applyAllowlist(decided.blocking, al, { ranChecks });
   const debt = !subset ? liveScanDebt(root, pd) : { ok: true, reason: "skipped (subset run)" };
   const debtFindings = debt.ok ? [] : [{ check: "live-scan", id: "live-scan-debt", severity: "high", message: debt.reason, location: "" }];
   const unusedWarn = pd.allowlistUnused === "warn";
   const allBlocking = [...blocking, ...(unusedWarn ? [] : unused), ...structural, ...debtFindings];
   const baseline = summarizeAllowlist(allowed, al);
+  const decisionSummary = summarizeDecisions(decided.backed, dl, pd.decisionsMaxAgeDays);
   const unusedNote = unusedWarn && unused.length ? [`${unused.length} allowlist entr${unused.length === 1 ? "y" : "ies"} matched nothing this run (fixed or flaky) — prune them (predeploy.allowlistUnused=warn)`] : [];
 
   const perCheck = results.map((r) => ({
@@ -201,15 +232,17 @@ export async function main(argv) {
     raw: r.findings.length, estimated: r.estimated, belowFloor: belowFloor[r.id],
     blocking: allBlocking.filter((f) => f.check === r.id).length,
     allowlisted: allowed.filter((f) => f.check === r.id).length,
+    decisionBacked: decided.backed.filter((f) => f.check === r.id).length,
     notes: r.notes, meta: r.meta,
   }));
   const report = {
     allowlistSummary: baseline,
+    decisionExceptions: { ...decisionSummary, items: decisionItems(decided.backed) },
     version: GATE_VERSION, sha, ts: nowIso(), subset, dirty, policyRef: pd.policyRef || null,
-    configHash: configHash(pd), allowlistHash: allowlistHash(al),
+    configHash: configHash(pd), allowlistHash: allowlistHash(al), decisionsHash: decisionsHash(dl),
     status: allBlocking.length === 0 ? "pass" : "fail",
-    totals: { blocking: allBlocking.length, allowlisted: allowed.length },
-    checks: perCheck, blocking: allBlocking, allowlisted: allowed,
+    totals: { blocking: allBlocking.length, allowlisted: allowed.length, decisionBacked: decided.backed.length },
+    checks: perCheck, blocking: allBlocking, allowlisted: allowed, decisionBacked: decided.backed,
     liveScan: debt,
   };
   writeJson(reportPath(root, sha), report);
@@ -217,10 +250,12 @@ export async function main(argv) {
   if (args.json) console.log(JSON.stringify(report, null, 2));
   else {
     console.log("");
+    for (const l of decisionSummary.lines) console.log(l);
+    for (const l of decisionLines(decided.backed)) console.log(l);
     for (const l of baseline.lines) console.log(l);
     for (const n of unusedNote) console.log("NOTE: " + n);
     for (const c of perCheck) {
-      console.log(`${c.blocking ? "FAIL" : " ok "}  ${c.id.padEnd(22)} blocking=${c.blocking}${c.estimated ? ` (~${c.estimated} underlying)` : ""} allowlisted=${c.allowlisted}${c.belowFloor ? ` belowFloor=${c.belowFloor}` : ""}`);
+      console.log(`${c.blocking ? "FAIL" : " ok "}  ${c.id.padEnd(22)} blocking=${c.blocking}${c.estimated ? ` (~${c.estimated} underlying)` : ""} allowlisted=${c.allowlisted}${c.decisionBacked ? ` decisionBacked=${c.decisionBacked}` : ""}${c.belowFloor ? ` belowFloor=${c.belowFloor}` : ""}`);
       for (const n of c.notes || []) console.log(`        note: ${n}`);
     }
     const extra = allBlocking.filter((f) => !perCheck.some((c) => c.id === f.check));
@@ -237,15 +272,17 @@ export async function main(argv) {
     writeJson(stampPath(root, sha), {
       version: GATE_VERSION, status: "pass", sha, tree: git(root, ["rev-parse", `${sha}^{tree}`]),
       issuedAt: nowIso(), expiresAt: new Date(Date.now() + ttl).toISOString(),
-      configHash: configHash(pd), allowlistHash: allowlistHash(al),
-      checks: perCheck.map((c) => ({ id: c.id, allowlisted: c.allowlisted })), allowlisted: allowed.length,
+      configHash: configHash(pd), allowlistHash: allowlistHash(al), decisionsHash: decisionsHash(dl),
+      checks: perCheck.map((c) => ({ id: c.id, allowlisted: c.allowlisted, decisionBacked: c.decisionBacked })), allowlisted: allowed.length, decisionBacked: decided.backed.length,
       remote, by: process.env.USERNAME || process.env.USER || "unknown",
     });
+    for (const l of decisionSummary.lines) console.log(l);
     for (const l of baseline.lines) console.log(l);
     console.log(`\nSTAMP ISSUED for ${sha.slice(0, 8)} (valid ${pd.stampTtlHours}h, bound to config + allowlist)`);
     return 0;
   }
   if (allBlocking.length === 0) { console.log("\nclean, but no stamp: " + (subset ? "subset run" : "dirty tree")); return 0; }
+  for (const l of decisionSummary.lines) console.log(l);
   for (const l of baseline.lines) console.log(l);
   console.log(`\nGATE FAILED: ${allBlocking.length} blocking finding(s) across ${new Set(allBlocking.map((f) => f.check)).size} check(s). No stamp.`);
   return 1;

@@ -14,6 +14,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D061 | 2026-10-01 | Pre-deploy gate: permanent decision-backed exceptions, essentials only; suppressions flagged unless backed
+Second exception list predeploy-decisions.json beside the expiring allowlist (kept empty): scanner + rule + exact file#resource scope + D### (must exist in docs.decisions) + why + reviewed date. No expiry; the gate fails on a missing D###, a stale scope, or a review older than decisionsMaxAgeDays (180). Reported as its own NOT ZERO count with the essentials-only rule. Ignore files and suppression comments stay flagged unless backed. See [[predeploy-gate]].
+
 ## D060 | 2026-10-01 | Pre-deploy gate is enforced by the plugin, zero findings, expiring allowlist
 predeploy block in maple.config.json: local checks + one workflow_dispatch remote leg, stamp bound to sha+config+allowlist hashes, PreToolUse deploy guard (no bypass; owner-only TTY emergency override, default off). Live ZAP is a full active scan of live targets run post-deploy; unscanned deploys block the next stamp. Only guards: no real customer credentials, no PSTN calls. See [[predeploy-gate]].
 

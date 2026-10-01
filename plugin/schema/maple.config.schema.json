@@ -284,6 +284,8 @@
         "policyRef": { "type": "string", "description": "Decision id the project's policy is recorded under." },
         "allowlist": { "type": "string", "description": "Repo-relative path of the committed allowlist. Default predeploy-allowlist.json." },
         "allowlistMaxDays": { "type": "integer", "minimum": 1 },
+        "decisions": { "type": "string", "description": "Repo-relative path of the committed decision-backed (permanent) exceptions file. Default predeploy-decisions.json. Essentials only; every entry needs an existing D### in docs.decisions." },
+        "decisionsMaxAgeDays": { "type": "integer", "minimum": 1, "maximum": 365, "description": "Max age of an entry's `reviewed` date before the gate fails it for re-review. Default 180." },
         "stampTtlHours": { "type": "integer", "minimum": 1 },
         "minSeverity": { "enum": ["info", "low", "medium", "high", "critical"] },
         "concurrency": { "type": "integer", "minimum": 1 },
