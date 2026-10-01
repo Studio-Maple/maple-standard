@@ -86,7 +86,7 @@ async function runCheck(check, pd, ctx) {
       else {
         const { readFileSync } = await import("node:fs");
         res.findings = parseOutput(spec.parse, {
-          status: out.status, stdout: out.stdout, stderr: out.stderr, reports: spec.reports || [],
+          status: out.status, stdout: out.stdout, stderr: out.stderr, reports: spec.reports || [], repoRoot: ctx.root,
           readReport: (n) => { try { return readFileSync(join(ctx.outDir, n), "utf8"); } catch { return null; } },
         });
         if (out.status === 126) res.findings.push({ id: "tool-blocked", severity: "high", message: "command could not be executed (blocked or not executable)", location: "" });
@@ -115,6 +115,23 @@ async function pool(items, n, fn) {
     while (i < items.length) { const k = i++; out[k] = await fn(items[k], k); }
   }));
   return out;
+}
+
+/** Make allowlisted findings impossible to mistake for zero: counts + soonest expiry, baseline entries called out. */
+function summarizeAllowlist(allowed, al) {
+  const lines = [];
+  const byExpiry = new Map();
+  for (const f of allowed) {
+    const a = f.allowlist;
+    const k = `${a.expires}|${/^baseline/i.test(a.reason) ? "baseline" : "exception"}`;
+    byExpiry.set(k, (byExpiry.get(k) || 0) + 1);
+  }
+  for (const [k, n] of [...byExpiry].sort()) {
+    const [exp, kind] = k.split("|");
+    lines.push(`*** ${n} ${kind} ${kind === "baseline" ? "exceptions" : "allowlisted findings"} expiring ${exp} — NOT ZERO; this gate is passing them only until then ***`);
+  }
+  if (al.entries.length && !allowed.length) lines.push(`(allowlist has ${al.entries.length} entries; none matched a finding this run)`);
+  return { total: allowed.length, entries: al.entries.length, lines, byExpiry: Object.fromEntries(byExpiry) };
 }
 
 export async function main(argv) {
@@ -174,7 +191,10 @@ export async function main(argv) {
   const { blocking, allowed, unused } = applyAllowlist(allFindings, al, { ranChecks });
   const debt = !subset ? liveScanDebt(root, pd) : { ok: true, reason: "skipped (subset run)" };
   const debtFindings = debt.ok ? [] : [{ check: "live-scan", id: "live-scan-debt", severity: "high", message: debt.reason, location: "" }];
-  const allBlocking = [...blocking, ...unused, ...structural, ...debtFindings];
+  const unusedWarn = pd.allowlistUnused === "warn";
+  const allBlocking = [...blocking, ...(unusedWarn ? [] : unused), ...structural, ...debtFindings];
+  const baseline = summarizeAllowlist(allowed, al);
+  const unusedNote = unusedWarn && unused.length ? [`${unused.length} allowlist entr${unused.length === 1 ? "y" : "ies"} matched nothing this run (fixed or flaky) — prune them (predeploy.allowlistUnused=warn)`] : [];
 
   const perCheck = results.map((r) => ({
     id: r.id, kind: r.kind, ms: r.ms,
@@ -184,6 +204,7 @@ export async function main(argv) {
     notes: r.notes, meta: r.meta,
   }));
   const report = {
+    allowlistSummary: baseline,
     version: GATE_VERSION, sha, ts: nowIso(), subset, dirty, policyRef: pd.policyRef || null,
     configHash: configHash(pd), allowlistHash: allowlistHash(al),
     status: allBlocking.length === 0 ? "pass" : "fail",
@@ -196,6 +217,8 @@ export async function main(argv) {
   if (args.json) console.log(JSON.stringify(report, null, 2));
   else {
     console.log("");
+    for (const l of baseline.lines) console.log(l);
+    for (const n of unusedNote) console.log("NOTE: " + n);
     for (const c of perCheck) {
       console.log(`${c.blocking ? "FAIL" : " ok "}  ${c.id.padEnd(22)} blocking=${c.blocking}${c.estimated ? ` (~${c.estimated} underlying)` : ""} allowlisted=${c.allowlisted}${c.belowFloor ? ` belowFloor=${c.belowFloor}` : ""}`);
       for (const n of c.notes || []) console.log(`        note: ${n}`);
@@ -218,10 +241,12 @@ export async function main(argv) {
       checks: perCheck.map((c) => ({ id: c.id, allowlisted: c.allowlisted })), allowlisted: allowed.length,
       remote, by: process.env.USERNAME || process.env.USER || "unknown",
     });
+    for (const l of baseline.lines) console.log(l);
     console.log(`\nSTAMP ISSUED for ${sha.slice(0, 8)} (valid ${pd.stampTtlHours}h, bound to config + allowlist)`);
     return 0;
   }
   if (allBlocking.length === 0) { console.log("\nclean, but no stamp: " + (subset ? "subset run" : "dirty tree")); return 0; }
+  for (const l of baseline.lines) console.log(l);
   console.log(`\nGATE FAILED: ${allBlocking.length} blocking finding(s) across ${new Set(allBlocking.map((f) => f.check)).size} check(s). No stamp.`);
   return 1;
 }

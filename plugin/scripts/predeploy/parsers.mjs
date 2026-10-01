@@ -229,6 +229,66 @@ export const PARSERS = {
     }
     return out;
   },
+  /** eslint -f json -o <report>: one finding per message (warnings included), keyed rule + file. */
+  "eslint-json"(ctx) {
+    const r = need(ctx, ctx.reports);
+    if (r.fail) return r.fail;
+    const out = [];
+    const root = String(ctx.repoRoot || "").replace(/\\/g, "/").replace(/\/?$/, "/");
+    for (const t of r.texts) {
+      const p = parseJson(t);
+      if (!p.ok || !Array.isArray(p.value)) return bad("unparseable-report", "eslint report is not a JSON array");
+      for (const f of p.value) {
+        const file = String(f.filePath || "").replace(/\\/g, "/").replace(root, "");
+        for (const m of f.messages || []) out.push({ id: m.ruleId || "eslint-parse-error", severity: m.severity === 2 ? "high" : "medium", message: m.message, location: loc(file, m.line) });
+      }
+    }
+    return out;
+  },
+
+  /** knip --reporter json on stdout: every unused file / export / dependency / duplicate is a finding. */
+  "knip-json"(ctx) {
+    const p = parseJson(ctx.stdout.slice(ctx.stdout.indexOf("{")));
+    if (!p.ok) return ctx.status === 0 ? [] : bad("unparseable-report", "knip did not print JSON");
+    const out = [];
+    for (const f of p.value.files || []) out.push({ id: "knip:unused-file", severity: "medium", message: "unused file", location: f });
+    for (const issue of p.value.issues || []) {
+      for (const [cat, v] of Object.entries(issue)) {
+        if (cat === "file" || cat === "owners") continue;
+        const items = Array.isArray(v) ? v : Object.values(v || {}).flat();
+        for (const it of items) {
+          const name = Array.isArray(it) ? it.map((x) => x.name).join("|") : it.name;
+          out.push({ id: `knip:${cat}:${name}`, severity: "medium", message: `${cat}: ${name}`, location: issue.file });
+        }
+      }
+    }
+    return out;
+  },
+
+  /** check-docs-drift output: "── <check> (n) ──" headers followed by "  file:line  message". */
+  "docs-drift-text"(ctx) {
+    const out = [];
+    let check = "docs-drift";
+    for (const line of ctx.stdout.split(/\r?\n/)) {
+      const h = /^── (.+?) \(\d+\) ──/.exec(line);
+      if (h) { check = h[1]; continue; }
+      const m = /^ {2}(\S.*?):(\d+) {2}(.*)$/.exec(line);
+      if (m) out.push({ id: check, severity: "medium", message: m[3], location: `${m[1]}:${m[2]}` });
+    }
+    if (!out.length && ctx.status !== 0) return PARSERS["exit-code"](ctx);
+    return out;
+  },
+
+  /** `<severity> <rule> <from> -> <to>` lines (scripts/predeploy-depcruise.mjs style). */
+  "depcruise-text"(ctx) {
+    const out = [];
+    for (const line of ctx.stdout.split(/\r?\n/)) {
+      const m = /^(warn|error|info) (\S+) (\S+) -> (\S+)/.exec(line);
+      if (m) out.push({ id: m[2], severity: m[1] === "error" ? "high" : m[1] === "warn" ? "medium" : "low", message: `${m[3]} -> ${m[4]}`, location: m[3] });
+    }
+    if (!out.length && ctx.status !== 0) return PARSERS["exit-code"](ctx);
+    return out;
+  },
 };
 
 export const PARSER_KINDS = Object.keys(PARSERS);

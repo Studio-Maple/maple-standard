@@ -99,7 +99,7 @@ t("plan: full attack policy, call routes excluded on every context, secrets only
   const active = plan.jobs.filter((j) => j.type === "activeScan");
   assert.equal(active.length, 2);
   for (const j of active) { assert.equal(j.policyDefinition.defaultStrength, "High"); assert.equal(j.policyDefinition.defaultThreshold, "Low"); }
-  for (const c of plan.env.contexts) assert.ok(c.excludePaths.some((p) => p.endsWith("/call/dial.*")));
+  for (const c of plan.env.contexts) assert.ok(c.excludePaths.some((p) => new RegExp("^" + p + "$").test("https://x.example:8443/call/dial-action?a=1")));
   const text = JSON.stringify(plan);
   assert.ok(text.includes("${ZAPSCAN_H0}")); assert.equal(envNames[0].ref, "Proj-Scan-Token");
   assert.ok(!/Proj-Scan-Token/.test(text), "credential name must not leak into the plan either");
@@ -125,6 +125,22 @@ t("gate state tampering is detected, reading it is not", () => {
   assert.ok(touchesGateState("cp x C:/repo/.git/maple/predeploy/emergency.json"));
   assert.ok(!touchesGateState("cat .git/maple/predeploy/deploys.jsonl"));
   assert.ok(!touchesGateState("npm test"));
+});
+
+t("eslint-json: one finding per warning, keyed rule + repo-relative file", () => {
+  const rep = JSON.stringify([{ filePath: "C:\\repo\\app\\src\\a.ts", messages: [{ ruleId: "x/rule", severity: 1, line: 3, message: "m" }] }]);
+  const f = parseOutput("eslint-json", { reports: ["r"], readReport: () => rep, repoRoot: "C:/repo" });
+  assert.equal(f[0].id, "x/rule"); assert.equal(f[0].location, "app/src/a.ts:3");
+});
+t("knip-json flattens files, exports and duplicates", () => {
+  const out = JSON.stringify({ files: ["a.ts"], issues: [{ file: "b.ts", exports: [{ name: "foo", line: 1 }], duplicates: [[{ name: "x" }, { name: "y" }]] }] });
+  const ids = parseOutput("knip-json", { stdout: out, status: 1, reports: [], readReport: () => null }).map((f) => f.id);
+  assert.deepEqual(ids, ["knip:unused-file", "knip:exports:foo", "knip:duplicates:x|y"]);
+});
+t("docs-drift-text keys findings by check header", () => {
+  const out = "── dead-hostname (1) ──\n  docs/a.md:4  bad host\n";
+  const f = parseOutput("docs-drift-text", { stdout: out, status: 1, stderr: "", reports: [], readReport: () => null });
+  assert.equal(f[0].id, "dead-hostname"); assert.equal(f[0].location, "docs/a.md:4");
 });
 
 console.log(`\n${n} unit tests passed`);

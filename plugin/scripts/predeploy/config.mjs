@@ -57,12 +57,13 @@ export function validatePredeploy(cfg) {
   const p = cfg?.predeploy;
   if (p === undefined) return e;
   if (!isObj(p)) return ["predeploy: must be an object"];
-  const known = ["enabled", "policyRef", "allowlist", "allowlistMaxDays", "stampTtlHours", "minSeverity", "concurrency", "docker", "checks", "remote", "deployGuard", "emergency", "liveScan"];
+  const known = ["enabled", "policyRef", "allowlist", "allowlistMaxDays", "stampTtlHours", "minSeverity", "concurrency", "allowlistUnused", "docker", "checks", "remote", "deployGuard", "emergency", "liveScan"];
   for (const k of Object.keys(p)) if (!known.includes(k)) e.push(`predeploy.${k}: unknown key`);
   if (p.enabled !== undefined && typeof p.enabled !== "boolean") e.push("predeploy.enabled: must be a boolean");
   if (p.policyRef !== undefined && !isStr(p.policyRef)) e.push("predeploy.policyRef: must be a non-empty string (e.g. a decision id)");
   if (p.allowlist !== undefined && !isStr(p.allowlist)) e.push("predeploy.allowlist: must be a repo-relative path string");
   for (const k of ["allowlistMaxDays", "stampTtlHours", "concurrency"]) if (p[k] !== undefined && !(Number.isInteger(p[k]) && p[k] >= 1)) e.push(`predeploy.${k}: must be a positive integer`);
+  if (p.allowlistUnused !== undefined && !["fail", "warn"].includes(p.allowlistUnused)) e.push("predeploy.allowlistUnused: fail | warn (default fail; warn only while a baseline allowlist is being burned down)");
   if (p.minSeverity !== undefined && !SEVERITIES.includes(p.minSeverity)) e.push(`predeploy.minSeverity: one of ${SEVERITIES.join("|")}`);
 
   const checks = p.checks;

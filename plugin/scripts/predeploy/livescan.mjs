@@ -39,7 +39,7 @@ const HOST_ANY = "https?://[^/]+";
 export function buildPlan(ls) {
   const dur = ls.maxDurationMin || 60;
   const threads = ls.threads || 5;
-  const callEx = (ls.callOriginationExcludes || []).map((re) => `${HOST_ANY}${stripCaret(re)}`);
+  const callEx = (ls.callOriginationExcludes || []).map((re) => `${HOST_ANY}${stripCaret(re)}${re.endsWith("$") ? "" : ".*"}`);
   const headers = [];
   const envNames = [];
   const contexts = [];
