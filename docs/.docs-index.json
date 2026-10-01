@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-23",
+  "generated": "2026-10-01",
   "generator": "plugin/scripts/docs/generate-docs-index.mjs",
   "description": "Machine-readable map of docs/**/*.md preambles (OKF v0.1 frontmatter or legacy prose — docs/decisions.md D010). Regenerate after any preamble/description change: run this script (or check-docs-drift.mjs --fix).",
   "files": [
@@ -16,6 +16,7 @@
         "node scripts/next-task-id.mjs --add --decision --title \"...\" --body \"...\""
       ],
       "related": [
+        "predeploy-gate",
         "quality-gate",
         "docker",
         "standard-architecture",
@@ -121,6 +122,26 @@
         "standard-architecture",
         "loop-pack"
       ]
+    },
+    {
+      "path": "docs/predeploy-gate.md",
+      "title": "Pre-deploy gate",
+      "topic": "root",
+      "audience": "anyone about to deploy, configuring the gate for a project, or blocked by the deploy guard",
+      "authoritative_for": [
+        "the pre-deploy gate's rules",
+        "stamp model",
+        "live-scan policy",
+        "allowlist format and enforcement"
+      ],
+      "anchor_type": "code",
+      "anchor_paths": [
+        "plugin/scripts/predeploy/",
+        "plugin/hooks/predeploy-guard.mjs",
+        "plugin/commands/predeploy-gate.md",
+        "plugin/templates/predeploy-remote.yml"
+      ],
+      "related": []
     },
     {
       "path": "docs/quality-gate.md",

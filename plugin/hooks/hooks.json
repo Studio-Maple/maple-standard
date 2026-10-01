@@ -63,6 +63,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Bash|PowerShell|Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/predeploy-guard.mjs\"",
+            "timeout": 15
+          }
+        ]
       }
     ],
     "SubagentStop": [

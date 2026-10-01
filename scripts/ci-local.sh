@@ -52,6 +52,7 @@ run_fast() {
   pnpm run test:plugin-loops
   pnpm run test:plugin-agent-wt
   pnpm run test:plugin-jev
+  pnpm run test:plugin-predeploy
 
   step "fast 7/7: build (next build) + docs-drift"
   pnpm run build

@@ -6,6 +6,18 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Enforced pre-deploy gate (plugin v0.5.0, D060).** New `predeploy` block in `maple.config.json`
+  (schema + validator): a list of checks (`command` local, `preset` built-in scanner, or `github:` remote-only
+  with a written reason), zero findings of any severity by default, exceptions only through a committed,
+  expiring allowlist (reason, owner, expiry; expired/unused/uncommitted fail). `/predeploy-gate` runs every
+  check on the exact commit, writes a stamp bound to sha + config hash + allowlist hash; a `predeploy-guard`
+  PreToolUse hook (Bash/PowerShell/Write/Edit) blocks configured deploy commands without a valid stamp and
+  blocks tampering with the stamp state; `verify.mjs` lets deploy scripts check the same stamp. Remote leg is one
+  `workflow_dispatch` workflow for the candidate sha (template shipped). `doctor` lists missing tools with
+  install commands and Docker fallbacks. The aggressive live ZAP scan (full active policy, only guards: no
+  real customer credentials, no PSTN calls) is a post-deploy verification whose debt blocks the next deploy.
+  Owner-only TTY emergency override, default off. Docs: `docs/predeploy-gate.md`.
+
 - **Quality gate finds `typescript` from the audited repo (plugin v0.4.1).** The installed plugin cache has no node_modules, so the bare `import "typescript"` failed and the gate silently ran as a no-op in every mission. The compiler is now resolved at run time from the audited repo, then the plugin checkout, with a plain error if neither has it.
 
 - **Jev per-function code-quality GATE (plugin v0.4.0, D051).** Ported

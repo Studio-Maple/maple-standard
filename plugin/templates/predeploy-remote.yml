@@ -1,0 +1,40 @@
+# TEMPLATE — copy to <project>/.github/workflows/predeploy-remote.yml and adapt.
+# The pre-deploy gate (maple-standard D060) dispatches this ONCE per deploy
+# candidate sha. Keep it to what genuinely needs a clean-room GitHub runner;
+# everything else runs locally in the gate. Pin every action to a commit SHA
+# (replace the placeholders) and keep the trigger workflow_dispatch-only.
+name: predeploy-remote
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Candidate commit (the gate passes HEAD of the branch)"
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: predeploy-remote-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  clean-room:
+    # Use a self-hosted label if hosted minutes are unavailable.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Candidate must be the branch tip
+        env:
+          WANT: ${{ github.event.inputs.sha }}
+        run: |
+          set -euo pipefail
+          [ "$WANT" = "$GITHUB_SHA" ] || { echo "::error::dispatched sha $WANT != checked-out $GITHUB_SHA"; exit 1; }
+      - uses: actions/checkout@<PINNED-SHA> # vX
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@<PINNED-SHA> # vX
+        with:
+          node-version: 22
+      - name: Clean install from the lockfile (no local state)
+        run: npm ci
+      - name: Registry signatures / provenance
+        run: npm audit signatures
+      - name: Build
+        run: npm run build

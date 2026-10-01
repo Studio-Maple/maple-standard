@@ -28,6 +28,7 @@
  */
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { validatePredeploy } from "./predeploy/config.mjs";
 
 const ERROR_TRACKER_PROVIDERS = ["sentry", "maplelens"];
 const LOOP_NAMES = ["sweep-errors", "burn-backlog", "sweep-quality", "detect-drift"];
@@ -111,7 +112,7 @@ export function validateConfig(config) {
   }
   checkNoExtraKeys(
     config,
-    ["$schema", "project", "repo", "worktrees", "docs", "ci", "lint", "sizeCaps", "errorTracker", "loops", "hooks", "jev", "quality"],
+    ["$schema", "project", "repo", "worktrees", "docs", "ci", "lint", "sizeCaps", "errorTracker", "loops", "hooks", "jev", "quality", "predeploy"],
     "root",
     errors
   );
@@ -403,6 +404,9 @@ export function validateConfig(config) {
       }
     }
   }
+
+  // ---- predeploy (D060) ----------------------------------------------------------------
+  errors.push(...validatePredeploy(config));
 
   // ---- hooks ------------------------------------------------------------------------
   if (config.hooks !== undefined) {

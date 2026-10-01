@@ -56,6 +56,7 @@ function Run-Fast {
     Invoke-Checked "pnpm run test:plugin-loops"
     Invoke-Checked "pnpm run test:plugin-agent-wt"
     Invoke-Checked "pnpm run test:plugin-jev"
+    Invoke-Checked "pnpm run test:plugin-predeploy"
 
     Step "fast 7/7: build (next build) + docs-drift"
     Invoke-Checked "pnpm run build"

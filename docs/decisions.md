@@ -14,6 +14,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D060 | 2026-10-01 | Pre-deploy gate is enforced by the plugin, zero findings, expiring allowlist
+predeploy block in maple.config.json: local checks + one workflow_dispatch remote leg, stamp bound to sha+config+allowlist hashes, PreToolUse deploy guard (no bypass; owner-only TTY emergency override, default off). Live ZAP is a full active scan of live targets run post-deploy; unscanned deploys block the next stamp. Only guards: no real customer credentials, no PSTN calls. See [[predeploy-gate]].
+
 ## D059 | 2026-09-23 | Per-function Jev quality gate lives in the plugin
 Every landing checks the functions it created or edited: the plugin audit (opt-in, maple.config.json quality.jevAudit) runs in maple-land.sh after CI and in MapleLens missions, which call the plugin, not a copy. Exact duplicates block deterministically; Jev rules fail open. Accepting a finding takes a visible jev-audit accept comment, never a flag. See [[quality-gate]].
 
