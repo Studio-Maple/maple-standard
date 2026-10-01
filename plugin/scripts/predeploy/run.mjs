@@ -208,9 +208,13 @@ export async function main(argv) {
     belowFloor[r.id] = r.findings.length - kept.length;
     allFindings.push(...kept);
   }
+  // A check that could not run (tool missing, no report, crash, timeout) says nothing about whether a
+  // decision-backed entry still matches, so it neither confirms nor stales entries; its own failure already blocks.
+  const INFRA_FAILURE = /^(tool-missing|tool-blocked|no-report|unparseable-report|check-crashed|spawn-failed|timeout|misconfigured|token-missing|secret-missing)$/;
   const ranChecks = results.map((r) => r.id);
+  const decisionRanChecks = results.filter((r) => !r.findings.some((f) => INFRA_FAILURE.test(f.id))).map((r) => r.id);
   const allCheckIds = [...pd.checks.map((c) => c.id), "live-scan"];
-  const decided = applyDecisions(allFindings, dl, { ranChecks });
+  const decided = applyDecisions(allFindings, dl, { ranChecks: decisionRanChecks });
   const structural = [
     ...validateEntries(al, { checkIds: allCheckIds, maxDays: pd.allowlistMaxDays }),
     ...validateDecisions(dl, { checkIds: allCheckIds, maxAgeDays: pd.decisionsMaxAgeDays, ledger: dl.entries.length ? ledgerDecisionIds(root) : { ids: new Set(), error: null, file: "" } }),

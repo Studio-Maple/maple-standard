@@ -230,5 +230,14 @@ await t("changing the decisions file after the gate invalidates the stamp (hash 
   assert.equal(hook("bash deploy.sh").status, 2);
 });
 
+
+await t("a check that could not run neither confirms nor stales decision entries (its own failure is the finding)", async () => {
+  commit(cfgOf([{ id: "ghost", command: "definitely-not-a-real-tool-xyz" }]), withDecisions([dEntry("anything", "x.ts", { scanner: "ghost" })]));
+  assert.equal(await gate(), 1);
+  const ids = blockingIds();
+  assert.ok(ids.includes("ghost:tool-missing"), ids.join(","));
+  assert.ok(!ids.includes("decisions:decision-stale"), "must not stale an entry for a check that did not run: " + ids.join(","));
+});
+
 console.log(`\n${n} e2e tests passed`);
 rmSync(repo, { recursive: true, force: true });

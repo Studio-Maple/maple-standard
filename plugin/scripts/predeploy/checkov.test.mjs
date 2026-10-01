@@ -13,7 +13,7 @@ import { reportPath } from "./state.mjs";
 const repo = mkdtempSync(join(tmpdir(), "predeploy-checkov-"));
 const sh = (args) => { const r = spawnSync("git", args, { cwd: repo, encoding: "utf8" }); assert.equal(r.status, 0, args.join(" ") + r.stderr); return r.stdout.trim(); };
 sh(["init", "-q"]); sh(["config", "user.email", "t@t"]); sh(["config", "user.name", "t"]); sh(["config", "commit.gpgsign", "false"]);
-const cfg = { project: { name: "t", slug: "t" }, predeploy: { checks: [{ id: "checkov", preset: "checkov" }] } };
+const cfg = { project: { name: "t", slug: "t" }, predeploy: { checks: [{ id: "checkov", preset: "checkov", options: { dirs: ["infra"] } }] } };
 const commit = (files) => {
   writeFileSync(join(repo, "maple.config.json"), JSON.stringify(cfg, null, 2));
   for (const [k, v] of Object.entries(files)) { mkdirSync(dirname(join(repo, k)), { recursive: true }); writeFileSync(join(repo, k), v); }

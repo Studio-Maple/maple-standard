@@ -67,13 +67,23 @@ export function loadDecisions(root, relPath) {
 
 export const decisionsHash = (dl) => sha256(dl.raw || "");
 
+/**
+ * Ids a ledger DEFINES (not merely mentions): `## D12 | ...` headings and
+ * `- **D12 — ...` / `**D12 ...` bullets (the two shapes the ledgers use).
+ */
+export function decisionIdsIn(text) {
+  const ids = new Set();
+  for (const m of String(text).matchAll(/^\s*(?:#{1,6}\s+|[-*]\s+\*\*|\*\*)(D\d+)\b/gm)) ids.add(m[1]);
+  return ids;
+}
+
 /** Decision ids defined in the project's decisions ledger (docs.decisions). */
 export function ledgerDecisionIds(root) {
   let file;
   try { file = resolveDocsConfig(root).decisions; } catch (e) { return { ids: new Set(), file: "", error: e.message }; }
   if (!existsSync(file)) return { ids: new Set(), file, error: "decisions ledger not found" };
   const ids = new Set();
-  for (const m of readFileSync(file, "utf8").matchAll(/^##\s+(D\d+)\b/gm)) ids.add(m[1]);
+  for (const id of decisionIdsIn(readFileSync(file, "utf8"))) ids.add(id);
   return { ids, file, error: null };
 }
 

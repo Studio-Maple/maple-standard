@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { applyAllowlist, validateEntries } from "./allowlist.mjs";
 import { validatePredeploy } from "./config.mjs";
-import { applyDecisions, summarizeDecisions, validateDecisions } from "./decisions.mjs";
+import { applyDecisions, decisionIdsIn, summarizeDecisions, validateDecisions } from "./decisions.mjs";
 import { parseOutput } from "./parsers.mjs";
 import { buildPlan } from "./livescan.mjs";
 import { matchDeploy, touchesGateState } from "../../hooks/predeploy-guard.mjs";
@@ -200,13 +200,18 @@ t("config: decisionsMaxAgeDays bounded, decisions path must differ from allowlis
   c.predeploy.decisions = "predeploy-allowlist.json"; assert.ok(validatePredeploy(c).some((x) => /must differ/.test(x)));
 });
 t("parsers carry the scanner's resource id (checkov, osv, trivy) and strip checkov's leading slash", () => {
-  const ck = JSON.stringify({ results: { failed_checks: [{ check_id: "CKV_X", check_name: "n", resource: "aws_s3_bucket.b", file_path: "/infra/main.tf", file_line_range: [3, 9] }] } });
+  const ck = JSON.stringify({ results: { failed_checks: [{ check_id: "CKV_X", check_name: "n", resource: "aws_s3_bucket.b", file_path: "/main.tf", repo_file_path: "/infra/main.tf", file_line_range: [3, 9] }] } });
   const f = parseOutput("checkov-json", { reports: ["r"], readReport: () => ck })[0];
   assert.equal(f.resource, "aws_s3_bucket.b"); assert.equal(f.location, "infra/main.tf:3");
   const osv = JSON.stringify({ results: [{ source: { path: "package-lock.json" }, packages: [{ package: { name: "xlsx", version: "0.18.5" }, vulnerabilities: [{ id: "GHSA-1", summary: "s" }], groups: [] }] }] });
   assert.equal(parseOutput("osv-json", { reports: ["r"], readReport: () => osv })[0].resource, "xlsx@0.18.5");
   const tv = JSON.stringify({ Results: [{ Target: "infra/main.tf", Misconfigurations: [{ ID: "AWS-0001", Severity: "HIGH", Title: "t", CauseMetadata: { Resource: "aws_s3_bucket.b", StartLine: 4 } }] }] });
   assert.equal(parseOutput("trivy-json", { reports: ["r"], readReport: () => tv })[0].resource, "aws_s3_bucket.b");
+});
+
+t("ledger ids: heading and bullet definitions count, bare mentions do not", () => {
+  const ids = decisionIdsIn("## D161 | 2026-10-01 | x\n- **D14 — Cloud split (2026-08-10):** body\n- **D37 (postgres) — pinned:** b\n**D9 — posture**\nsee D999 and **D998** inline\n");
+  assert.deepEqual([...ids].sort(), ["D14", "D161", "D37", "D9"]);
 });
 
 console.log(`\n${n} unit tests passed`);

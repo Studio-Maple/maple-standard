@@ -92,8 +92,13 @@ function probe(bin, args) {
 let dockerState; // undefined | {ok, detail}
 export function dockerUsable() {
   if (dockerState) return dockerState;
-  const r = spawnSync("docker", ["info", "--format", "{{.ServerVersion}}"], { encoding: "utf8", timeout: 30000 });
-  dockerState = r.status === 0 && String(r.stdout).trim() ? { ok: true, detail: String(r.stdout).trim() } : { ok: false, detail: "docker daemon not reachable" };
+  // Docker Desktop can take a while to answer under load (many containers, a busy gate run): retry before
+  // concluding the daemon is down, because "unreachable" turns every Docker-backed scanner into tool-missing.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const r = spawnSync("docker", ["info", "--format", "{{.ServerVersion}}"], { encoding: "utf8", timeout: 60000 });
+    if (r.status === 0 && String(r.stdout).trim()) return (dockerState = { ok: true, detail: String(r.stdout).trim() });
+  }
+  dockerState = { ok: false, detail: "docker daemon not reachable" };
   return dockerState;
 }
 

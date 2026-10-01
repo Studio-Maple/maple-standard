@@ -185,7 +185,7 @@ export const PARSERS = {
     const docs = Array.isArray(p.value) ? p.value : [p.value];
     const out = [];
     for (const d of docs) {
-      for (const c of d.results?.failed_checks || []) out.push({ id: c.check_id, severity: sevFromWord(c.severity || "medium"), message: `${c.check_name} [${c.resource}]`, location: loc(String(c.file_path || "").replace(/^\/+/, ""), c.file_line_range?.[0]), resource: c.resource });
+      for (const c of d.results?.failed_checks || []) out.push({ id: c.check_id, severity: sevFromWord(c.severity || "medium"), message: `${c.check_name} [${c.resource}]`, location: loc(String(c.repo_file_path || c.file_path || "").replace(/^\/+/, ""), c.file_line_range?.[0]), resource: c.resource });
       for (const e of d.results?.parsing_errors || []) out.push({ id: "checkov-parse-error", severity: "high", message: String(e), location: String(e) });
     }
     return out;
