@@ -26,7 +26,7 @@ import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { realpathSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -38,7 +38,7 @@ function errorText(e, seen = new Set()) {
   return [e.message, e.code, errorText(e.cause, seen)].filter(Boolean).join('\n');
 }
 
-function nativeBindingBlocked() {
+async function nativeBindingBlocked() {
   if (process.env.KNIP_FORCE_CONTAINER === '1') return true; // exercise the fallback path on purpose
   // oxc-resolver is knip's dependency, not ours: resolve it from knip's REAL
   // directory. Not via require.resolve('knip/package.json') — knip's `exports`
@@ -50,12 +50,16 @@ function nativeBindingBlocked() {
   } catch {
     return false; // knip not installed — let `pnpm exec knip` report that plainly
   }
-  try {
-    fromKnip('oxc-resolver');
-    return false;
-  } catch (e) {
-    return /application control/i.test(errorText(e));
+  // knip >= 6 also loads oxc-parser's native binding (ESM, so import() not
+  // require); probe both so either being blocked selects the container.
+  for (const probe of [() => fromKnip('oxc-resolver'), () => import(pathToFileURL(fromKnip.resolve('oxc-parser')).href)]) {
+    try {
+      await probe();
+    } catch (e) {
+      if (/application control/i.test(errorText(e))) return true;
+    }
   }
+  return false;
 }
 
 // Only pnpm needs a shell on Windows (it is pnpm.cmd). docker.exe does not,
@@ -67,14 +71,14 @@ function run(cmd, cmdArgs) {
   return r.status ?? 1;
 }
 
-if (!nativeBindingBlocked()) {
+if (!(await nativeBindingBlocked())) {
   process.exit(run('pnpm', ['exec', 'knip', ...args]));
 }
 
 console.log(
   process.env.KNIP_FORCE_CONTAINER === '1'
     ? 'knip: KNIP_FORCE_CONTAINER=1 — running knip in a Linux container.'
-    : "knip: Windows Application Control blocks oxc-resolver's native binding on this machine —\n" +
+    : "knip: Windows Application Control blocks a knip native binding (oxc-resolver / oxc-parser) on this machine —\n" +
         '      running the same knip in a Linux container instead (see scripts/run-knip.mjs).',
 );
 
