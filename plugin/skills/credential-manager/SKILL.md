@@ -74,6 +74,8 @@ Ready-made script (prompts for the value, never echoes it):
 powershell -ExecutionPolicy Bypass -File "$CLAUDE_PLUGIN_ROOT\skills\credential-manager\scripts\store-secret.ps1" -Target <Project>-<Service>-<Purpose>
 ```
 
+Prefer the script: it writes through Win32 `CredWriteW` (up to 2560 bytes). The inline pattern below is limited to 256 characters (512 bytes) — for a longer value `New-StoredCredential` throws, and its error record prints a truncated copy of the secret.
+
 Or inline, using the SecureString→BSTR pattern. The `-Password` param on `New-StoredCredential` is typed `string` — passing a raw `SecureString` stringifies to the literal `"System.Security.SecureString"`. Always convert first. Pipe to `| Out-Null` — the cmdlet echoes the stored password in plaintext as part of its return object otherwise.
 
 ```powershell

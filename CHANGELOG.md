@@ -6,6 +6,9 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **store-secret.ps1 writes long secrets without leaking them (plugin v0.9.1).** It now calls Win32 `CredWriteW` directly (up to
+  2560 bytes) instead of `New-StoredCredential`, which refused values over 512 bytes and printed a truncated copy of the secret in
+  its error record. Every failure path prints a fixed message; verification compares stored length only.
 - **Snyk preset (plugin v0.9.0).** `preset: "snyk"` makes Snyk Open Source a real blocking gate scanner: `snyk test --all-projects --dev`
   over the clean tree, every severity, `.snyk` ignores removed from the scan copy. The token is read just-in-time from the credential
   store (`options.tokenCredential`) into the snyk child's env only; a missing token/CLI, auth failure or no projects is a finding, never
