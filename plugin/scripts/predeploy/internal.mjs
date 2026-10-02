@@ -143,6 +143,49 @@ async function trivyImage(o, ctx) {
   return { findings };
 }
 
+// ── snyk ────────────────────────────────────────────────────────────────────
+/**
+ * Snyk Open Source over every tracked lockfile of the clean candidate tree (`snyk test --all-projects --dev`, every
+ * severity). The account token is read JUST-IN-TIME from the credential store (options.tokenCredential, default
+ * "Snyk-Token") and handed to the snyk child as SNYK_TOKEN in ITS environment only: never set in this process, never
+ * written to a file/report/log/argv, and `snyk auth` (which persists it in plaintext config) is never run. A missing
+ * token or CLI, an auth failure or "no supported projects" is a finding — never a skip. `.snyk` policy files are removed
+ * from the scan copy (run.mjs), so ignores cannot hide a finding.
+ */
+async function snyk(o, ctx) {
+  const { t, missing } = tool({ ...ctx, docker: false }, "snyk");
+  if (missing) return { findings: [missing] };
+  const target = o.tokenCredential || "Snyk-Token";
+  const token = getCredential(target);
+  if (!token) return { findings: [F("token-missing", `no Snyk token: store credential "${target}" (credential-manager skill) — the gate reads it just-in-time, never from a file`, target)] };
+  const r = spawnSync(t.bin, ["test", "--all-projects", "--dev", "--severity-threshold=low", "--json"], {
+    cwd: ctx.scanRoot, encoding: "utf8", timeout: (o.timeoutSec || 1800) * 1000, maxBuffer: 512 * 1024 * 1024,
+    shell: process.platform === "win32", env: { ...process.env, SNYK_TOKEN: token, SNYK_DISABLE_ANALYTICS: "1" },
+  });
+  const scrub = (x) => String(x || "").split(token).join("***");
+  if (r.error) return { findings: [F(r.error.code === "ETIMEDOUT" ? "timeout" : "spawn-failed", scrub(r.error.message), "snyk")] };
+  let doc;
+  try { doc = JSON.parse(r.stdout); } catch {
+    return { findings: [F(r.status === 2 ? "snyk-failed" : "unparseable-report", `snyk exit ${r.status}: ${scrub(r.stderr || r.stdout).trim().split(/\r?\n/).slice(0, 3).join(" | ").slice(0, 300)}`, "snyk")] };
+  }
+  const projects = Array.isArray(doc) ? doc : [doc];
+  const findings = [];
+  const seen = new Set();
+  for (const p of projects) {
+    if (p.error) { findings.push(F(/auth/i.test(p.error) ? "snyk-auth-failed" : "snyk-failed", scrub(p.error).slice(0, 300), p.path || p.displayTargetFile || "snyk")); continue; }
+    for (const v of p.vulnerabilities || []) {
+      const resource = `${v.packageName}@${v.version}`;
+      const loc = p.displayTargetFile || p.path || "";
+      const key = [v.id, resource, loc].join("|");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      findings.push({ id: v.id, severity: sevFromWord(v.severity), message: `${resource}: ${v.title || v.id}`.slice(0, 300), location: loc, resource });
+    }
+  }
+  if (r.status === 3 || !projects.length) findings.push(F("snyk-no-projects", "snyk found no supported projects to test", "snyk"));
+  return { findings, notes: [`snyk ${t.version}: ${projects.length} project(s)`] };
+}
+
 // ── deps-freshness ──────────────────────────────────────────────────────────
 const majorOf = (v) => parseInt(String(v).split(".")[0], 10);
 const monthsBetween = (a, b) => (b - a) / (1000 * 60 * 60 * 24 * 30.44);
@@ -327,6 +370,7 @@ export const INTERNAL_PRESETS = {
   "trivy-image": { describe: "Trivy-scan (vuln + secret) each declared image: built from the candidate tree ({name, context}) or a third-party image pulled by its exact deployed ref ({name, ref}).", tools: ["trivy", "docker"], run: trivyImage },
   "deps-freshness": { describe: "No deprecated packages; no direct dependency too many majors or months behind (defaults 1 major / 12 months).", tools: ["node"], run: depsFreshness },
   "supabase-advisors": { describe: "Supabase security + performance advisors via the Management API (every lint level counts).", tools: [], run: supabaseAdvisors, credentials: (o) => [o.tokenCredential || "Supabase-PAT"] },
+  snyk: { describe: "Snyk Open Source (all lockfiles, dev deps, every severity); token read just-in-time from the credential store into the child env only.", tools: ["snyk"], run: snyk, credentials: (o) => [o.tokenCredential || "Snyk-Token"] },
   "gh-alerts": { describe: "Open GitHub code-scanning / Dependabot / secret-scanning alerts, read locally via `gh api` (no workflow minutes).", tools: ["gh"], run: ghAlerts },
   "suppression-audit": { describe: "Scanner suppression markers (nosemgrep, checkov:skip, eslint-disable, ...) and ignore files/configs (osv-scanner.toml, .snyk, gitleaks allowlists, knip ignore*) are findings unless backed by a decision-backed entry (or the expiring allowlist).", tools: ["git"], run: suppressionAudit },
 };

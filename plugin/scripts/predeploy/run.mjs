@@ -46,7 +46,7 @@ function parseArgs(argv) {
   return a;
 }
 
-const SCANNER_IGNORE_FILES = /(^|\/)(\.checkov\.(ya?ml|baseline)|\.semgrepignore|\.trivyignore(\.yaml)?|trivy\.ya?ml|\.hadolint\.ya?ml|\.shellcheckrc)$/;
+const SCANNER_IGNORE_FILES = /(^|\/)(\.checkov\.(ya?ml|baseline)|\.semgrepignore|\.snyk|\.trivyignore(\.yaml)?|trivy\.ya?ml|\.hadolint\.ya?ml|\.shellcheckrc)$/;
 
 const posix = (p) => nativePath(p).replace(/^([A-Za-z]):/, (_, d) => `/${d.toLowerCase()}`);
 

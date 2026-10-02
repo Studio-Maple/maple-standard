@@ -42,7 +42,7 @@ thresholds: exceptions live in exactly two files, the expiring allowlist and the
 (every tracked lockfile, dev deps), `npm-audit`, `trivy-fs`, `trivy-image`,
 `shellcheck` (style), `actionlint`, `hadolint`, `checkov`, `tflint`,
 `terraform` (init/validate/fmt), `deps-freshness`, `supabase-advisors`,
-`gh-alerts`, `suppression-audit`. File scanners run on a clean `git archive`
+`gh-alerts`, `snyk`, `suppression-audit`. File scanners run on a clean `git archive`
 export of the candidate SHA. A tool that is on PATH but does not run (broken
 shim, Application Control) falls back to its Docker image; a missing tool is a
 `tool-missing` finding, never a skip. `predeploy doctor` prints install
@@ -54,6 +54,13 @@ ref that is deployed (tag or digest) and scanned for vulnerabilities and secrets
 production must be listed, ours or not: an unscanned image is a hole, not a zero. `ref` and `context` are
 mutually exclusive; an unpullable ref is an `image-pull-failed` finding. Pulled images are removed afterwards
 only if they were not already present. Findings carry `name: target` as location and `pkg@version` as resource.
+
+**Snyk** (`snyk`): `snyk test --all-projects --dev --severity-threshold=low` over the clean candidate tree. The account
+token is read just-in-time from the credential store (`options.tokenCredential`, default `Snyk-Token`; Windows Credential
+Manager via the CredentialManager module) and given to the snyk child as `SNYK_TOKEN` in its environment only: never set in
+the gate process, never written to a file/report/argv, and `snyk auth` (plaintext config) is never used. A missing token or
+CLI, an auth failure, "no supported projects" or an unparseable result is a finding, never a skip; `.snyk` policy files are
+removed from the scan copy so ignores cannot hide a finding.
 
 **Stale** (`deps-freshness`): any deprecated package in a lockfile (direct or
 transitive); a direct dependency more than 1 major behind, or not on latest

@@ -6,6 +6,11 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Snyk preset (plugin v0.9.0).** `preset: "snyk"` makes Snyk Open Source a real blocking gate scanner: `snyk test --all-projects --dev`
+  over the clean tree, every severity, `.snyk` ignores removed from the scan copy. The token is read just-in-time from the credential
+  store (`options.tokenCredential`) into the snyk child's env only; a missing token/CLI, auth failure or no projects is a finding, never
+  a skip. `snyk.test.mjs` uses a fake CLI.
+
 - **Third-party image debt (plugin v0.8.0, D063).** Opt-in `predeploy.imageDebt` (`ownImages`, `file`, `maxDays`): a committed
   `predeploy-image-debt.json` listing each third-party image (exact pin, owner, plan, `due`, snapshot of finding keys). Its
   findings are reported in their own `THIRD-PARTY IMAGE DEBT: N findings across M images, due D` NOT-ZERO block, never counted as

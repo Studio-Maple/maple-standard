@@ -79,13 +79,18 @@ export const TOOLS = {
     bin: "gh", version: ["--version"],
     install: { winget: "winget install GitHub.cli", scoop: "scoop install gh" },
   },
+  snyk: {
+    bin: "snyk", version: ["--version"],
+    install: { npm: "npm i -g snyk" },
+    note: "needs SNYK_TOKEN; the snyk preset reads it just-in-time from Windows Credential Manager into the child process env only (never `snyk auth`, which persists it in plaintext)",
+  },
   node: { bin: "node", version: ["--version"], install: { winget: "winget install OpenJS.NodeJS.LTS" } },
   npm: { bin: "npm", version: ["--version"], install: { winget: "winget install OpenJS.NodeJS.LTS" } },
   git: { bin: "git", version: ["--version"], install: { winget: "winget install Git.Git" } },
 };
 
 function probe(bin, args) {
-  const r = spawnSync(bin, args, { encoding: "utf8", timeout: 20000, shell: process.platform === "win32" && /^(npm|npx)$/.test(bin) });
+  const r = spawnSync(bin, args, { encoding: "utf8", timeout: 20000, shell: process.platform === "win32" && /^(npm|npx|snyk)$/.test(bin) });
   return r.status === 0 ? String(r.stdout || r.stderr).trim().split(/\r?\n/)[0] : null;
 }
 
