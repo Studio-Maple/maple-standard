@@ -90,7 +90,7 @@ export const TOOLS = {
 };
 
 function probe(bin, args) {
-  const r = spawnSync(bin, args, { encoding: "utf8", timeout: 20000, shell: process.platform === "win32" && /^(npm|npx|snyk)$/.test(bin) });
+  const r = spawnSync(bin, args, { encoding: "utf8", timeout: 90000, shell: process.platform === "win32" && /^(npm|npx|snyk)$/.test(bin) });
   return r.status === 0 ? String(r.stdout || r.stderr).trim().split(/\r?\n/)[0] : null;
 }
 
