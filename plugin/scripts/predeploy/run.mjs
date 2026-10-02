@@ -134,13 +134,13 @@ function decisionItems(backed) {
   for (const f of backed) {
     const scope = f.decisionBacked.scope === "*" ? `* (rule-wide, up to ${f.decisionBacked.maxSeverity})` : f.resource ? stripLine(f.location) + "#" + f.resource : stripLine(f.location);
     const k = [f.check, f.id, scope].join("|");
-    const cur = m.get(k) || { scanner: f.check, rule: f.id, scope, decision: f.decisionBacked.decision, reviewed: f.decisionBacked.reviewed, count: 0 };
+    const cur = m.get(k) || { scanner: f.check, rule: f.id, scope, decision: f.decisionBacked.decision, reviewed: f.decisionBacked.reviewed, expires: f.decisionBacked.expires, count: 0 };
     cur.count++;
     m.set(k, cur);
   }
   return [...m.values()];
 }
-const decisionLines = (backed) => decisionItems(backed).map((i) => `    decision-backed: ${i.scanner}/${i.rule} ${i.scope} -> ${i.decision} (reviewed ${i.reviewed}, ${i.count} finding${i.count === 1 ? "" : "s"})`);
+const decisionLines = (backed) => decisionItems(backed).map((i) => `    decision-backed: ${i.scanner}/${i.rule} ${i.scope} -> ${i.decision} (reviewed ${i.reviewed}${i.expires ? `, expires ${i.expires}` : ""}, ${i.count} finding${i.count === 1 ? "" : "s"})`);
 
 /** Make allowlisted findings impossible to mistake for zero: counts + soonest expiry, baseline entries called out. */
 function summarizeAllowlist(allowed, al) {
@@ -250,10 +250,10 @@ export async function main(argv, opts = {}) {
     allFindings = imageDebt.remaining;
   }
   const idCommitted = idl ? imageDebtCommitted(root, idl) : true;
-  const decided = applyDecisions(allFindings, dl, { ranChecks: decisionRanChecks });
+  const decided = applyDecisions(allFindings, dl, { ranChecks: decisionRanChecks, today });
   const structural = [
     ...validateEntries(al, { checkIds: allCheckIds, maxDays: pd.allowlistMaxDays }),
-    ...validateDecisions(dl, { checkIds: allCheckIds, maxAgeDays: pd.decisionsMaxAgeDays, ledger: dl.entries.length ? ledgerDecisionIds(root) : { ids: new Set(), error: null, file: "" } }),
+    ...validateDecisions(dl, { checkIds: allCheckIds, maxAgeDays: pd.decisionsMaxAgeDays, today, ledger: dl.entries.length ? ledgerDecisionIds(root) : { ids: new Set(), error: null, file: "" } }),
     ...decided.stale,
     ...(imageDebt ? imageDebt.blocking : []),
     ...(idCommitted ? [] : [{ check: "image-debt", id: "image-debt-uncommitted", severity: "high", message: "third-party image debt file is untracked or modified - the snapshot and due dates must be committed and reviewed", location: idl.path }]),

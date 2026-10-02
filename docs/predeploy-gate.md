@@ -122,6 +122,9 @@ expiring allowlist.
 - **No expiry, but a forcing function**: `reviewed` older than
   `decisionsMaxAgeDays` (180) fails as `decision-review-overdue`; re-review means
   confirming it is still unfixable, then bumping the date.
+- **Optional `expires`** (`YYYY-MM-DD`, at most `reviewed` + `decisionsMaxAgeDays`) for an exception with a known
+  removal trigger (e.g. a rollback host destroyed in a later phase). Past it the entry excepts nothing and is a blocking
+  `decision-expired` finding (like an allowlist expiry); the report row shows `expires`. Put the trigger in `why`.
 - `decision-stale` when the scope matches no finding of a check that ran;
   `decision-invalid` for bad shape, duplicates, wildcard scope, unknown scanner,
   future date; `decision-uncommitted` when the file is untracked or modified.

@@ -25,7 +25,9 @@
  *  - reviewed older than decisionsMaxAgeDays (180)  -> `decision-review-overdue`
  *  - file untracked or modified vs HEAD             -> `decision-uncommitted`
  *
- * There is NO expiry — the review date is the forcing function.
+ * There is no default expiry — the review date is the forcing function. An entry may carry an optional `expires`
+ * (YYYY-MM-DD, within reviewed + decisionsMaxAgeDays) for a thing that has a known removal trigger (e.g. a rollback host
+ * destroyed in a later phase): once past it the entry stops excepting anything and is a blocking `decision-expired` finding.
  *
  * RULE-WIDE SCOPE (the one sanctioned wildcard): `"scope": "*"` + `"maxSeverity": "<level>"`
  * covers EVERY finding of that exact scanner+rule up to that severity. It exists for advisory
@@ -123,7 +125,7 @@ export function validateDecisions(dl, { checkIds, maxAgeDays = DECISIONS_MAX_AGE
     const at = `${dl.path}#entries[${i}]`;
     const bad = (m) => findings.push(F("decision-invalid", `entry ${i}: ${m}`, dl.path));
     if (!e || typeof e !== "object" || Array.isArray(e)) return bad("not an object");
-    for (const k of Object.keys(e)) if (!["scanner", "rule", "scope", "decision", "why", "reviewed", "maxSeverity"].includes(k)) bad(`unknown key "${k}"`);
+    for (const k of Object.keys(e)) if (!["scanner", "rule", "scope", "decision", "why", "reviewed", "maxSeverity", "expires"].includes(k)) bad(`unknown key "${k}"`);
     const ruleWide = e.scope === "*";
     if (ruleWide && !SEVERITIES.includes(e.maxSeverity)) bad(`scope "*" (rule-wide) needs maxSeverity, one of ${SEVERITIES.join("|")}`);
     if (!ruleWide && e.maxSeverity !== undefined) bad("maxSeverity is only valid with scope \"*\"");
@@ -145,6 +147,13 @@ export function validateDecisions(dl, { checkIds, maxAgeDays = DECISIONS_MAX_AGE
     const rev = new Date(e.reviewed + "T00:00:00Z");
     if (Number.isNaN(rev.getTime())) return bad("reviewed is not a real date");
     if (rev.getTime() > today.getTime() + DAY) return bad("reviewed is in the future");
+    if (e.expires !== undefined) {
+      const ex = /^\d{4}-\d{2}-\d{2}$/.test(String(e.expires)) ? new Date(e.expires + "T00:00:00Z") : null;
+      if (!ex || Number.isNaN(ex.getTime())) bad("expires must be a real YYYY-MM-DD date");
+      else if (ex.getTime() < rev.getTime()) bad("expires is before reviewed");
+      else if (ex.getTime() > rev.getTime() + maxAgeDays * DAY) bad(`expires ${e.expires} is more than ${maxAgeDays} days after reviewed ${e.reviewed}`);
+      else if (isoDate(today) > e.expires) findings.push(F("decision-expired", `entry ${e.scanner}/${e.rule} ${e.scope} (${e.decision}) expired ${e.expires} — its removal trigger has passed; remove the entry (the finding blocks again)`, at));
+    }
     const age = Math.floor((today.getTime() - rev.getTime()) / DAY);
     if (age > maxAgeDays) findings.push(F("decision-review-overdue", `reviewed ${e.reviewed} (${age} days ago, max ${maxAgeDays}) — re-review: is ${e.scanner}/${e.rule} ${e.scope} STILL unfixable? fix it or bump \`reviewed\` (latest allowed ${isoDate(new Date(today.getTime() - maxAgeDays * DAY))} or newer)`, at));
   });
@@ -163,14 +172,16 @@ export function decisionsCommitted(root, dl) {
  * shape validation can except anything. `ranChecks` limits stale detection to
  * checks that executed in this invocation.
  */
-export function applyDecisions(findings, dl, { ranChecks = [] } = {}) {
-  const usable = dl.entries.filter((e) => e && typeof e === "object" && typeof e.scope === "string" && e.scope.trim() && (e.scope === "*" ? SEVERITIES.includes(e.maxSeverity) : !WILDCARD.test(e.scope)) && typeof e.rule === "string" && typeof e.scanner === "string");
+const expiredEntry = (e, today) => typeof e.expires === "string" && /^\d{4}-\d{2}-\d{2}$/.test(e.expires) && isoDate(today) > e.expires;
+
+export function applyDecisions(findings, dl, { ranChecks = [], today = new Date() } = {}) {
+  const usable = dl.entries.filter((e) => e && typeof e === "object" && !expiredEntry(e, today) && typeof e.scope === "string" && e.scope.trim() && (e.scope === "*" ? SEVERITIES.includes(e.maxSeverity) : !WILDCARD.test(e.scope)) && typeof e.rule === "string" && typeof e.scanner === "string");
   const used = new Set();
   const blocking = [];
   const backed = [];
   for (const f of findings) {
     const hit = usable.find((e) => entryMatches(e, f));
-    if (hit) { used.add(hit); backed.push({ ...f, decisionBacked: { decision: hit.decision, why: hit.why, reviewed: hit.reviewed, scope: hit.scope, maxSeverity: hit.maxSeverity } }); }
+    if (hit) { used.add(hit); backed.push({ ...f, decisionBacked: { decision: hit.decision, why: hit.why, reviewed: hit.reviewed, scope: hit.scope, maxSeverity: hit.maxSeverity, expires: hit.expires } }); }
     else blocking.push(f);
   }
   const stale = usable.filter((e) => ranChecks.includes(e.scanner) && !used.has(e))

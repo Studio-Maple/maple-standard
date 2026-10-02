@@ -6,6 +6,10 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Per-entry expiry for decision-backed exceptions (plugin v0.9.2).** Optional `expires` (ISO date, within `reviewed` + `decisionsMaxAgeDays`)
+  on an entry in `predeploy-decisions.json`: past it the entry stops excepting its finding and fails the gate as `decision-expired`; the report
+  row shows it. For exceptions with a known removal trigger; the allowlist stays reserved. Unit + e2e tests.
+
 - **store-secret.ps1 writes long secrets without leaking them (plugin v0.9.1).** It now calls Win32 `CredWriteW` directly (up to
   2560 bytes) instead of `New-StoredCredential`, which refused values over 512 bytes and printed a truncated copy of the secret in
   its error record. Every failure path prints a fixed message; verification compares stored length only.

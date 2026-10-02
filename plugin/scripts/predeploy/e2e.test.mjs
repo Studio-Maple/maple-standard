@@ -239,5 +239,15 @@ await t("a check that could not run neither confirms nor stales decision entries
   assert.ok(!ids.includes("decisions:decision-stale"), "must not stale an entry for a check that did not run: " + ids.join(","));
 });
 
+await t("a decision entry past its expires blocks the gate (decision-expired) and no longer excepts its finding", async () => {
+  commit(cfgOf([SUP]), withDecisions([...ALL_ENTRIES.slice(0, 3), dEntry("suppression-file:osv-scanner.toml", "osv-scanner.toml", { expires: daysAgo(1) })]));
+  assert.equal(await gate(), 1);
+  const ids = blockingIds();
+  assert.ok(ids.includes("decisions:decision-expired") && ids.includes("suppress:suppression-file:osv-scanner.toml"), ids.join());
+  commit(cfgOf([SUP]), withDecisions([...ALL_ENTRIES.slice(0, 3), dEntry("suppression-file:osv-scanner.toml", "osv-scanner.toml", { expires: inDays(5) })]));
+  assert.equal(await gate(), 0);
+  assert.equal(report().decisionExceptions.items.find((i) => i.scope === "osv-scanner.toml").expires, inDays(5));
+});
+
 console.log(`\n${n} e2e tests passed`);
 rmSync(repo, { recursive: true, force: true });

@@ -160,6 +160,22 @@ t("decision entry: review older than max age fails (configurable), future date i
   assert.deepEqual(dval([{ ...dgood, reviewed: "2026-03-01" }], { maxAgeDays: 365 }), []);
   assert.deepEqual(dval([{ ...dgood, reviewed: "2027-01-01" }]), ["decision-invalid"]);
 });
+t("decision entry: optional expires - valid passes, past expires blocks, must be within reviewed + max age", () => {
+  assert.deepEqual(dval([{ ...dgood, expires: "2026-10-18" }]), []);
+  assert.deepEqual(dval([{ ...dgood, expires: "2026-09-30" }]), ["decision-expired"]);
+  assert.deepEqual(dval([{ ...dgood, expires: "2026-10-01" }]), [], "the expiry day itself is still valid");
+  assert.deepEqual(dval([{ ...dgood, expires: "2027-03-19" }]), [], "reviewed 2026-09-20 + 180 days = 2027-03-19 is the last valid day");
+  assert.deepEqual(dval([{ ...dgood, expires: "2027-03-20" }]), ["decision-invalid"]);
+  assert.deepEqual(dval([{ ...dgood, expires: "2026-09-19" }]), ["decision-invalid"]);
+  assert.deepEqual(dval([{ ...dgood, expires: "soon" }]), ["decision-invalid"]);
+});
+t("decision entry: an expired entry excepts nothing (the finding blocks again) and is not also reported stale", () => {
+  const f = { check: "checkov", id: "CKV_AWS_109", severity: "high", message: "m", location: "infra/aws/kms.tf:10", resource: "aws_kms_key.rec" };
+  const live = applyDecisions([f], dl([{ ...dgood, expires: "2026-10-18" }]), { ranChecks: ["checkov"], today: dtoday });
+  assert.equal(live.backed.length, 1);
+  const dead = applyDecisions([f], dl([{ ...dgood, expires: "2026-09-30" }]), { ranChecks: ["checkov"], today: dtoday });
+  assert.equal(dead.backed.length, 0); assert.equal(dead.blocking.length, 1); assert.equal(dead.stale.length, 0);
+});
 t("decision entry: wildcard / directory / traversal scopes rejected", () => {
   for (const scope of ["infra/**", "infra/*.tf", "infra/aws/", "../x.tf", "a.tf#", "a.tf#b#c", "infra/aws/k?.tf"]) assert.deepEqual(dval([{ ...dgood, scope }]), ["decision-invalid"], scope);
 });
@@ -169,7 +185,7 @@ t("decision entry: why length, unknown scanner, bad id, duplicates, unknown keys
   assert.deepEqual(dval([{ ...dgood, scanner: "nope" }]), ["decision-invalid"]);
   assert.deepEqual(dval([{ ...dgood, decision: "160" }]), ["decision-invalid"]);
   assert.deepEqual(dval([dgood, dgood]), ["decision-invalid"]);
-  assert.deepEqual(dval([{ ...dgood, expires: "2027-01-01" }]), ["decision-invalid"]);
+  assert.deepEqual(dval([{ ...dgood, owner: "maayan" }]), ["decision-invalid"]);
 });
 const cf = (extra = {}) => ({ check: "checkov", id: "CKV_AWS_109", location: "infra/aws/kms.tf:12", resource: "aws_kms_key.rec", ...extra });
 t("decision scope: exact file#resource; survives line drift; other resource/rule/file does not match", () => {
