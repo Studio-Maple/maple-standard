@@ -6,6 +6,8 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Image build timeout (plugin v0.7.1).** A heavy image (the CUDA/torch emotion-server) exceeded the fixed 30-minute build timeout and surfaced as an empty `image-build-failed`; builds now default to 2 hours, per image `timeoutSec`, and say when they timed out.
+
 - **Third-party image scanning + rule-wide decision entries (plugin v0.7.0, D062).** `trivy-image` accepts
   `{ name, ref }` to pull and scan an image exactly as deployed (the VM runs many third-party images the gate
   never saw). Decision-backed entries may be rule-wide: `scope: "*"` + `maxSeverity` + an exact rule id, for

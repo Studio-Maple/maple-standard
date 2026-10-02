@@ -81,7 +81,7 @@ async function trivyImage(o, ctx) {
   if (missing) return { findings: [missing] };
   if (!resolveTool("docker").mode.startsWith("native")) return { findings: [F("tool-missing", "docker is required to build images for trivy-image")] };
   const images = o.images || [];
-  if (!images.length) return { findings: [F("misconfigured", "trivy-image needs options.images [{name, context, dockerfile?, buildArgs?} | {name, ref, platform?}]")] };
+  if (!images.length) return { findings: [F("misconfigured", "trivy-image needs options.images [{name, context, dockerfile?, buildArgs?} | {name, ref, platform?} (+ timeoutSec? for slow builds)]")] };
   const findings = [];
   for (const im of images) {
     // { name, ref } = a THIRD-PARTY image run as-is (pulled by the exact ref that is deployed, tag or digest);
@@ -106,8 +106,8 @@ async function trivyImage(o, ctx) {
       const pull = capture(`docker pull -q ${platform} ${shq(im.ref)}`);
       if (pull.status !== 0) { findings.push(F("image-pull-failed", `docker pull ${im.ref} failed: ${(pull.stderr || pull.stdout).trim().split(/\r?\n/).slice(-2).join(" | ")}`, im.name)); continue; }
     }
-    const build = im.ref ? { status: 0 } : capture(`docker build -q ${platform} ${secretFlags.join(" ")} -t ${shq(tag)} ${dockerfile} ${args} ${shq(join(ctx.scanRoot, im.context || "."))}`, { env: secretEnv });
-    if (build.status !== 0) { findings.push(F("image-build-failed", `docker build ${im.name} failed: ${(build.stderr || build.stdout).trim().split(/\r?\n/).slice(-3).join(" | ")}`, im.name)); continue; }
+    const build = im.ref ? { status: 0 } : capture(`docker build -q ${platform} ${secretFlags.join(" ")} -t ${shq(tag)} ${dockerfile} ${args} ${shq(join(ctx.scanRoot, im.context || "."))}`, { env: secretEnv, timeoutSec: im.timeoutSec || 7200 });
+    if (build.status !== 0) { findings.push(F("image-build-failed", `docker build ${im.name} failed${build.timedOut ? ` (timed out; raise images[].timeoutSec, default 7200)` : ""}: ${(build.stderr || build.stdout).trim().split(/\r?\n/).slice(-3).join(" | ")}`, im.name)); continue; }
     const tar = join(ctx.outDir, `image-${im.name}.tar`);
     const save = capture(`docker save -o ${shq(tar)} ${shq(tag)}`);
     if (save.status !== 0) { findings.push(F("image-save-failed", `docker save ${im.name} failed`, im.name)); continue; }
