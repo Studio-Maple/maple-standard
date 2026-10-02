@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-02",
+  "generated": "2026-10-03",
   "generator": "plugin/scripts/docs/generate-docs-index.mjs",
   "description": "Machine-readable map of docs/**/*.md preambles (OKF v0.1 frontmatter or legacy prose — docs/decisions.md D010). Regenerate after any preamble/description change: run this script (or check-docs-drift.mjs --fix).",
   "files": [
@@ -178,7 +178,8 @@
         ".dependency-cruiser.cjs",
         "knip.jsonc",
         "scripts/check-docs-drift.mjs",
-        "scripts/check-types-fresh.mjs"
+        "scripts/check-types-fresh.mjs",
+        "plugin/scripts/prepush/prepush-lib.sh"
       ],
       "related": [
         "../CLAUDE.md",

@@ -6,6 +6,19 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Affected-only pre-push gate + shared toolkit (plugin v0.10.0).** `scripts/ci-local.sh gate` (what `.husky/pre-push` runs) now selects
+  checks from the push range (the hook's own refs, else `@{upstream}`, else `origin/<default>`): changed-file eslint (`--cache`, per-checkout
+  cache), `tsc --incremental` only for `.ts/.tsx/.mts` changes, `vitest related`, knip/depcruise only when the import graph may have changed
+  (file added/deleted or an import/export line edited), build only for `src/`/`public/` changes, each plugin suite when its dir (or a shared
+  plugin file) changed, docs-drift only for `docs/`/checker/deleted paths. Every step prints "ran" or "skipped (reason)" plus a closing table.
+  Fails closed to the full fast tier: `--full` / `CI_FULL=1`, no resolvable range, or a change to the gate scripts, lockfile or shared config
+  (`PP_FULL_RE`); the live RLS/@smoke tier keeps its own app-path rule. A tree that already passed `gate` (same git TREE sha, clean tracked tree,
+  stamp under `.git/ci-gate-pass/`) is not re-run, so `/wt-land` + its push run it once. Heavy steps take one of N machine-wide slots
+  (`MAPLE_GATE_SLOTS`, default 2; waiting gates print "waiting for gate slot (k ahead)"; a dead PID frees its slot). New
+  `plugin/scripts/prepush/prepush-lib.sh` (+ `test:plugin-prepush`, 40+ checks incl. fail-closed, stamp, slot semaphore) is the reusable part:
+  adopters vendor it into their own `ci-local.sh`. `ci:fast|core|full` are unchanged in coverage. The pre-push selection decisions use bash
+  builtins only (no `$(...)`/grep/sed): on Windows under load a fork costs seconds and a gate makes ~40 decisions.
+  Documented in `docs/quality.md` ("Affected-only pre-push") and the plugin README.
 - **gitleaks path allowlists fixed (plugin v0.9.3).** The tree scan used an absolute `--source`, so gitleaks reported absolute file paths and every
   path-anchored allowlist (`^dir/file$`) in a repo's `.gitleaks.toml` silently never matched (the gate flagged fixtures the repo's own scan accepts). It now
   runs from inside the scan copy with `--source .`. `gitleaks.test.mjs` is the regression.

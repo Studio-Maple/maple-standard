@@ -11,8 +11,13 @@
 #   SKIP_LIVE_GATE=1 git push
 # runs the fast tier only and records that the live gate was skipped.
 
-echo "Pre-push: running local CI gate (fast + RLS + @smoke)..."
-bash scripts/ci-local.sh gate || {
+# AFFECTED-ONLY: CI_PREPUSH=1 makes ci-local.sh read the pushed refs git feeds
+# on stdin, so only the checks this push can affect run (every step prints
+# "ran" / "skipped (reason)"). Force everything: CI_FULL=1 git push
+# (or `pnpm ci:gate -- --full`). A tree that already passed `gate`
+# (e.g. /wt-land just ran it) is not re-run.
+echo "Pre-push: running local CI gate (affected-only fast + RLS + @smoke)..."
+CI_PREPUSH=1 bash scripts/ci-local.sh gate || {
   echo ""
   echo "Pre-push BLOCKED — gate failed. Fix it, or for a no-Docker box:"
   echo "  SKIP_LIVE_GATE=1 git push"
