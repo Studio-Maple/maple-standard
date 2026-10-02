@@ -13,6 +13,7 @@ All notable changes to this project. Format loosely follows
   `due`, an unlisted third-party pin, our own image listed, an invalid/stale entry, or an uncommitted file; shrink passes and is
   reported as progress. Snapshots grow only via `run.mjs --rebaseline-image-debt` (reviewable diff, due never extended, refuses on a
   failed scan). The stamp binds the file hash; the guard hook asks before editing it; `trivy-image` findings now carry `image`.
+  `trivy-image` waits and retries (12 x 15s) when trivy's cache is locked by another process instead of failing the image.
   `--rebaseline-image-debt` scans third-party images only and names the scan failure per image.
   New `imagedebt.test.mjs` (24 tests: growth, due date, shrink, own image, coverage, ref change, rebaseline, stamp binding).
 

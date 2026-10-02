@@ -123,7 +123,13 @@ async function trivyImage(o, ctx) {
       ? `trivy image --input ${shq(tar)} --scanners vuln,secret --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --ignorefile ${shq(join(ctx.outDir, "empty.ignore"))} --exit-code 0 --timeout ${trivyTimeout} --quiet --format json -o ${shq(join(ctx.outDir, report))}`
       : dockerRunCmd(t.image, { mounts: [[ctx.outDir, "/out", "rw"]], args: `image --input /out/image-${im.name}.tar --scanners vuln,secret --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --ignorefile /out/empty.ignore --exit-code 0 --timeout ${trivyTimeout} --quiet --format json -o /out/${report}` });
     writeFileSync(join(ctx.outDir, "empty.ignore"), "");
-    const scan = capture(cmd, { timeoutSec: scanSec });
+    let scan = capture(cmd, { timeoutSec: scanSec });
+    // trivy's cache is a single-writer bolt DB: another gate/trivy on this machine holds the lock for a while. Wait and retry
+    // instead of reporting an image as unscannable (a false failure that wastes a multi-minute scan cycle).
+    for (let attempt = 0; attempt < 12 && !existsSync(join(ctx.outDir, report)) && /cache may be in use by another process/.test(scan.stderr + scan.stdout); attempt++) {
+      spawnSync(process.execPath, ["-e", "setTimeout(()=>{},15000)"]);
+      scan = capture(cmd, { timeoutSec: scanSec });
+    }
     if (!existsSync(join(ctx.outDir, report))) {
       findings.push(FI(im, "image-scan-failed", `trivy produced no report for ${im.name}${scan.timedOut ? " (timed out)" : ""}: ${(scan.stderr || scan.stdout).trim().split(/\r?\n/).slice(-2).join(" | ").slice(0, 300)}`, im.name));
       if (!im.ref || pulledHere) capture(`docker image rm ${shq(tag)}`);
