@@ -6,6 +6,8 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Image scan timeout + visible scan failures (plugin v0.7.2).** Trivy's own default timeout is 5 minutes: a large image (CUDA/torch emotion-server) or a loaded machine hit it and the report was silently missing (surfaced only as `no-report`). Scans now get `--timeout` = the image's `timeoutSec` (default 2h) and a missing report is an `image-scan-failed` finding with trivy's last stderr lines.
+
 - **Image build timeout (plugin v0.7.1).** A heavy image (the CUDA/torch emotion-server) exceeded the fixed 30-minute build timeout and surfaced as an empty `image-build-failed`; builds now default to 2 hours, per image `timeoutSec`, and say when they timed out.
 
 - **Third-party image scanning + rule-wide decision entries (plugin v0.7.0, D062).** `trivy-image` accepts

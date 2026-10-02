@@ -109,15 +109,24 @@ async function trivyImage(o, ctx) {
     const build = im.ref ? { status: 0 } : capture(`docker build -q ${platform} ${secretFlags.join(" ")} -t ${shq(tag)} ${dockerfile} ${args} ${shq(join(ctx.scanRoot, im.context || "."))}`, { env: secretEnv, timeoutSec: im.timeoutSec || 7200 });
     if (build.status !== 0) { findings.push(F("image-build-failed", `docker build ${im.name} failed${build.timedOut ? ` (timed out; raise images[].timeoutSec, default 7200)` : ""}: ${(build.stderr || build.stdout).trim().split(/\r?\n/).slice(-3).join(" | ")}`, im.name)); continue; }
     const tar = join(ctx.outDir, `image-${im.name}.tar`);
-    const save = capture(`docker save -o ${shq(tar)} ${shq(tag)}`);
+    // trivy's own default timeout is 5 minutes, which a large image (CUDA/torch) or a busy machine exceeds and
+    // then leaves NO report; scans get the same generous budget as builds.
+    const scanSec = im.timeoutSec || 7200;
+    const trivyTimeout = `${Math.round(scanSec / 60)}m`;
+    const save = capture(`docker save -o ${shq(tar)} ${shq(tag)}`, { timeoutSec: scanSec });
     if (save.status !== 0) { findings.push(F("image-save-failed", `docker save ${im.name} failed`, im.name)); continue; }
     const report = `trivy-image-${im.name}.json`;
     const cmd = t.mode === "native"
-      ? `trivy image --input ${shq(tar)} --scanners vuln,secret --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --ignorefile ${shq(join(ctx.outDir, "empty.ignore"))} --exit-code 0 --quiet --format json -o ${shq(join(ctx.outDir, report))}`
-      : dockerRunCmd(t.image, { mounts: [[ctx.outDir, "/out", "rw"]], args: `image --input /out/image-${im.name}.tar --scanners vuln,secret --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --ignorefile /out/empty.ignore --exit-code 0 --quiet --format json -o /out/${report}` });
+      ? `trivy image --input ${shq(tar)} --scanners vuln,secret --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --ignorefile ${shq(join(ctx.outDir, "empty.ignore"))} --exit-code 0 --timeout ${trivyTimeout} --quiet --format json -o ${shq(join(ctx.outDir, report))}`
+      : dockerRunCmd(t.image, { mounts: [[ctx.outDir, "/out", "rw"]], args: `image --input /out/image-${im.name}.tar --scanners vuln,secret --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --ignorefile /out/empty.ignore --exit-code 0 --timeout ${trivyTimeout} --quiet --format json -o /out/${report}` });
     writeFileSync(join(ctx.outDir, "empty.ignore"), "");
-    capture(cmd);
-    const text = existsSync(join(ctx.outDir, report)) ? readFileSync(join(ctx.outDir, report), "utf8") : null;
+    const scan = capture(cmd, { timeoutSec: scanSec });
+    if (!existsSync(join(ctx.outDir, report))) {
+      findings.push(F("image-scan-failed", `trivy produced no report for ${im.name}${scan.timedOut ? " (timed out)" : ""}: ${(scan.stderr || scan.stdout).trim().split(/\r?\n/).slice(-2).join(" | ").slice(0, 300)}`, im.name));
+      if (!im.ref || pulledHere) capture(`docker image rm ${shq(tag)}`);
+      continue;
+    }
+    const text = readFileSync(join(ctx.outDir, report), "utf8");
     for (const f of parseOutput("trivy-json", { reports: [report], readReport: () => text })) findings.push({ ...f, location: `${im.name}: ${f.location}` });
     // built images are always ours to remove; a pulled ref only if it was not on this machine already
     if (!im.ref || pulledHere) capture(`docker image rm ${shq(tag)}`);
