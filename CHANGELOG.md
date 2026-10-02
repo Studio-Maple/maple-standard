@@ -6,6 +6,15 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Third-party image debt (plugin v0.8.0, D063).** Opt-in `predeploy.imageDebt` (`ownImages`, `file`, `maxDays`): a committed
+  `predeploy-image-debt.json` listing each third-party image (exact pin, owner, plan, `due`, snapshot of finding keys). Its
+  findings are reported in their own `THIRD-PARTY IMAGE DEBT: N findings across M images, due D` NOT-ZERO block, never counted as
+  zero, never in the blocking count. The gate fails on growth (a finding outside the snapshot), a changed digest, findings left after
+  `due`, an unlisted third-party pin, our own image listed, an invalid/stale entry, or an uncommitted file; shrink passes and is
+  reported as progress. Snapshots grow only via `run.mjs --rebaseline-image-debt` (reviewable diff, due never extended, refuses on a
+  failed scan). The stamp binds the file hash; the guard hook asks before editing it; `trivy-image` findings now carry `image`.
+  New `imagedebt.test.mjs` (24 tests: growth, due date, shrink, own image, coverage, ref change, rebaseline, stamp binding).
+
 - **Image scan timeout + visible scan failures (plugin v0.7.2).** Trivy's own default timeout is 5 minutes: a large image (CUDA/torch emotion-server) or a loaded machine hit it and the report was silently missing (surfaced only as `no-report`). Scans now get `--timeout` = the image's `timeoutSec` (default 2h) and a missing report is an `image-scan-failed` finding with trivy's last stderr lines.
 
 - **Image build timeout (plugin v0.7.1).** A heavy image (the CUDA/torch emotion-server) exceeded the fixed 30-minute build timeout and surfaced as an empty `image-build-failed`; builds now default to 2 hours, per image `timeoutSec`, and say when they timed out.

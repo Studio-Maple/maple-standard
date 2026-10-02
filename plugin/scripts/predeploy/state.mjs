@@ -23,6 +23,7 @@ import { join } from "node:path";
 import { allowlistCommitted, allowlistHash, loadAllowlist } from "./allowlist.mjs";
 import { configHash, normalize } from "./config.mjs";
 import { decisionsCommitted, decisionsHash, loadDecisions } from "./decisions.mjs";
+import { imageDebtCommitted, imageDebtHash, loadImageDebt } from "./imagedebt.mjs";
 import { headSha, loadMapleConfig, nowIso, stateDir, trackedDirty } from "./lib.mjs";
 
 function sub(root, name) {
@@ -134,6 +135,11 @@ export function verifyStamp(root) {
   if (stamp.allowlistHash !== allowlistHash(al)) return { ok: false, sha, reason: "allowlist changed since the stamp was issued — re-run the gate" };
   const dl = loadDecisions(root, pd.decisions);
   if (stamp.decisionsHash !== decisionsHash(dl)) return { ok: false, sha, reason: "decision-backed exceptions changed since the stamp was issued — re-run the gate" };
+  if (pd.imageDebt) {
+    const idl = loadImageDebt(root, pd.imageDebt.file);
+    if (stamp.imageDebtHash !== imageDebtHash(idl)) return { ok: false, sha, reason: "third-party image debt file changed since the stamp was issued — re-run the gate" };
+    if (!imageDebtCommitted(root, idl)) return { ok: false, sha, reason: "third-party image debt file is not committed" };
+  }
   if (trackedDirty(root)) return { ok: false, sha, reason: "tracked files differ from HEAD — the stamp covers the committed tree only; commit or stash" };
   if (!allowlistCommitted(root, al)) return { ok: false, sha, reason: "allowlist is not committed" };
   if (!decisionsCommitted(root, dl)) return { ok: false, sha, reason: "decision-backed exceptions file is not committed" };

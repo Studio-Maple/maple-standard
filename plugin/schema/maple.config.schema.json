@@ -286,6 +286,15 @@
         "allowlistMaxDays": { "type": "integer", "minimum": 1 },
         "decisions": { "type": "string", "description": "Repo-relative path of the committed decision-backed (permanent) exceptions file. Default predeploy-decisions.json. Essentials only; every entry needs an existing D### in docs.decisions." },
         "decisionsMaxAgeDays": { "type": "integer", "minimum": 1, "maximum": 365, "description": "Max age of an entry's `reviewed` date before the gate fails it for re-review. Default 180." },
+        "imageDebt": {
+          "type": "object", "additionalProperties": false, "required": ["ownImages"],
+          "description": "Opt-in dated third-party image debt ledger (D063). Our own images (ownImages) can never be listed; every other trivy-image image needs an entry in `file` with owner, plan, due and a snapshot of finding keys. No growth, fails after the due date. Written only by run.mjs --rebaseline-image-debt.",
+          "properties": {
+            "ownImages": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "trivy-image names of OUR images; they must have zero findings." },
+            "file": { "type": "string", "minLength": 1, "description": "Repo-relative path of the committed ledger. Default predeploy-image-debt.json." },
+            "maxDays": { "type": "integer", "minimum": 1, "maximum": 90, "description": "Max days from `baselined` to `due`. Default 30." }
+          }
+        },
         "stampTtlHours": { "type": "integer", "minimum": 1 },
         "minSeverity": { "enum": ["info", "low", "medium", "high", "critical"] },
         "concurrency": { "type": "integer", "minimum": 1 },

@@ -14,6 +14,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D063 | 2026-10-02 | Third-party image debt is a dated, shrink-only gate category, never an allowlist
+Third-party VM images cannot reach zero findings on our timeline. predeploy.imageDebt: a committed per-image ledger (owner, plan, due, snapshot). Reported as its own NOT ZERO block; the gate fails on any finding outside the snapshot, a changed digest, findings left after due, an unlisted third-party pin, our own image listed, or an uncommitted file. Snapshots grow only via run.mjs --rebaseline-image-debt (reviewable diff, due never extended). Stamp binds the file hash. Builds on D061/D062.
+
 ## D062 | 2026-10-01 | Gate scans third-party images by ref; decision entries may be rule-wide under a severity ceiling
 trivy-image takes {name, ref} to pull and scan an image exactly as deployed (the VM runs ~15 third-party images the gate never saw: a hole, not a zero). A decision-backed entry may use scope * only with an exact rule id and maxSeverity: for advisory noise that belongs to the rule, not a resource (e.g. Supabase unused_index), where one entry per finding would bury the list. A worse finding of the same rule still blocks, and the report counts what it covers. Builds on D061.
 

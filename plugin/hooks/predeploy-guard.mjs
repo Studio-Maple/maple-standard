@@ -96,6 +96,8 @@ async function run(payload) {
     const rel = relative(root, abs).split(sep).join("/");
     if (rel === String(pd.decisions).replace(/\\/g, "/")) {
       emit("ask", `Owner approval needed: ${rel} holds PERMANENT decision-backed exceptions. Essentials only — each entry needs an existing D###, a "cannot be fixed" reason and a fresh review date. If it can be fixed, fix it instead.`);
+    } else if (pd.imageDebt && rel === String(pd.imageDebt.file).replace(/\\/g, "/")) {
+      emit("ask", `Owner approval needed: ${rel} is the dated third-party image debt ledger. Snapshots are written only by \`run.mjs --rebaseline-image-debt\` (a reviewable diff); due dates are never extended, and our own images can never be listed.`);
     } else if (rel === String(pd.allowlist).replace(/\\/g, "/") || rel === "maple.config.json") {
       emit("ask", `Owner approval needed: ${rel} defines the pre-deploy gate's exceptions/configuration. Allowlist entries need a reason, an owner and an expiry — confirm this change is reviewed.`);
     }

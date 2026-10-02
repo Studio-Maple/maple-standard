@@ -11,6 +11,7 @@
 import { canonicalJson, sha256, SEVERITIES } from "./lib.mjs";
 import { PARSER_KINDS } from "./parsers.mjs";
 import { PRESET_NAMES } from "./catalog.mjs";
+import { IMAGE_DEBT_DEFAULT_PATH, IMAGE_DEBT_MAX_DAYS_DEFAULT } from "./imagedebt.mjs";
 
 export const DEFAULTS = {
   enabled: true,
@@ -44,6 +45,7 @@ export function normalize(cfg) {
     ...DEFAULTS,
     ...p,
     docker: { ...DEFAULTS.docker, ...(p.docker || {}) },
+    imageDebt: isObj(p.imageDebt) ? { file: IMAGE_DEBT_DEFAULT_PATH, maxDays: IMAGE_DEBT_MAX_DAYS_DEFAULT, ownImages: [], ...p.imageDebt } : undefined,
     emergency: { ...DEFAULTS.emergency, ...(p.emergency || {}) },
     checks: p.checks || [],
     deployGuard: { enabled: true, patterns: [], ...(p.deployGuard || {}) },
@@ -60,7 +62,7 @@ export function validatePredeploy(cfg) {
   const p = cfg?.predeploy;
   if (p === undefined) return e;
   if (!isObj(p)) return ["predeploy: must be an object"];
-  const known = ["enabled", "policyRef", "allowlist", "allowlistMaxDays", "decisions", "decisionsMaxAgeDays", "stampTtlHours", "minSeverity", "concurrency", "allowlistUnused", "docker", "checks", "remote", "deployGuard", "emergency", "liveScan"];
+  const known = ["enabled", "policyRef", "allowlist", "allowlistMaxDays", "decisions", "decisionsMaxAgeDays", "stampTtlHours", "minSeverity", "concurrency", "allowlistUnused", "docker", "checks", "remote", "deployGuard", "emergency", "liveScan", "imageDebt"];
   for (const k of Object.keys(p)) if (!known.includes(k)) e.push(`predeploy.${k}: unknown key`);
   if (p.enabled !== undefined && typeof p.enabled !== "boolean") e.push("predeploy.enabled: must be a boolean");
   if (p.policyRef !== undefined && !isStr(p.policyRef)) e.push("predeploy.policyRef: must be a non-empty string (e.g. a decision id)");
@@ -71,6 +73,20 @@ export function validatePredeploy(cfg) {
   for (const k of ["allowlistMaxDays", "stampTtlHours", "concurrency"]) if (p[k] !== undefined && !(Number.isInteger(p[k]) && p[k] >= 1)) e.push(`predeploy.${k}: must be a positive integer`);
   if (p.allowlistUnused !== undefined && !["fail", "warn"].includes(p.allowlistUnused)) e.push("predeploy.allowlistUnused: fail | warn (default fail; warn only while a baseline allowlist is being burned down)");
   if (p.minSeverity !== undefined && !SEVERITIES.includes(p.minSeverity)) e.push(`predeploy.minSeverity: one of ${SEVERITIES.join("|")}`);
+
+  const idb = p.imageDebt;
+  if (idb !== undefined) {
+    if (!isObj(idb)) e.push("predeploy.imageDebt: must be an object { ownImages: [...], file?, maxDays? }");
+    else {
+      for (const k of Object.keys(idb)) if (!["file", "ownImages", "maxDays"].includes(k)) e.push(`predeploy.imageDebt.${k}: unknown key`);
+      if (!Array.isArray(idb.ownImages) || !idb.ownImages.every(isStr)) e.push("predeploy.imageDebt.ownImages: required array of the trivy-image names of OUR images (they can never be listed as debt)");
+      if (idb.file !== undefined && !isStr(idb.file)) e.push("predeploy.imageDebt.file: must be a repo-relative path string");
+      const f = isStr(idb.file) ? idb.file : IMAGE_DEBT_DEFAULT_PATH;
+      if (f === (p.allowlist ?? DEFAULTS.allowlist) || f === (p.decisions ?? DEFAULTS.decisions)) e.push("predeploy.imageDebt.file: must differ from the allowlist and decisions files");
+      if (idb.maxDays !== undefined && !(Number.isInteger(idb.maxDays) && idb.maxDays >= 1 && idb.maxDays <= 90)) e.push("predeploy.imageDebt.maxDays: integer 1..90 (max days from `baselined` to `due`; default 30)");
+      if (!(p.checks || []).some((c) => c?.preset === "trivy-image")) e.push("predeploy.imageDebt: needs a trivy-image check (it is the pin list the debt is checked against)");
+    }
+  }
 
   const checks = p.checks;
   if (!Array.isArray(checks) || checks.length === 0) e.push("predeploy.checks: required non-empty array");

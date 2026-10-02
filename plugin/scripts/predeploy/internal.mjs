@@ -14,6 +14,7 @@ import { getCredential, credentialExists } from "./credentials.mjs";
 import { git, runShell } from "./lib.mjs";
 
 const F = (id, message, location = "", severity = "high") => ({ id, severity, message, location });
+const IMAGE_INFRA_ID = /^(no-report|unparseable-report)$/;
 
 function tool(ctx, name) {
   const t = resolveTool(name, { allowDocker: ctx.docker, pull: ctx.pull });
@@ -83,6 +84,8 @@ async function trivyImage(o, ctx) {
   const images = o.images || [];
   if (!images.length) return { findings: [F("misconfigured", "trivy-image needs options.images [{name, context, dockerfile?, buildArgs?} | {name, ref, platform?} (+ timeoutSec? for slow builds)]")] };
   const findings = [];
+  // Every per-image finding carries { image }: the image-debt ledger (imagedebt.mjs) keys on it.
+  const FI = (im, ...a) => ({ ...F(...a), image: im.name });
   for (const im of images) {
     // { name, ref } = a THIRD-PARTY image run as-is (pulled by the exact ref that is deployed, tag or digest);
     // { name, context } = an image we build from the candidate tree.
@@ -95,26 +98,26 @@ async function trivyImage(o, ctx) {
     for (const sec of im.secrets || []) {
       // { id, from: "gh-auth-token" | { credential: "<store target>" } } -> BuildKit --secret, value only in env of this one command
       const value = sec.from === "gh-auth-token" ? (capture("gh auth token").stdout || "").trim() : getCredential(sec.from?.credential);
-      if (!value) { findings.push(F("secret-missing", `build secret ${sec.id} for image ${im.name} could not be resolved`, im.name)); continue; }
+      if (!value) { findings.push(FI(im, "secret-missing", `build secret ${sec.id} for image ${im.name} could not be resolved`, im.name)); continue; }
       secretEnv[`PREDEPLOY_SECRET_${sec.id}`] = value;
       secretFlags.push(`--secret id=${sec.id},env=PREDEPLOY_SECRET_${sec.id}`);
     }
     const platform = im.platform ? `--platform ${shq(im.platform)}` : "";
     if (im.ref) {
-      if (im.context || im.dockerfile) { findings.push(F("misconfigured", `image ${im.name}: ref and context are mutually exclusive`, im.name)); continue; }
+      if (im.context || im.dockerfile) { findings.push(FI(im, "misconfigured", `image ${im.name}: ref and context are mutually exclusive`, im.name)); continue; }
       pulledHere = capture(`docker image inspect ${shq(im.ref)}`).status !== 0;
       const pull = capture(`docker pull -q ${platform} ${shq(im.ref)}`);
-      if (pull.status !== 0) { findings.push(F("image-pull-failed", `docker pull ${im.ref} failed: ${(pull.stderr || pull.stdout).trim().split(/\r?\n/).slice(-2).join(" | ")}`, im.name)); continue; }
+      if (pull.status !== 0) { findings.push(FI(im, "image-pull-failed", `docker pull ${im.ref} failed: ${(pull.stderr || pull.stdout).trim().split(/\r?\n/).slice(-2).join(" | ")}`, im.name)); continue; }
     }
     const build = im.ref ? { status: 0 } : capture(`docker build -q ${platform} ${secretFlags.join(" ")} -t ${shq(tag)} ${dockerfile} ${args} ${shq(join(ctx.scanRoot, im.context || "."))}`, { env: secretEnv, timeoutSec: im.timeoutSec || 7200 });
-    if (build.status !== 0) { findings.push(F("image-build-failed", `docker build ${im.name} failed${build.timedOut ? ` (timed out; raise images[].timeoutSec, default 7200)` : ""}: ${(build.stderr || build.stdout).trim().split(/\r?\n/).slice(-3).join(" | ")}`, im.name)); continue; }
+    if (build.status !== 0) { findings.push(FI(im, "image-build-failed", `docker build ${im.name} failed${build.timedOut ? ` (timed out; raise images[].timeoutSec, default 7200)` : ""}: ${(build.stderr || build.stdout).trim().split(/\r?\n/).slice(-3).join(" | ")}`, im.name)); continue; }
     const tar = join(ctx.outDir, `image-${im.name}.tar`);
     // trivy's own default timeout is 5 minutes, which a large image (CUDA/torch) or a busy machine exceeds and
     // then leaves NO report; scans get the same generous budget as builds.
     const scanSec = im.timeoutSec || 7200;
     const trivyTimeout = `${Math.round(scanSec / 60)}m`;
     const save = capture(`docker save -o ${shq(tar)} ${shq(tag)}`, { timeoutSec: scanSec });
-    if (save.status !== 0) { findings.push(F("image-save-failed", `docker save ${im.name} failed`, im.name)); continue; }
+    if (save.status !== 0) { findings.push(FI(im, "image-save-failed", `docker save ${im.name} failed`, im.name)); continue; }
     const report = `trivy-image-${im.name}.json`;
     const cmd = t.mode === "native"
       ? `trivy image --input ${shq(tar)} --scanners vuln,secret --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --ignorefile ${shq(join(ctx.outDir, "empty.ignore"))} --exit-code 0 --timeout ${trivyTimeout} --quiet --format json -o ${shq(join(ctx.outDir, report))}`
@@ -122,12 +125,12 @@ async function trivyImage(o, ctx) {
     writeFileSync(join(ctx.outDir, "empty.ignore"), "");
     const scan = capture(cmd, { timeoutSec: scanSec });
     if (!existsSync(join(ctx.outDir, report))) {
-      findings.push(F("image-scan-failed", `trivy produced no report for ${im.name}${scan.timedOut ? " (timed out)" : ""}: ${(scan.stderr || scan.stdout).trim().split(/\r?\n/).slice(-2).join(" | ").slice(0, 300)}`, im.name));
+      findings.push(FI(im, "image-scan-failed", `trivy produced no report for ${im.name}${scan.timedOut ? " (timed out)" : ""}: ${(scan.stderr || scan.stdout).trim().split(/\r?\n/).slice(-2).join(" | ").slice(0, 300)}`, im.name));
       if (!im.ref || pulledHere) capture(`docker image rm ${shq(tag)}`);
       continue;
     }
     const text = readFileSync(join(ctx.outDir, report), "utf8");
-    for (const f of parseOutput("trivy-json", { reports: [report], readReport: () => text })) findings.push({ ...f, location: `${im.name}: ${f.location}` });
+    for (const f of parseOutput("trivy-json", { reports: [report], readReport: () => text })) findings.push({ ...f, image: im.name, location: `${im.name}: ${f.location}`, imageFinding: !IMAGE_INFRA_ID.test(f.id) });
     // built images are always ours to remove; a pulled ref only if it was not on this machine already
     if (!im.ref || pulledHere) capture(`docker image rm ${shq(tag)}`);
   }

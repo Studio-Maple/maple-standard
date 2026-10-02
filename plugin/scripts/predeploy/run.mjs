@@ -4,6 +4,7 @@
  *
  *   node run.mjs [--root DIR] [--check ID ...] [--allow-dirty] [--pull] [--json] [--list]
  *                [--live]   (delegates to the live active scan, see livescan.mjs)
+ *                [--rebaseline-image-debt [--owner X --plan "..." --due YYYY-MM-DD]]   (see imagedebt.mjs)
  *
  * Runs EVERY configured check against the exact HEAD commit, applies the
  * expiring allowlist, writes <state>/reports/<sha>.json, and — only when
@@ -18,6 +19,7 @@ import { PRESETS, ToolMissing } from "./catalog.mjs";
 import { configHash, normalize, validatePredeploy } from "./config.mjs";
 import { applyAllowlist, allowlistCommitted, allowlistHash, loadAllowlist, validateEntries } from "./allowlist.mjs";
 import { applyDecisions, decisionsCommitted, decisionsHash, ledgerDecisionIds, loadDecisions, summarizeDecisions, validateDecisions } from "./decisions.mjs";
+import { buildBaseline, evaluateImageDebt, imageDebtCommitted, imageDebtHash, loadImageDebt, scannedImages, trivyPins } from "./imagedebt.mjs";
 import { nativePath, installHints, shq } from "./tools.mjs";
 import { parseOutput } from "./parsers.mjs";
 import { GATE_VERSION, findProjectRoot, git, headSha, loadMapleConfig, nowIso, runShell, sevRank, stateDir, trackedDirty } from "./lib.mjs";
@@ -25,7 +27,7 @@ import { liveScanDebt, reportPath, stampPath, writeJson } from "./state.mjs";
 import { runRemote } from "./remote.mjs";
 
 function parseArgs(argv) {
-  const a = { checks: [], root: null, json: false, pull: false, allowDirty: false, list: false, live: false };
+  const a = { checks: [], root: null, json: false, pull: false, allowDirty: false, list: false, live: false, rebaseline: false, owner: null, plan: null, due: null };
   for (let i = 0; i < argv.length; i++) {
     const v = argv[i];
     if (v === "--root") a.root = argv[++i];
@@ -35,6 +37,10 @@ function parseArgs(argv) {
     else if (v === "--allow-dirty") a.allowDirty = true;
     else if (v === "--list") a.list = true;
     else if (v === "--live") a.live = true;
+    else if (v === "--rebaseline-image-debt") a.rebaseline = true;
+    else if (v === "--owner") a.owner = argv[++i];
+    else if (v === "--plan") a.plan = argv[++i];
+    else if (v === "--due") a.due = argv[++i];
     else { console.error(`unknown argument: ${v}`); process.exit(2); }
   }
   return a;
@@ -51,7 +57,7 @@ function makeCtx(root, pd, sha, outDir, scanRoot, args) {
     rootPosix: posix(root), scanRootPosix: posix(scanRoot), outDirPosix: posix(outDir),
     stateDir: stateDir(root),
     docker: pd.docker.enabled !== false,
-    exemptFiles: [pd.allowlist, pd.decisions],
+    exemptFiles: [pd.allowlist, pd.decisions, ...(pd.imageDebt ? [pd.imageDebt.file] : [])],
     pull: args.pull || process.env.PREDEPLOY_PULL === "1",
     listFiles: (re) => tracked.filter((f) => re.test(f)),
     lockDirs: () => [...new Set(tracked.filter((f) => /(^|\/)package-lock\.json$/.test(f)).map((f) => f.replace(/\/?package-lock\.json$/, "") || "."))],
@@ -153,7 +159,20 @@ function summarizeAllowlist(allowed, al) {
   return { total: allowed.length, entries: al.entries.length, lines, byExpiry: Object.fromEntries(byExpiry) };
 }
 
-export async function main(argv) {
+/** `--rebaseline-image-debt`: write a fresh snapshot file from this run's scans; the owner reviews and commits the diff. */
+function rebaseline(root, pd, idl, findings, { pins, ranImages, today, args }) {
+  const r = buildBaseline(findings, idl, { pins, ownImages: pd.imageDebt.ownImages, ranImages, today, maxDays: pd.imageDebt.maxDays, flags: { owner: args.owner, plan: args.plan, due: args.due } });
+  if (r.errors.length) { console.error("cannot re-baseline image debt:\n  " + r.errors.join("\n  ")); return 2; }
+  writeFileSync(join(root, pd.imageDebt.file), r.text);
+  console.log("");
+  for (const c of r.changes) console.log(c.dropped ? `  - ${c.name}: entry dropped (not a pinned third-party image any more)` : `  ${c.created ? "+ NEW" : "  "} ${c.name}: ${c.total} finding(s) (+${c.added} added, -${c.removed} removed)`);
+  const added = r.changes.reduce((n, c) => n + (c.added || 0), 0);
+  console.log(`\nwrote ${pd.imageDebt.file}${added ? ` - it ADDS ${added} finding(s) to the accepted debt; review the diff` : ""}. Commit it (the gate needs it committed); due dates are preserved, never extended.`);
+  return 0;
+}
+
+export async function main(argv, opts = {}) {
+  const today = opts.today || new Date();
   const args = parseArgs(argv);
   const root = args.root ? findProjectRoot(args.root) : findProjectRoot(process.env.CLAUDE_PROJECT_DIR || process.cwd());
   if (!root) { console.error("no maple.config.json found"); return 2; }
@@ -168,6 +187,11 @@ export async function main(argv) {
   if (!pd) { console.error("maple.config.json has no `predeploy` block — nothing to run"); return 2; }
   if (args.list) { for (const c of pd.checks) console.log(`${c.id}\t${c.github ? "github:" + c.github : c.preset ? "preset:" + c.preset : "command"}`); return 0; }
 
+  if (args.rebaseline) {
+    if (!pd.imageDebt) { console.error("--rebaseline-image-debt needs predeploy.imageDebt in maple.config.json"); return 2; }
+    if (args.checks.length) { console.error("--rebaseline-image-debt scans every trivy-image check itself; do not combine with --check"); return 2; }
+    args.checks = pd.checks.filter((c) => c.preset === "trivy-image").map((c) => c.id);
+  }
   const subset = args.checks.length > 0;
   for (const id of args.checks) if (!pd.checks.some((c) => c.id === id)) { console.error(`no such check: ${id}`); return 2; }
   const dirty = trackedDirty(root);
@@ -177,6 +201,7 @@ export async function main(argv) {
   const committed = allowlistCommitted(root, al);
   const dl = loadDecisions(root, pd.decisions);
   const dCommitted = decisionsCommitted(root, dl);
+  const idl = pd.imageDebt ? loadImageDebt(root, pd.imageDebt.file) : null;
 
   const runDir = join(stateDir(root), "runs", sha.slice(0, 12));
   const outDir = join(runDir, "out");
@@ -214,11 +239,22 @@ export async function main(argv) {
   const ranChecks = results.map((r) => r.id);
   const decisionRanChecks = results.filter((r) => !r.findings.some((f) => INFRA_FAILURE.test(f.id))).map((r) => r.id);
   const allCheckIds = [...pd.checks.map((c) => c.id), "live-scan"];
+  let imageDebt = null;
+  if (pd.imageDebt) {
+    const pins = trivyPins(pd);
+    const ranImages = scannedImages(results, pins);
+    if (args.rebaseline) return rebaseline(root, pd, idl, allFindings, { pins, ranImages, today, args });
+    imageDebt = evaluateImageDebt(allFindings, idl, { pins, ownImages: pd.imageDebt.ownImages, ranImages, today, maxDays: pd.imageDebt.maxDays });
+    allFindings = imageDebt.remaining;
+  }
+  const idCommitted = idl ? imageDebtCommitted(root, idl) : true;
   const decided = applyDecisions(allFindings, dl, { ranChecks: decisionRanChecks });
   const structural = [
     ...validateEntries(al, { checkIds: allCheckIds, maxDays: pd.allowlistMaxDays }),
     ...validateDecisions(dl, { checkIds: allCheckIds, maxAgeDays: pd.decisionsMaxAgeDays, ledger: dl.entries.length ? ledgerDecisionIds(root) : { ids: new Set(), error: null, file: "" } }),
     ...decided.stale,
+    ...(imageDebt ? imageDebt.blocking : []),
+    ...(idCommitted ? [] : [{ check: "image-debt", id: "image-debt-uncommitted", severity: "high", message: "third-party image debt file is untracked or modified - the snapshot and due dates must be committed and reviewed", location: idl.path }]),
     ...(dCommitted ? [] : [{ check: "decisions", id: "decision-uncommitted", severity: "high", message: "decision-backed exceptions file is untracked or modified — permanent exceptions must be committed and reviewed", location: dl.path }]),
     ...(committed ? [] : [{ check: "allowlist", id: "allowlist-uncommitted", severity: "high", message: "allowlist file is untracked or modified — exceptions must be committed and reviewed", location: al.path }]),
   ];
@@ -228,6 +264,7 @@ export async function main(argv) {
   const unusedWarn = pd.allowlistUnused === "warn";
   const allBlocking = [...blocking, ...(unusedWarn ? [] : unused), ...structural, ...debtFindings];
   const baseline = summarizeAllowlist(allowed, al);
+  const debtLines = imageDebt ? imageDebt.lines : [];
   const decisionSummary = summarizeDecisions(decided.backed, dl, pd.decisionsMaxAgeDays);
   const unusedNote = unusedWarn && unused.length ? [`${unused.length} allowlist entr${unused.length === 1 ? "y" : "ies"} matched nothing this run (fixed or flaky) — prune them (predeploy.allowlistUnused=warn)`] : [];
 
@@ -237,15 +274,18 @@ export async function main(argv) {
     blocking: allBlocking.filter((f) => f.check === r.id).length,
     allowlisted: allowed.filter((f) => f.check === r.id).length,
     decisionBacked: decided.backed.filter((f) => f.check === r.id).length,
+    imageDebt: imageDebt ? imageDebt.debt.filter((f) => f.check === r.id).length : 0,
     notes: r.notes, meta: r.meta,
   }));
   const report = {
     allowlistSummary: baseline,
     decisionExceptions: { ...decisionSummary, items: decisionItems(decided.backed) },
+    imageDebt: imageDebt ? { total: imageDebt.total, imagesWithDebt: imageDebt.imagesWithDebt, dueEarliest: imageDebt.dueEarliest, rule: imageDebt.rule, images: imageDebt.images } : null,
+    imageDebtHash: idl ? imageDebtHash(idl) : null,
     version: GATE_VERSION, sha, ts: nowIso(), subset, dirty, policyRef: pd.policyRef || null,
     configHash: configHash(pd), allowlistHash: allowlistHash(al), decisionsHash: decisionsHash(dl),
     status: allBlocking.length === 0 ? "pass" : "fail",
-    totals: { blocking: allBlocking.length, allowlisted: allowed.length, decisionBacked: decided.backed.length },
+    totals: { blocking: allBlocking.length, allowlisted: allowed.length, decisionBacked: decided.backed.length, imageDebt: imageDebt ? imageDebt.total : 0 },
     checks: perCheck, blocking: allBlocking, allowlisted: allowed, decisionBacked: decided.backed,
     liveScan: debt,
   };
@@ -255,11 +295,12 @@ export async function main(argv) {
   else {
     console.log("");
     for (const l of decisionSummary.lines) console.log(l);
+    for (const l of debtLines) console.log(l);
     for (const l of decisionLines(decided.backed)) console.log(l);
     for (const l of baseline.lines) console.log(l);
     for (const n of unusedNote) console.log("NOTE: " + n);
     for (const c of perCheck) {
-      console.log(`${c.blocking ? "FAIL" : " ok "}  ${c.id.padEnd(22)} blocking=${c.blocking}${c.estimated ? ` (~${c.estimated} underlying)` : ""} allowlisted=${c.allowlisted}${c.decisionBacked ? ` decisionBacked=${c.decisionBacked}` : ""}${c.belowFloor ? ` belowFloor=${c.belowFloor}` : ""}`);
+      console.log(`${c.blocking ? "FAIL" : " ok "}  ${c.id.padEnd(22)} blocking=${c.blocking}${c.estimated ? ` (~${c.estimated} underlying)` : ""} allowlisted=${c.allowlisted}${c.decisionBacked ? ` decisionBacked=${c.decisionBacked}` : ""}${c.imageDebt ? ` imageDebt=${c.imageDebt}` : ""}${c.belowFloor ? ` belowFloor=${c.belowFloor}` : ""}`);
       for (const n of c.notes || []) console.log(`        note: ${n}`);
     }
     const extra = allBlocking.filter((f) => !perCheck.some((c) => c.id === f.check));
@@ -277,16 +318,19 @@ export async function main(argv) {
       version: GATE_VERSION, status: "pass", sha, tree: git(root, ["rev-parse", `${sha}^{tree}`]),
       issuedAt: nowIso(), expiresAt: new Date(Date.now() + ttl).toISOString(),
       configHash: configHash(pd), allowlistHash: allowlistHash(al), decisionsHash: decisionsHash(dl),
-      checks: perCheck.map((c) => ({ id: c.id, allowlisted: c.allowlisted, decisionBacked: c.decisionBacked })), allowlisted: allowed.length, decisionBacked: decided.backed.length,
+      ...(idl ? { imageDebtHash: imageDebtHash(idl), imageDebt: imageDebt.total } : {}),
+      checks: perCheck.map((c) => ({ id: c.id, allowlisted: c.allowlisted, decisionBacked: c.decisionBacked, imageDebt: c.imageDebt })), allowlisted: allowed.length, decisionBacked: decided.backed.length,
       remote, by: process.env.USERNAME || process.env.USER || "unknown",
     });
     for (const l of decisionSummary.lines) console.log(l);
+    for (const l of debtLines) console.log(l);
     for (const l of baseline.lines) console.log(l);
     console.log(`\nSTAMP ISSUED for ${sha.slice(0, 8)} (valid ${pd.stampTtlHours}h, bound to config + allowlist)`);
     return 0;
   }
   if (allBlocking.length === 0) { console.log("\nclean, but no stamp: " + (subset ? "subset run" : "dirty tree")); return 0; }
   for (const l of decisionSummary.lines) console.log(l);
+    for (const l of debtLines) console.log(l);
   for (const l of baseline.lines) console.log(l);
   console.log(`\nGATE FAILED: ${allBlocking.length} blocking finding(s) across ${new Set(allBlocking.map((f) => f.check)).size} check(s). No stamp.`);
   return 1;
