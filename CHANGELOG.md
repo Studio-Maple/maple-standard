@@ -13,6 +13,7 @@ All notable changes to this project. Format loosely follows
   `due`, an unlisted third-party pin, our own image listed, an invalid/stale entry, or an uncommitted file; shrink passes and is
   reported as progress. Snapshots grow only via `run.mjs --rebaseline-image-debt` (reviewable diff, due never extended, refuses on a
   failed scan). The stamp binds the file hash; the guard hook asks before editing it; `trivy-image` findings now carry `image`.
+  `--rebaseline-image-debt` scans third-party images only and names the scan failure per image.
   New `imagedebt.test.mjs` (24 tests: growth, due date, shrink, own image, coverage, ref change, rebaseline, stamp binding).
 
 - **Image scan timeout + visible scan failures (plugin v0.7.2).** Trivy's own default timeout is 5 minutes: a large image (CUDA/torch emotion-server) or a loaded machine hit it and the report was silently missing (surfaced only as `no-report`). Scans now get `--timeout` = the image's `timeoutSec` (default 2h) and a missing report is an `image-scan-failed` finding with trivy's last stderr lines.

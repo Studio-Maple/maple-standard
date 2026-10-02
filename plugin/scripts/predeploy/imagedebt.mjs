@@ -208,7 +208,11 @@ export function buildBaseline(findings, d, { pins, ownImages = [], ranImages, to
   const changes = [];
   for (const p of pins) {
     if (own.has(p.name)) continue;
-    if (!ranImages.has(p.name)) { errors.push(`"${p.name}": the scan did not complete — cannot snapshot (fix the scan failure first)`); continue; }
+    if (!ranImages.has(p.name)) {
+      const why = findings.find((f) => f.image === p.name && IMAGE_INFRA.test(f.id));
+      errors.push(`"${p.name}": the scan did not complete — cannot snapshot (fix the scan failure first)${why ? `: ${why.id} ${String(why.message).slice(0, 240)}` : ""}`);
+      continue;
+    }
     const keys = [...new Set(findings.filter((f) => f.imageFinding && f.image === p.name).map(findingKey))].sort();
     const prev = old.get(p.name);
     const keep = prev && isStr(prev.owner) && isStr(prev.plan) && dayMs(prev.due) !== null;

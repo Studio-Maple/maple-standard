@@ -210,6 +210,8 @@ export async function main(argv, opts = {}) {
   const scanRoot = join(runDir, "tree");
   exportTree(root, sha, scanRoot);
   const ctx = makeCtx(root, pd, sha, outDir, scanRoot, args);
+  // A rebaseline snapshots third-party images only: our own images are never debt, so do not build/scan them.
+  if (args.rebaseline) ctx.onlyImages = new Set(trivyPins(pd).filter((p) => !pd.imageDebt.ownImages.includes(p.name)).map((p) => p.name));
   // Scanners auto-load their own ignore/config files from the tree (checkov even alongside --config-file).
   // The scan copy never contains them, so a suppression file cannot hide a finding; suppression-audit
   // still flags the tracked originals.

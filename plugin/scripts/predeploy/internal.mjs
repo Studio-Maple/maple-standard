@@ -81,7 +81,7 @@ async function trivyImage(o, ctx) {
   const { t, missing } = tool(ctx, "trivy");
   if (missing) return { findings: [missing] };
   if (!resolveTool("docker").mode.startsWith("native")) return { findings: [F("tool-missing", "docker is required to build images for trivy-image")] };
-  const images = o.images || [];
+  const images = (o.images || []).filter((im) => !ctx.onlyImages || ctx.onlyImages.has(im.name));
   if (!images.length) return { findings: [F("misconfigured", "trivy-image needs options.images [{name, context, dockerfile?, buildArgs?} | {name, ref, platform?} (+ timeoutSec? for slow builds)]")] };
   const findings = [];
   // Every per-image finding carries { image }: the image-debt ledger (imagedebt.mjs) keys on it.
