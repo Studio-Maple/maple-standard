@@ -114,6 +114,15 @@ case "$TIER" in
     ;;
   gate)
     run_fast
+    # The live tier (Supabase RLS + @smoke E2E) exercises only the template
+    # app. A push that touches none of its paths (plugin/, docs/, scripts/
+    # outside the app...) cannot change what it tests, so it is not run —
+    # an affected-only decision, not a skip: any app path in the range runs it.
+    base=$(git rev-parse --verify -q '@{upstream}' 2>/dev/null || git rev-parse --verify -q origin/main 2>/dev/null || true)
+    if [ -n "$base" ] && ! git diff --name-only "$base"...HEAD | grep -qE '^(src/|supabase/|e2e/|public/|package\.json$|pnpm-lock\.yaml$|next\.config\.ts$|tsconfig\.json$|vitest\.config\.ts$|scripts/check-types-fresh\.mjs$)'; then
+      echo ""; echo "gate passed - no template-app paths changed since $base, live tier not affected."
+      exit 0
+    fi
     check_types_fresh
     run_live "--grep @smoke --project=desktop" "@smoke (desktop)"
     echo ""; echo "gate passed - safe to push."
