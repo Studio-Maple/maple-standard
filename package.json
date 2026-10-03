@@ -25,6 +25,8 @@
     "test:plugin-jev": "node plugin/scripts/jev/run-tests.mjs",
     "test:plugin-predeploy": "node plugin/scripts/predeploy/run-tests.mjs",
     "test:plugin-prepush": "node plugin/scripts/prepush/run-tests.mjs",
+    "hooks:install": "node scripts/install-hooks.mjs",
+    "hooks:check": "node scripts/install-hooks.mjs --check",
     "test:e2e": "playwright test --config e2e/playwright.config.ts",
     "test:e2e:smoke": "playwright test --config e2e/playwright.config.ts --grep @smoke",
     "test:supabase": "node supabase/tests/run-db-tests.mjs",
@@ -47,7 +49,7 @@
     "supabase:status": "supabase status -o env",
     "supabase:types": "supabase gen types typescript --local > src/types/database.types.ts",
     "supabase:types:check": "node scripts/check-types-fresh.mjs",
-    "prepare": "husky"
+    "prepare": "husky && node scripts/install-hooks.mjs"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.65.0",

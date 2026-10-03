@@ -44,6 +44,11 @@ cd "$_self_dir/.."
 TIER="${1:-gate}"
 ROOT_DIR="$(pwd)"
 
+# A git hook exports GIT_DIR / GIT_WORK_TREE / GIT_INDEX_FILE ... to everything it
+# runs; left in place, every `git init` / `git config` / `git push` a self-test makes
+# in a temp repo hits the REAL repository (it corrupted core.bare/user/branches).
+for _v in $(git rev-parse --local-env-vars 2>/dev/null); do unset "$_v"; done
+
 # shellcheck source=../plugin/scripts/prepush/prepush-lib.sh
 . "$ROOT_DIR/plugin/scripts/prepush/prepush-lib.sh"
 
@@ -143,7 +148,7 @@ run_fast() {
   plugin_suite jev
   plugin_suite predeploy
   # The affected-only selection + pass stamp + gate slots, proven fail-closed.
-  if pp_want plugin-prepush '^plugin/scripts/prepush/'; then
+  if pp_want plugin-prepush '^(plugin/scripts/prepush/|scripts/install-hooks\.mjs$|\.husky/)'; then
     pnpm run test:plugin-prepush
   fi
 
@@ -215,11 +220,33 @@ pp_prepare() {
   case "$1" in gate) ;; *) PP_FORCE_FULL=1 ;; esac
   pp_init "$ROOT_DIR" "$refs"
 }
-trap pp_cleanup EXIT
+# On exit: a gate that passed re-checks that the target branch did not move
+# during it (another machine); any failure frees the landing lock at once (the
+# push will not happen; on success the lock stays until the `git push` that fired
+# this hook exits, then its dead pid releases it).
+ci_cleanup() {
+  local rc=$?
+  if [ "$rc" -eq 0 ] && [ "$TIER" = "gate" ]; then pp_land_hook_end || rc=1; fi
+  if [ "$rc" -ne 0 ]; then pp_land_release_all; fi
+  pp_cleanup
+  exit "$rc"
+}
+trap ci_cleanup EXIT
 pp_prepare "$TIER"
 
 # `gate` only: a tree that already passed the gate is not re-run.
 if [ "$TIER" = "gate" ]; then
+  # The gate is only a gate if git runs it: refuse from a clone whose hooks are
+  # not fail-closed (a worktree without husky's generated .husky/_ used to push
+  # with NO gate). Skipped in CI runners and outside a git checkout.
+  if [ -z "${CI:-}" ] && [ -e "$ROOT_DIR/.git" ]; then
+    # repair first (idempotent: install/husky reset the path), then verify
+    node "$ROOT_DIR/scripts/install-hooks.mjs" --quiet && node "$ROOT_DIR/scripts/install-hooks.mjs" --check --quiet || exit 1
+  fi
+  # Concurrency-proof landing (pre-push hook mode only): refuse AT ONCE when the
+  # target branch moved past the pushed commit, then wait for the per-branch
+  # landing lock, then check again (and once more when the gate has passed).
+  pp_land_hook_begin "${CI_PREPUSH_REMOTE:-origin}" || exit 1
   pp_lock gate || exit 1
   if pp_stamp_covers gate; then
     echo ""; echo "gate passed - tree ${PP_TREE:0:10} already passed the gate (stamp), nothing re-run."

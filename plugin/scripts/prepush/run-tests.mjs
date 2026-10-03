@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
- * run-tests.mjs — runs the pre-push selection/stamp/slot test
- * (prepush-lib.test.sh, bash). Hermetic: temp git repos, no network.
+ * run-tests.mjs — runs the pre-push tests (bash, hermetic: temp git repos, no network):
+ *   prepush-lib.test.sh   range selection, fail-closed FULL rules, tree-bound stamp, slots
+ *   install-hooks.test.sh real `git push`es from real worktrees: hooks fail closed
+ *   landing-lock.test.sh  staleness fail-fast + per-branch landing lock, two real concurrent pushes
  *
  * Run: node plugin/scripts/prepush/run-tests.mjs
  */
@@ -10,5 +12,10 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = join(fileURLToPath(import.meta.url), "..");
-const r = spawnSync("bash", [join(HERE, "prepush-lib.test.sh")], { stdio: "inherit" });
-process.exit(r.status ?? 1);
+let failed = 0;
+for (const t of ["prepush-lib.test.sh", "install-hooks.test.sh", "landing-lock.test.sh"]) {
+  console.log(`\n=== ${t} ===`);
+  const r = spawnSync("bash", [join(HERE, t)], { stdio: "inherit" });
+  if (r.status !== 0) failed++;
+}
+process.exit(failed === 0 ? 0 : 1);

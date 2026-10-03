@@ -68,6 +68,14 @@ else
 fi
 maple_link_env_files "$DIR"   # gitignored dev env (build + dev server may need it)
 
+# Git hooks must run in THIS worktree too. husky's relative hooksPath (.husky/_)
+# only exists in checkouts that ran `npm ci`, so a worktree without it pushed with
+# NO gate. install-hooks.mjs points core.hooksPath at one absolute, per-clone dir
+# of fail-closed stubs shared by every worktree (idempotent).
+if [ -d "$DIR/.husky" ]; then
+  ( cd "$DIR" && node "${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/../..}/scripts/prepush/install-hooks.mjs" --quiet )     || maple_warn "could not install the fail-closed git hooks (pushes from this worktree may run no gate): node \"\$CLAUDE_PLUGIN_ROOT/scripts/prepush/install-hooks.mjs\""
+fi
+
 maple_ok "worktree ready: $DIR  (branch $BRANCH)"
 maple_log "land it when done:   cd '$DIR' && bash \"\$CLAUDE_PLUGIN_ROOT/scripts/agent-wt/maple-land.sh\""
 maple_log "preview it:          bash \"\$CLAUDE_PLUGIN_ROOT/scripts/agent-wt/maple-preview.sh\" $SLUG"

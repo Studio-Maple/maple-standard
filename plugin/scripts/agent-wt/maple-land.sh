@@ -60,7 +60,20 @@ fi
 
 # ── acquire the global lock for the whole rebase->gate->push window ──────────
 maple_lock_acquire "$SLUG"
-trap 'maple_lock_release' EXIT INT TERM
+LAND_LOCK_JS="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/../..}/scripts/prepush/land-lock.sh"
+LAND_REF="refs/heads/$MAPLE_TARGET"
+land_lock_release() { bash "$LAND_LOCK_JS" release --remote "$MAPLE_REMOTE" --ref "$LAND_REF" --id "${PP_LAND_HOLDER_ID:-}" 2>/dev/null || true; }
+trap 'land_lock_release; maple_lock_release' EXIT INT TERM
+
+# The PER-BRANCH landing lock: the same one the pre-push hook takes, so a raw
+# `git push` and /wt-land exclude each other (the global lock above only ever
+# excluded other /wt-land runs). Waits - printing who holds it - never fails for
+# waiting; exports the holder id so this run's own `git push` (and its hook)
+# re-enter the lock instead of waiting on us.
+maple_log "taking the landing lock on $MAPLE_TARGET …"
+LAND_ENV="$(bash "$LAND_LOCK_JS" acquire --remote "$MAPLE_REMOTE" --ref "$LAND_REF" --sha "$(git rev-parse HEAD)" --pid $$ --no-fresh)" \
+  || maple_die "could not take the landing lock on $MAPLE_TARGET (see the holder above). Nothing pushed."
+eval "$LAND_ENV"
 
 maple_log "fetching $MAPLE_REMOTE/$MAPLE_TARGET …"
 git fetch "$MAPLE_REMOTE" "$MAPLE_TARGET" --quiet \
@@ -72,6 +85,15 @@ maple_log "rebasing $BRANCH ($AHEAD commit(s)) onto $BASE …"
 if ! git rebase "$BASE"; then
   git rebase --abort 2>/dev/null || true
   maple_die "rebase onto $BASE hit conflicts. Resolve in this worktree, commit, then re-run maple-land."
+fi
+
+# ── hooks must be fail-closed before anything is pushed ──────────────────────
+# The push below fires the repo's pre-push hook; if this clone's hooksPath is the
+# relative husky one and this worktree never ran `npm ci`, git would skip it and
+# the push would go out ungated. Repair (idempotent) and verify, or refuse.
+if [ -d "$WT_DIR/.husky" ]; then
+  HOOKS_JS="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/../..}/scripts/prepush/install-hooks.mjs"
+  ( cd "$WT_DIR" && node "$HOOKS_JS" --quiet && node "$HOOKS_JS" --check --quiet )     || maple_die "git hooks are not fail-closed in this clone, so the push would run no gate. Nothing pushed. Run: node \"$HOOKS_JS\""
 fi
 
 # ── the gate (serialized by the lock) ────────────────────────────────────────

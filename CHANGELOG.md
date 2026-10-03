@@ -6,6 +6,24 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Concurrency-proof landing (plugin v0.10.1).** The pre-push hook now `git fetch`es the target branch and refuses AT ONCE ("<branch> moved to
+  <sha> (<subject>, by <author>) - rebase onto it and push again") when the pushed commit lacks the remote tip, then takes a per-branch LANDING
+  LOCK under `<git-common-dir>/landing-locks` (shared by every worktree/session; owner = the `git push` process, so it lives until the push ends and
+  a dead pid frees it; the holder record names session via `CLAUDE_SESSION_NAME`, branch, worktree, pid, sha), re-checks staleness on acquiring and
+  again after the gate. A second pusher waits, printing "waiting for landing lock on <branch>: held by <holder> since <time> (pushing <sha>)"
+  (`MAPLE_LAND_WAIT` caps it). `/wt-land` takes the same lock through `plugin/scripts/prepush/land-lock.sh` and re-enters it for its own push, so a raw
+  `git push` can no longer bypass the semaphore. `landing-lock.test.sh` (in `test:plugin-prepush`) covers staleness, wait/timeout, stale-pid reclaim,
+  re-entry, release on failure and two real concurrent pushes. `docs/quality.md` updated.
+- **Git hooks fail closed in every worktree (plugin v0.10.1).** husky 9 sets `core.hooksPath` to the RELATIVE `.husky/_`, a directory it generates
+  (gitignored) on `npm ci`; the setting is shared by all worktrees, but a worktree that never ran `npm ci` has no such directory and git then
+  silently runs NO hook, so pushes from it skipped the pre-push gate (several went out ungated, one in 2.7 s). New
+  `plugin/scripts/prepush/install-hooks.mjs` (+ `scripts/install-hooks.mjs`, run by `prepare` after husky) points `core.hooksPath` at one
+  ABSOLUTE `<git-common-dir>/maple-hooks` per clone, shared by the main checkout and every worktree: thin stubs that run the worktree's own
+  committed `.husky/<hook>` and REFUSE when it is missing; `HUSKY=0` is not honoured. `--check` verifies it; the `gate` tier calls it first;
+  `/wt-start` installs it, and `/wt-land` repairs-then-verifies it before pushing. `install-hooks.test.sh` (in `test:plugin-prepush`) proves it
+  with real `git push`es from real worktrees. Because `npm ci`/husky reset the path to the relative one (seen within an hour of the first
+  install), the same stubs are also written into every worktree's `.husky/_` and the committed hooks re-run the installer to heal it.
+  Adopters vendor the installer as `scripts/install-hooks.mjs` and add it to `prepare`.
 - **Affected-only pre-push gate + shared toolkit (plugin v0.10.0).** `scripts/ci-local.sh gate` (what `.husky/pre-push` runs) now selects
   checks from the push range (the hook's own refs, else `@{upstream}`, else `origin/<default>`): changed-file eslint (`--cache`, per-checkout
   cache), `tsc --incremental` only for `.ts/.tsx/.mts` changes, `vitest related`, knip/depcruise only when the import graph may have changed

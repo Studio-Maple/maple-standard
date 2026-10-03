@@ -16,8 +16,12 @@
 # "ran" / "skipped (reason)"). Force everything: CI_FULL=1 git push
 # (or `pnpm ci:gate -- --full`). A tree that already passed `gate`
 # (e.g. /wt-land just ran it) is not re-run.
+# Self-heal: `pnpm install`/husky resets core.hooksPath to the relative .husky/_ ;
+# this puts back the absolute, fail-closed one (and the stubs in every worktree).
+node scripts/install-hooks.mjs --quiet >/dev/null 2>&1 || true
+
 echo "Pre-push: running local CI gate (affected-only fast + RLS + @smoke)..."
-CI_PREPUSH=1 bash scripts/ci-local.sh gate || {
+CI_PREPUSH=1 CI_PREPUSH_REMOTE="$1" bash scripts/ci-local.sh gate || {
   echo ""
   echo "Pre-push BLOCKED — gate failed. Fix it, or for a no-Docker box:"
   echo "  SKIP_LIVE_GATE=1 git push"

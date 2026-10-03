@@ -17,6 +17,7 @@
 #   pp_lock / pp_unlock    per-checkout lock around cache-writing work
 #   pp_heavy_begin/end     machine-wide gate slots (semaphore), taken lazily
 #   pp_stamp_*             "this exact tree already passed the gate" stamp
+#   pp_land_*              staleness check + per-target-ref landing lock (concurrency-proof pushes)
 #
 # Soundness rules this file enforces (they are why it is safe to skip things):
 #   * No resolvable range            -> FULL.   (unsure => run more)
@@ -84,6 +85,7 @@ pp_init() {
   PP_ROOT="$1"
   local refs="${2:-}"
   PP_FILES=(); PP_ADDDEL=(); PP_SUMMARY=(); PP_FULL=0; PP_FULL_REASON=""; PP_BASE=""
+  PP_REFS_TEXT="$refs"
   _pp_seen=$'\n'
 
   _pp_key_for "$PP_ROOT"
@@ -513,6 +515,209 @@ pp_stamp_covers() {
   pp_is_full && return 1   # a full run is only satisfied by a full pass
   for f in "${PP_FILES[@]}"; do
     case "$content" in *$'\n'"file $f"$'\n'*) ;; *) return 1 ;; esac
+  done
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# Landing: staleness check + a per-target-ref landing lock (concurrency-proof
+# pushes). Two sessions gating the same branch used to run 15-minute gates in
+# parallel; the loser was rejected at the server (or, worse, a passed full gate
+# was invalidated by a push that landed in between).
+#
+#  1. FAIL FAST: before any gate work, `git fetch` the target ref. If the pushed
+#     commit does not contain the remote tip, refuse at once with
+#     "<branch> moved to <sha> (<subject>, by <author>) - rebase onto it and push again".
+#  2. LANDING LOCK per (remote, target ref), under <git-common-dir>/landing-locks,
+#     shared by every worktree and session of the clone. Taken BEFORE the gate,
+#     held until the push finishes (the owner is the `git push` process itself, so
+#     the lock dies with it - success, rejection or abort - or is released by
+#     a failing gate). A second pusher WAITS, printing who holds it, since when and
+#     what they are pushing; it never fails because of waiting (MAPLE_LAND_WAIT
+#     seconds, default 7200, then it exits with the same information).
+#  3. On acquiring, the staleness check runs AGAIN before gating, and once more
+#     after the gate passes (covers another machine pushing in the meantime; a
+#     remaining race at the server is still the server's to reject).
+#  4. A dead holder PID releases the lock automatically.
+#  5. Re-entrant: wt-land takes the lock itself and exports PP_LAND_HOLDER_ID; the
+#     pre-push hook its `git push` fires recognises it and does not wait on itself.
+#
+#  MAPLE_LAND_REFS_RE   target refs that need landing discipline
+#                       (default ^refs/heads/(development|production|main|master)$)
+#  MAPLE_LAND_WAIT      max seconds to wait for the lock (default 7200)
+#  MAPLE_LAND_REMOTE    remote name when not given (default origin)
+#  CLAUDE_SESSION_NAME  recorded in the holder line (fallback: user@host)
+#  MAPLE_LAND_OFF=1     is NOT honoured: there is no bypass.
+# ---------------------------------------------------------------------------
+PP_REFS_TEXT=""
+PP_LAND_HELD=()        # lock dirs this process holds (released on failure)
+PP_LAND_DIR=""
+
+_pp_land_dir() {
+  [ -n "$PP_COMMON" ] || return 1
+  PP_LAND_DIR="$PP_COMMON/landing-locks"
+  mkdir -p "$PP_LAND_DIR" 2>/dev/null
+}
+
+_pp_land_key() { # _pp_land_key <remote> <ref> -> $PP_LAND_KEYV
+  PP_LAND_KEYV="${1}--${2#refs/heads/}"
+  PP_LAND_KEYV="${PP_LAND_KEYV//[^A-Za-z0-9._-]/_}"
+}
+
+# Is a Windows pid alive? (native processes are invisible to MSYS kill -0)
+_pp_win_alive() { tasklist //FI "PID eq $1" //NH 2>/dev/null | grep -q " $1 "; }
+
+# _pp_owner_alive <kind> <pid>
+_pp_owner_alive() {
+  case "$1" in
+    win) _pp_win_alive "$2" ;;
+    *)   kill -0 "$2" 2>/dev/null ;;
+  esac
+}
+
+# The process that OWNS the landing: the `git push` that fired this hook, so the
+# lock outlives the hook (the push happens after it exits) and dies with the push.
+# Sets PP_OWNER_KIND / PP_OWNER_PID. PP_OWNER_OVERRIDE="kind:pid" is for tests.
+pp_find_push_owner() {
+  PP_OWNER_KIND="msys"; PP_OWNER_PID="$$"
+  if [ -n "${PP_OWNER_OVERRIDE:-}" ]; then PP_OWNER_KIND="${PP_OWNER_OVERRIDE%%:*}"; PP_OWNER_PID="${PP_OWNER_OVERRIDE#*:}"; return 0; fi
+  local wp found=""
+  if [ -r "/proc/$$/winpid" ] && command -v powershell >/dev/null 2>&1; then
+    read -r wp <"/proc/$$/winpid" 2>/dev/null || true
+    found="$(powershell -NoProfile -Command "\$p=$wp; while(\$p){ \$o=Get-CimInstance Win32_Process -Filter \"ProcessId=\$p\"; if(-not \$o){break}; if(\$o.Name -eq 'git.exe'){ \$p; break }; \$p=\$o.ParentProcessId }" 2>/dev/null | tr -d '\r' | head -1 || true)"
+    if [ -n "$found" ]; then PP_OWNER_KIND="win"; PP_OWNER_PID="$found"; return 0; fi
+  else
+    local p="$PPID" comm
+    while [ -n "$p" ] && [ "$p" -gt 1 ] 2>/dev/null; do
+      comm="$(ps -o comm= -p "$p" 2>/dev/null || true)"
+      case "$comm" in git|*/git) PP_OWNER_KIND="msys"; PP_OWNER_PID="$p"; return 0 ;; esac
+      p="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ' || true)"
+    done
+  fi
+  return 0   # fallback: this process (released on failure; else by the 2 h age cap)
+}
+
+# pp_land_fresh_check <remote> <target-ref> <pushed-sha>
+#   0 = the pushed commit contains the remote tip (or the ref does not exist yet)
+#   1 = stale: prints the rebase message
+pp_land_fresh_check() {
+  local remote="$1" ref="$2" sha="$3" tip branch subj author
+  branch="${ref#refs/heads/}"
+  GIT_TERMINAL_PROMPT=0 git -C "$PP_ROOT" fetch --no-tags -q "$remote" "$ref" 2>/dev/null || {
+    echo "prepush: could not fetch $remote $ref to check for staleness - continuing (the server still rejects a stale push)" >&2
+    return 0
+  }
+  tip="$(git -C "$PP_ROOT" rev-parse -q --verify FETCH_HEAD 2>/dev/null || true)"
+  [ -n "$tip" ] || return 0
+  if [ "$tip" = "$sha" ] || git -C "$PP_ROOT" merge-base --is-ancestor "$tip" "$sha" 2>/dev/null; then return 0; fi
+  subj="$(git -C "$PP_ROOT" log -1 --format=%s "$tip" 2>/dev/null || true)"
+  author="$(git -C "$PP_ROOT" log -1 --format=%an "$tip" 2>/dev/null || true)"
+  echo "" >&2
+  echo "prepush: REFUSED - $branch moved to ${tip:0:10} ($subj, by ${author:-unknown}) -" >&2
+  echo "  rebase onto it and push again:  git fetch $remote && git rebase $remote/$branch" >&2
+  return 1
+}
+
+_pp_holder_line() { # print a holder file's description: "<who> since <time> (pushing <sha>)"
+  local f="$1/holder" k v who="" since="" sha="" branch="" wt="" pid="" sess="" epoch=""
+  while IFS='=' read -r k v; do
+    case "$k" in session) sess="$v" ;; branch) branch="$v" ;; worktree) wt="$v" ;; pid) pid="$v" ;; epoch) epoch="$v" ;; sha) sha="$v" ;; esac
+  done <"$f" 2>/dev/null || true
+  if [ -n "$epoch" ]; then printf -v since '%(%H:%M:%S)T' "$epoch" 2>/dev/null || since="$epoch"; fi
+  who="${sess:-unknown} [branch ${branch:-?}, worktree ${wt:-?}, pid ${pid:-?}]"
+  printf '%s since %s (pushing %s)' "$who" "${since:-?}" "${sha:0:10}"
+}
+
+# pp_land_acquire <remote> <target-ref> <sha> [wait-seconds] [owner-kind:pid]
+#   Blocks (printing the holder) until the lock is ours. Returns 1 on timeout.
+#   Sets PP_LAND_HOLDER_ID and appends the lock dir to PP_LAND_HELD.
+pp_land_acquire() {
+  local remote="$1" ref="$2" sha="$3" wait="${4:-${MAPLE_LAND_WAIT:-7200}}" waited=0 last=-30 branch lock now owner_kind owner_pid hid
+  branch="${ref#refs/heads/}"
+  _pp_land_dir || return 0
+  _pp_land_key "$remote" "$ref"; lock="$PP_LAND_DIR/$PP_LAND_KEYV.lock"
+  if [ -n "${5:-}" ]; then owner_kind="${5%%:*}"; owner_pid="${5#*:}"; else pp_find_push_owner; owner_kind="$PP_OWNER_KIND"; owner_pid="$PP_OWNER_PID"; fi
+  while :; do
+    if mkdir "$lock" 2>/dev/null; then
+      _pp_now now
+      hid="${PP_LAND_HOLDER_ID:-$$-$now-$RANDOM}"
+      {
+        printf 'id=%s\n' "$hid"
+        printf 'pid=%s\nkind=%s\nepoch=%s\n' "$owner_pid" "$owner_kind" "$now"
+        printf 'sha=%s\ntarget=%s\n' "$sha" "$ref"
+        printf 'branch=%s\nworktree=%s\n' "$(git -C "$PP_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')" "$PP_ROOT"
+        printf 'session=%s\n' "${CLAUDE_SESSION_NAME:-${USERNAME:-${USER:-user}}@${COMPUTERNAME:-${HOSTNAME:-host}}}"
+      } >"$lock/holder"
+      PP_LAND_HOLDER_ID="$hid"; export PP_LAND_HOLDER_ID
+      PP_LAND_HELD+=("$lock")
+      if [ "$waited" -gt 0 ]; then echo "prepush: got the landing lock on $branch after ${waited}s"; fi
+      return 0
+    fi
+    # held: by us (re-entrant), by a dead owner (reclaim), or by someone alive (wait)
+    local h_id="" h_kind="" h_pid="" h_epoch="" k v
+    while IFS='=' read -r k v; do
+      case "$k" in id) h_id="$v" ;; kind) h_kind="$v" ;; pid) h_pid="$v" ;; epoch) h_epoch="$v" ;; esac
+    done <"$lock/holder" 2>/dev/null || true
+    if [ -n "${PP_LAND_HOLDER_ID:-}" ] && [ "$h_id" = "$PP_LAND_HOLDER_ID" ]; then return 0; fi
+    _pp_now now
+    if [ -z "$h_pid" ]; then
+      # no holder file yet: owner is between mkdir and write
+      if [ "$waited" -ge 10 ]; then rm -rf "$lock" 2>/dev/null; continue; fi
+    elif ! _pp_owner_alive "$h_kind" "$h_pid" || [ $((now - ${h_epoch:-$now})) -gt 7200 ]; then
+      echo "prepush: reclaiming the landing lock on $branch (holder pid $h_pid is gone)"
+      rm -rf "$lock" 2>/dev/null
+      continue
+    fi
+    if [ $((waited - last)) -ge 30 ] || [ "$waited" -eq 0 ]; then
+      echo "waiting for landing lock on $branch: held by $(_pp_holder_line "$lock")"
+      last=$waited
+    fi
+    if [ "$waited" -ge "$wait" ]; then
+      echo "prepush: gave up after ${waited}s - landing lock on $branch is held by $(_pp_holder_line "$lock")" >&2
+      return 1
+    fi
+    sleep 2; waited=$((waited + 2))
+  done
+}
+
+# Release every landing lock this process took (a failing gate: the push will not happen).
+pp_land_release_all() {
+  local l
+  for l in "${PP_LAND_HELD[@]:-}"; do [ -n "$l" ] && rm -rf "$l" 2>/dev/null; done
+  PP_LAND_HELD=()
+  return 0
+}
+
+# Hook mode: for every pushed ref that targets a landing branch, check staleness,
+# take the lock, check again. Exits the caller's shell (return 1) on staleness.
+# Needs the refs text given to pp_init and PP_ROOT; <remote> defaults to origin.
+pp_land_hook_begin() {
+  local remote="${1:-${MAPLE_LAND_REMOTE:-origin}}" re="${MAPLE_LAND_REFS_RE:-^refs/heads/(development|production|main|master)$}" lref lsha rref rsha
+  [ -n "$PP_REFS_TEXT" ] || return 0
+  PP_LAND_TARGETS=()
+  while IFS=' ' read -r lref lsha rref rsha; do
+    [ -n "${rref:-}" ] || continue
+    [[ "$lsha" =~ $_pp_zero_re ]] && continue                 # branch delete
+    [[ "$rref" =~ $re ]] || continue
+    pp_land_fresh_check "$remote" "$rref" "$lsha" || return 1
+    pp_land_acquire "$remote" "$rref" "$lsha" || return 1
+    pp_land_fresh_check "$remote" "$rref" "$lsha" || return 1  # it may have moved while we waited
+    PP_LAND_TARGETS+=("$remote $rref $lsha")
+  done <<EOF
+$PP_REFS_TEXT
+EOF
+  return 0
+}
+
+# After the gate passed: the remote may have moved during it (another machine).
+pp_land_hook_end() {
+  local t remote ref sha
+  for t in "${PP_LAND_TARGETS[@]:-}"; do
+    [ -n "$t" ] || continue
+    read -r remote ref sha <<EOF
+$t
+EOF
+    pp_land_fresh_check "$remote" "$ref" "$sha" || return 1
   done
   return 0
 }

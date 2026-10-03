@@ -15,9 +15,14 @@
 #     set, or an explicit --full; and a full stamp satisfies everything on its tree
 #   - two checkouts never share a cache dir; a second lock holder is refused
 #
-# Run directly: node plugin/scripts/prepush/run-tests.mjs
+# Run directly: bash scripts/test/prepush-affected.test.sh
 
 set -uo pipefail
+
+# A hook exports GIT_DIR & co. to everything it runs; when this test runs from the
+# gate inside a pre-push hook they would point every `git init`/`git config` below
+# at the REAL repository (it corrupted core.bare/user/branches once). Hermetic:
+for v in $(git rev-parse --local-env-vars 2>/dev/null); do unset "$v"; done
 
 # This file is run from inside the gate itself (full tier), which exports CI_FULL
 # etc.; the cases below assume a clean slate.
@@ -38,12 +43,33 @@ check() { # check <name> <expected-exit> <command...>
 
 W="$(mktemp -d 2>/dev/null || mktemp -d -t ppaff)"
 trap 'rm -rf "$W"' EXIT
+
+# --- hermetic: never reach the real repository or a real remote ---------------
+# (When this runs inside a real pre-push hook, git's hook environment points every
+# git command at the REAL repo: an earlier version re-initialised it, set
+# core.bare=true, added a remote and pushed the real HEAD.)
+for v in GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX GIT_NAMESPACE GIT_QUARANTINE_PATH $(git rev-parse --local-env-vars 2>/dev/null); do unset "$v"; done
+export GIT_ALLOW_PROTOCOL=file GIT_TERMINAL_PROMPT=0 GIT_CONFIG_NOSYSTEM=1
+# must_be_temp <dir>: abort unless <dir> is its OWN git repo inside this test's temp area
+must_be_temp() {
+  local g wn gn
+  g="$(git -C "$1" rev-parse --absolute-git-dir 2>/dev/null || true)"
+  # compare in one path syntax (MSYS /tmp/... vs C:/Users/...), case-insensitively
+  gn="$(cd "$g" 2>/dev/null && { pwd -W 2>/dev/null || pwd; } || printf '%s' "$g")"; gn="${gn,,}"
+  wn="$(cd "$W" && { pwd -W 2>/dev/null || pwd; })"; wn="${wn,,}"
+  case "$gn" in "$wn"/*) ;; *) echo "ABORT: $1 resolves to git dir '$g', outside the test temp area '$W'" >&2; exit 99 ;; esac
+}
+# Never touch (or queue behind) the REAL machine-wide gate slots: when this test runs
+# inside a gate it would wait for a slot behind other sessions' gates (it once sat
+# 25 minutes). The slot cases below set their own MAPLE_GATE_SLOT_DIR explicitly.
+export MAPLE_GATE_SLOT_DIR="$W/slots-isolated"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 
 git init -q --bare "$W/origin.git"
 git init -q -b development "$W/repo"
 cd "$W/repo" || exit 1
+must_be_temp "$W/repo"
 git config user.email t@t; git config user.name t
 mkdir -p app/src admin/src docs scripts/lib
 echo a > app/src/a.ts; echo b > admin/src/b.ts; echo d > docs/d.md
@@ -99,6 +125,7 @@ out="$(CI_FULL=1 run 'pp_init "$PWD"; pp_is_full && echo FULL' 2>&1)"
 
 echo "no range => FULL (fail closed)"
 mkdir "$W/norange" && cd "$W/norange" && git init -q -b development && git commit -q --allow-empty -m x
+must_be_temp "$W/norange"
 out="$(run 'pp_init "$PWD"; pp_is_full && echo FULL; pp_want s "^nothing/" && echo RUN' 2>&1)"
 echo "$out" | grep -q '^FULL$' && echo "$out" | grep -q '^RUN$' && pass "no upstream and no origin => FULL" || fail "no range" "$out"
 cd "$W/repo" || exit 1

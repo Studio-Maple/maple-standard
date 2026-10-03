@@ -6,6 +6,10 @@
 
 echo "Pre-commit: checking staged files..."
 
+# Self-heal: `pnpm install`/husky resets core.hooksPath to the relative .husky/_ ;
+# this puts back the absolute, fail-closed one (and the stubs in every worktree).
+node scripts/install-hooks.mjs --quiet >/dev/null 2>&1 || true
+
 # Parallel-session collision WARN (non-blocking, default-on, opt-out).
 # Committing from a shared main checkout while other git worktrees are active
 # risks a whole-index commit sweeping in another session's staged files.
