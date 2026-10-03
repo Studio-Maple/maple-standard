@@ -5,6 +5,18 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **`/prune-sessions` keeps the desktop sidebar readable (plugin v0.15.0).** `plugin/scripts/sessions/prune-sessions.ps1` archives Claude Code
+  desktop session cards whose last activity is older than `-Days` (default 7). Dry run is the default: it prints `total / active / stale /
+  protected / to archive` plus every candidate's age and only writes under `-Apply`, which first zips the store to `~/.claude/backups/sessions`
+  (`-KeepBackups`, default 5). `-List` reports the active sessions with no cutoff logic. A card lives at
+  `%APPDATA%\Claude\claude-code-sessions\<installId>\<workspaceId>\local_<sessionId>.json` and leaves the sidebar when `isArchived` is true, so
+  the script flips that one field with a targeted string replace (the rest of the card, including its large `enabledMcpTools` map, stays
+  byte-identical) and writes UTF-8 **without a BOM** - the app silently drops a card whose JSON starts with one. Transcripts under
+  `~/.claude/projects/` and the `memory/` folders beside them are never read or written. `~/.claude/session-prune.json` pins sessions that must
+  survive any age (`protectSessionIds`, `protectTitles` exact, `protectTitlePatterns` / `protectCwdPatterns` regex); a malformed file warns and
+  falls back to no protections. Caveat: the running app holds the sidebar in memory and can rewrite a card it currently has loaded, so a session
+  open during a sweep may come back un-archived - restart the app, then re-run.
+
 - **link-guard: no install into, or recursive delete through, a linked node_modules (plugin v0.14.1).** EasyCaller 2026-10-09:
   the main checkout's `site/node_modules` was found empty. Worktrees junction every `worktrees.nodeModulesDirs` entry (there: 11,
   `site` included) to the main checkout, and agents ran `(cd site && npm ci)` inside worktrees — the exact command EasyCaller's
