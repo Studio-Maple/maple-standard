@@ -6,6 +6,11 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **semgrep preset takes `options.timeout` (plugin v0.10.4).** The gate ran semgrep with its default 5 s per-rule timeout, and a timed-out rule
+  is reported as a scanner error that the gate counts as a finding. Very large files (EasyCaller `softphone.test.ts`, 3,300 lines) time out
+  reproducibly. `options.timeout` (whole seconds) is now passed as `--timeout`; unset keeps the default. No rule or file is skipped.
+  `semgrepArgs` extracted and unit-tested.
+
 - **Predeploy remote leg takes no workflow input (plugin v0.10.3).** checkov CKV_GHA_7 flags `workflow_dispatch` inputs that affect the build.
   The gate now pushes the lightweight tag `predeploy/<sha>` (`predeploy.remote.tagPrefix`) and the workflow runs on `push: tags: predeploy/**`,
   building `github.sha`; runs are found by `--event push` + headSha. A stale tag is deleted and re-pushed to re-trigger. `remote.inputName` is removed.

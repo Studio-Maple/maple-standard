@@ -4,6 +4,7 @@ import { validatePredeploy } from "./config.mjs";
 import { applyDecisions, decisionIdsIn, summarizeDecisions, validateDecisions } from "./decisions.mjs";
 import { parseOutput } from "./parsers.mjs";
 import { buildPlan } from "./livescan.mjs";
+import { semgrepArgs } from "./catalog.mjs";
 import { matchDeploy, touchesGateState } from "../../hooks/predeploy-guard.mjs";
 
 let n = 0;
@@ -243,6 +244,14 @@ t("rule-wide scope covers every finding of that exact rule up to the ceiling; wo
   const r = applyDecisions([f(), f(), f({ severity: "high" }), f({ id: "other:rule" })], dl([wide]), { ranChecks: ["checkov"] });
   assert.equal(r.backed.length, 2); assert.equal(r.blocking.length, 2); assert.equal(r.backed[0].decisionBacked.scope, "*");
   assert.equal(applyDecisions([], dl([wide]), { ranChecks: ["checkov"] }).stale[0].id, "decision-stale", "goes stale when it matches nothing");
+});
+
+t("semgrep --timeout is opt-in, whole seconds only, and never touches the suppression flags", () => {
+  const base = { configs: ["p/x"], exclude: ["dist"] }, P = { out: "/out", src: "." };
+  assert.ok(!semgrepArgs(base, P).includes("--timeout"), "unset keeps semgrep's default");
+  assert.ok(semgrepArgs({ ...base, timeout: 30 }, P).includes(" --timeout 30 "));
+  for (const bad of [0, -1, 2.5, "30", "30; rm -rf /", null]) assert.ok(!semgrepArgs({ ...base, timeout: bad }, P).includes("--timeout"), String(bad));
+  assert.ok(semgrepArgs({ ...base, timeout: 30 }, P).includes("--disable-nosem"));
 });
 
 console.log(`\n${n} unit tests passed`);

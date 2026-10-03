@@ -66,6 +66,11 @@ removed from the scan copy so ignores cannot hide a finding.
 transitive); a direct dependency more than 1 major behind, or not on latest
 and published more than 12 months ago. Both numbers are options.
 
+**semgrep timeout** (`semgrep` preset): `options.timeout` (whole seconds, optional) passes semgrep's per-rule,
+per-file `--timeout`. Unset keeps semgrep's default of 5 s. A rule that times out is a scanner error, and the gate counts scanner
+errors as findings, so a very large file on a loaded machine can fail the gate on speed alone. A higher limit lets every rule
+finish; it skips nothing and is configuration, not a suppression.
+
 **Suppressions** (`nosemgrep`, `checkov:skip`, `eslint-disable`, `.trivyignore`,
 `.semgrepignore`, `.snyk`, `osv-scanner.toml`, `gitleaks:allow`, a `.gitleaks.toml`
 with an allowlist, a knip config with `ignore*` keys, ...) are findings in

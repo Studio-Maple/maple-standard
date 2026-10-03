@@ -53,6 +53,17 @@ export function invoke(ctx, toolName, argsFn, { env = [] } = {}) {
 
 const DEFAULT_EXCLUDE_DIRS = ["node_modules", "dist", "build", ".next", ".wrangler", "coverage", ".worktrees"];
 
+/**
+ * semgrep scan arguments. `options.timeout` (whole seconds, optional) is semgrep's per-rule, per-file
+ * `--timeout`; unset keeps semgrep's own default (5 s). A timed-out rule is reported by semgrep as a scanner
+ * error, which the gate counts as a finding, so a big file on a loaded box can fail the gate on speed alone.
+ * Raising the limit is configuration, not a suppression: every rule still runs to completion on every file.
+ */
+export function semgrepArgs(o, P) {
+  const timeout = Number.isInteger(o.timeout) && o.timeout > 0 ? ` --timeout ${o.timeout}` : "";
+  return `scan ${o.configs.map((c) => `--config ${shq(c)}`).join(" ")} ${o.exclude.map((e) => `--exclude ${shq(e)}`).join(" ")}${timeout} --disable-nosem --metrics=off --quiet --json -o ${P.out}/semgrep.json ${P.src}`;
+}
+
 const q = (xs) => xs.map(shq).join(" ");
 const scoped = (o, xs, key = (x) => x) => xs.filter((x) => !(o.exclude || []).some((p) => key(x).startsWith(p)));
 
@@ -79,8 +90,7 @@ const COMMAND_PRESETS = {
     build(o, ctx) {
       const configs = o.configs || ["p/typescript", "p/owasp-top-ten", "p/nodejs", "p/secrets", "p/javascript"];
       const ex = o.exclude || DEFAULT_EXCLUDE_DIRS;
-      const command = invoke(ctx, "semgrep", (P) =>
-        `scan ${configs.map((c) => `--config ${shq(c)}`).join(" ")} ${ex.map((e) => `--exclude ${shq(e)}`).join(" ")} --disable-nosem --metrics=off --quiet --json -o ${P.out}/semgrep.json ${P.src}`);
+      const command = invoke(ctx, "semgrep", (P) => semgrepArgs({ ...o, configs, exclude: ex }, P));
       return { command, reports: ["semgrep.json"], parse: "semgrep-json", cwd: "scan", env: { SEMGREP_SEND_METRICS: "off" } };
     },
   },
