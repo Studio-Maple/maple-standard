@@ -6,6 +6,10 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **gitleaks path allowlists fixed (plugin v0.9.3).** The tree scan used an absolute `--source`, so gitleaks reported absolute file paths and every
+  path-anchored allowlist (`^dir/file$`) in a repo's `.gitleaks.toml` silently never matched (the gate flagged fixtures the repo's own scan accepts). It now
+  runs from inside the scan copy with `--source .`. `gitleaks.test.mjs` is the regression.
+
 - **Per-entry expiry for decision-backed exceptions (plugin v0.9.2).** Optional `expires` (ISO date, within `reviewed` + `decisionsMaxAgeDays`)
   on an entry in `predeploy-decisions.json`: past it the entry stops excepting its finding and fails the gate as `decision-expired`; the report
   row shows it. For exceptions with a known removal trigger; the allowlist stays reserved. Unit + e2e tests.

@@ -62,7 +62,9 @@ const COMMAND_PRESETS = {
     tools: ["gitleaks"],
     build(o, ctx) {
       const cfg = o.config ? `--config ${shq(o.config)}` : "";
-      const tree = `gitleaks detect --source ${shq(ctx.scanRootPosix)} --no-git --redact --ignore-gitleaks-allow ${cfg} --exit-code 0 --report-format json --report-path ${shq(ctx.outDirPosix + "/gitleaks-tree.json")}`;
+      // cd into the scan copy and scan `.`: with an absolute --source gitleaks reports ABSOLUTE file paths, so every path-anchored
+      // allowlist (`^app/src/x.test.ts$`) silently never matched and the gate flagged fixtures the repo's own scan accepts.
+      const tree = `( cd ${shq(ctx.scanRootPosix)} && gitleaks detect --source . --no-git --redact --ignore-gitleaks-allow ${cfg} --exit-code 0 --report-format json --report-path ${shq(ctx.outDirPosix + "/gitleaks-tree.json")} )`;
       const hist = `gitleaks detect --source ${shq(ctx.rootPosix)} --log-opts=--all --redact --ignore-gitleaks-allow ${cfg} --exit-code 0 --report-format json --report-path ${shq(ctx.outDirPosix + "/gitleaks-history.json")}`;
       const t = needTool(ctx, "gitleaks");
       if (t.mode !== "native") throw new ToolMissing("gitleaks", "gitleaks must run natively (history scan needs the real git checkout)");
