@@ -78,9 +78,16 @@ export function trivyPins(pd) {
 }
 
 /** Stable identity of one finding inside an image: rule + package + scan target (image prefix and line numbers stripped). */
+/**
+ * The scan target of an OS/package finding is the image tarball's path (`<run dir>/out/image-x.tar (ubuntu 22.04)`), which
+ * changes every run and machine; it is normalised to `<image>` so a key means the same thing next run. Targets inside the
+ * image (`usr/lib/x/package.json`, `Node.js`) are already stable.
+ */
+export const stableTarget = (t) => String(t).replace(/^.*[\\/]image-[^\\/]*\.tar(?= |$)/, "<image>");
+
 export function findingKey(f) {
   const target = String(f.location || "").replace(new RegExp(`^${String(f.image).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: `), "");
-  return `${f.id}|${f.resource || ""}|${target}`;
+  return `${f.id}|${f.resource || ""}|${stableTarget(target)}`;
 }
 
 const IMAGE_INFRA = /^(image-(pull|build|save|scan)-failed|secret-missing|misconfigured|tool-missing|tool-blocked|check-crashed|spawn-failed|timeout|no-report|unparseable-report)$/;

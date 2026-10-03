@@ -37,6 +37,12 @@ await t("growth fails: a finding not in the snapshot stays blocking and is calle
   const r = evaluateImageDebt([fnd("mysql", "CVE-1"), fnd("mysql", "CVE-NEW")], good(), base);
   assert.deepEqual(ids(r), ["image-debt-growth"]); assert.equal(r.remaining.length, 1); assert.equal(r.remaining[0].id, "CVE-NEW");
 });
+await t("the image tarball path (different every run) is not part of a finding's identity", () => {
+  const a = fnd("mysql", "CVE-1", "libc@1", ["C:", "runs", "aaa", "out", "image-mysql.tar (debian 12)"].join(String.fromCharCode(92)));
+  const b = fnd("mysql", "CVE-1", "libc@1", "/c/other/run/out/image-mysql.tar (debian 12)");
+  assert.equal(findingKey(a), findingKey(b)); assert.equal(findingKey(a), "CVE-1|libc@1|<image> (debian 12)");
+  assert.notEqual(findingKey(a), findingKey(fnd("mysql", "CVE-1", "libc@1", "usr/lib/x/package.json")));
+});
 await t("a finding in a different target/package is new (key is rule+package+target)", () => {
   const r = evaluateImageDebt([fnd("mysql", "CVE-1", "libc@2")], good(), base);
   assert.deepEqual(ids(r), ["image-debt-growth"]);

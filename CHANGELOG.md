@@ -6,6 +6,9 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Image-debt finding keys are stable across runs (plugin v0.10.2).** The scan target of an OS/package finding is the image tarball's path in the run
+  directory, which differs every run, so every finding looked NEW against a snapshot from another run. The tarball path is normalised to `<image>` in the key
+  (`stableTarget`); existing snapshots are migrated by the same function (no rescan). Test added.
 - **Concurrency-proof landing (plugin v0.10.1).** The pre-push hook now `git fetch`es the target branch and refuses AT ONCE ("<branch> moved to
   <sha> (<subject>, by <author>) - rebase onto it and push again") when the pushed commit lacks the remote tip, then takes a per-branch LANDING
   LOCK under `<git-common-dir>/landing-locks` (shared by every worktree/session; owner = the `git push` process, so it lives until the push ends and
