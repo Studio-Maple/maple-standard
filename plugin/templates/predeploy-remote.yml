@@ -1,15 +1,14 @@
 # TEMPLATE — copy to <project>/.github/workflows/predeploy-remote.yml and adapt.
-# The pre-deploy gate (maple-standard D060) dispatches this ONCE per deploy
-# candidate sha. Keep it to what genuinely needs a clean-room GitHub runner;
+# The pre-deploy gate (maple-standard D060) triggers this ONCE per deploy
+# candidate sha by pushing the lightweight tag predeploy/<sha> (no workflow
+# inputs: checkov CKV_GHA_7). Nothing else creates that tag namespace. Keep it to what genuinely needs a clean-room GitHub runner;
 # everything else runs locally in the gate. Pin every action to a commit SHA
-# (replace the placeholders) and keep the trigger workflow_dispatch-only.
+# (replace the placeholders) and keep the trigger to the predeploy/** tag namespace only.
 name: predeploy-remote
 on:
-  workflow_dispatch:
-    inputs:
-      sha:
-        description: "Candidate commit (the gate passes HEAD of the branch)"
-        required: true
+  push:
+    tags:
+      - "predeploy/**"
 permissions:
   contents: read
 concurrency:
@@ -20,12 +19,12 @@ jobs:
     # Use a self-hosted label if hosted minutes are unavailable.
     runs-on: ubuntu-latest
     steps:
-      - name: Candidate must be the branch tip
+      - name: Trigger tag must name the checked-out commit
         env:
-          WANT: ${{ github.event.inputs.sha }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          [ "$WANT" = "$GITHUB_SHA" ] || { echo "::error::dispatched sha $WANT != checked-out $GITHUB_SHA"; exit 1; }
+          [ "$REF_NAME" = "predeploy/$GITHUB_SHA" ] || { echo "::error::tag $REF_NAME != predeploy/$GITHUB_SHA"; exit 1; }
       - uses: actions/checkout@<PINNED-SHA> # vX
         with:
           persist-credentials: false

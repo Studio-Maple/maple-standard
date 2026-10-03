@@ -309,7 +309,7 @@
               "description": { "type": "string" },
               "command": { "type": "string" },
               "preset": { "type": "string" },
-              "github": { "type": "string", "description": "Workflow file (workflow_dispatch) for remote-only checks; requires `why`." },
+              "github": { "type": "string", "description": "Workflow file (push on the gate's predeploy/** tag namespace, no inputs) for remote-only checks; requires `why`." },
               "why": { "type": "string" },
               "options": { "type": "object" },
               "parse": { "type": "string" },
@@ -323,7 +323,7 @@
             }
           }
         },
-        "remote": { "type": "object", "properties": { "workflow": { "type": "string" }, "ref": { "type": "string" }, "timeoutMin": { "type": "integer" }, "pollSec": { "type": "integer" }, "inputName": { "type": "string" } } },
+        "remote": { "type": "object", "properties": { "workflow": { "type": "string" }, "ref": { "type": "string" }, "timeoutMin": { "type": "integer" }, "pollSec": { "type": "integer" }, "tagPrefix": { "type": "string" } } },
         "deployGuard": { "type": "object", "properties": { "enabled": { "const": true }, "patterns": { "type": "array", "items": { "type": "object", "required": ["id", "regex"], "properties": { "id": { "type": "string" }, "regex": { "type": "string" }, "description": { "type": "string" } } } } } },
         "emergency": { "type": "object", "properties": { "enabled": { "type": "boolean" }, "maxMinutes": { "type": "integer", "minimum": 1, "maximum": 240 } } },
         "liveScan": { "type": "object", "description": "Aggressive post-deploy ZAP active scan of the live targets. Guards: noRealCustomerCredentials + noPstnCalls (callOriginationExcludes)." }

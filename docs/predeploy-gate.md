@@ -200,9 +200,10 @@ There is no flag or env var.
 
 ## Remote-only part
 
-One `workflow_dispatch` workflow (template `plugin/templates/predeploy-remote.yml`)
-for what needs a clean-room runner. The gate dispatches it for the candidate
-sha (which must already be pushed), waits, reuses a prior green run for the
+One input-less workflow (template `plugin/templates/predeploy-remote.yml`)
+for what needs a clean-room runner, triggered only by the lightweight tag
+`predeploy/<sha>` the gate pushes (no dispatch inputs: checkov CKV_GHA_7). The
+gate triggers it for the candidate sha (whose branch must already be pushed), waits, reuses a prior green run for the
 same sha, and the stamp requires `success` for that sha. Alert state that is
 only readable from GitHub (code-scanning, Dependabot, secret-scanning) is read
 locally with `gh api` (`gh-alerts`) instead of spending minutes. CodeQL needs

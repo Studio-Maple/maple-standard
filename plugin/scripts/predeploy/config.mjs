@@ -129,7 +129,7 @@ export function validatePredeploy(cfg) {
   if (r !== undefined) {
     if (!isObj(r)) e.push("predeploy.remote: must be an object");
     else {
-      for (const k of Object.keys(r)) if (!["workflow", "ref", "timeoutMin", "pollSec", "inputName"].includes(k)) e.push(`predeploy.remote.${k}: unknown key`);
+      for (const k of Object.keys(r)) if (!["workflow", "ref", "timeoutMin", "pollSec", "tagPrefix"].includes(k)) e.push(`predeploy.remote.${k}: unknown key`);
       if (r.workflow !== undefined && !isStr(r.workflow)) e.push("predeploy.remote.workflow: string");
     }
   }

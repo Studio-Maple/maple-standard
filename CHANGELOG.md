@@ -6,6 +6,12 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Predeploy remote leg takes no workflow input (plugin v0.10.3).** checkov CKV_GHA_7 flags `workflow_dispatch` inputs that affect the build.
+  The gate now pushes the lightweight tag `predeploy/<sha>` (`predeploy.remote.tagPrefix`) and the workflow runs on `push: tags: predeploy/**`,
+  building `github.sha`; runs are found by `--event push` + headSha. A stale tag is deleted and re-pushed to re-trigger. `remote.inputName` is removed.
+  Template updated; ordinary pushes still never run it (manual-only, D102 preserved).
+
+- **Image-debt finding keys are stable across runs (plugin v0.10.1).** The scan target of an OS/package finding is the image tarball's path in the run
 - **Image-debt finding keys are stable across runs (plugin v0.10.2).** The scan target of an OS/package finding is the image tarball's path in the run
   directory, which differs every run, so every finding looked NEW against a snapshot from another run. The tarball path is normalised to `<image>` in the key
   (`stableTarget`); existing snapshots are migrated by the same function (no rescan). Test added.
