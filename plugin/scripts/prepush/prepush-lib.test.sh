@@ -49,6 +49,7 @@ trap 'rm -rf "$W"' EXIT
 # git command at the REAL repo: an earlier version re-initialised it, set
 # core.bare=true, added a remote and pushed the real HEAD.)
 for v in GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX GIT_NAMESPACE GIT_QUARANTINE_PATH $(git rev-parse --local-env-vars 2>/dev/null); do unset "$v"; done
+unset PP_SLOT_INHERITED
 export GIT_ALLOW_PROTOCOL=file GIT_TERMINAL_PROMPT=0 GIT_CONFIG_NOSYSTEM=1
 # must_be_temp <dir>: abort unless <dir> is its OWN git repo inside this test's temp area
 must_be_temp() {
@@ -209,6 +210,9 @@ out="$(bash -c 'set -euo pipefail; . "$0"; pp_init "$PWD"; pp_lock t || exit 9; 
 echo "$out" | grep -q SECOND_REFUSED && echo "$out" | grep -q REACQUIRED && pass "lock: second holder refused, reacquirable after release" || fail "lock" "$out"
 
 echo "machine-wide gate slots"
+# a gate NESTED in a slot holder must not queue for a second slot (deadlock): it inherits
+out="$(MAPLE_GATE_SLOT_DIR="$W/slots-nest" MAPLE_GATE_SLOTS=1 bash -c 'set -euo pipefail; . "$0"; pp_init "$PWD"; pp_heavy_begin; MAPLE_GATE_SLOT_WAIT=2 bash -c "set -euo pipefail; . \"\$0\"; pp_init \"\$PWD\"; pp_ran nested-step x; echo NESTED_RAN" "$0"' "$LIB" 2>&1)"
+echo "$out" | grep -q '^NESTED_RAN$' && ! echo "$out" | grep -q waiting && pass "a nested gate inherits its parent's slot instead of deadlocking on a second one" || fail "nested slot inheritance" "$out"
 SLOTS="$W/slots"
 holder() { # holder <n> -> background process that holds a slot for ~25s
   MAPLE_GATE_SLOT_DIR="$SLOTS" MAPLE_GATE_SLOTS="$1" bash -c 'set -euo pipefail; . "$0"; pp_init "$PWD"; pp_heavy_begin; sleep 25' "$LIB" >/dev/null 2>&1 &

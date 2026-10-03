@@ -414,6 +414,10 @@ _pp_slot_reap() { # remove stale slots + tickets
 
 pp_heavy_begin() {
   [ -n "$PP_SLOT_HELD" ] && return 0
+  # A gate nested inside a gate (the ci-local self-test's sandbox, a test that runs
+  # the lib) inherits its parent's slot: queuing for a SECOND slot while holding the
+  # first deadlocks as soon as other sessions hold the rest (it hung a gate for 30+ min).
+  [ -n "${PP_SLOT_INHERITED:-}" ] && return 0
   local n="${MAPLE_GATE_SLOTS:-2}" wait="${MAPLE_GATE_SLOT_WAIT:-5400}" waited=0 last_msg=-60 root now i busy ahead t k
   [ "$n" -gt 0 ] 2>/dev/null || return 0
   _pp_slot_root; root="$PP_SLOT_ROOT"
@@ -436,6 +440,7 @@ pp_heavy_begin() {
           _pp_now now
           printf '%s %s\n' "$$" "$now" >"$root/slot-$i/pid"
           PP_SLOT_HELD="$root/slot-$i"
+          PP_SLOT_INHERITED=1; export PP_SLOT_INHERITED
           rm -f "$PP_TICKET" 2>/dev/null; PP_TICKET=""
           if [ "$waited" -gt 0 ]; then echo "prepush: got gate slot $i/$n after ${waited}s"; fi
           return 0

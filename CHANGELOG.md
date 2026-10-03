@@ -6,6 +6,12 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Nested gates inherit the parent's slot; tests are hermetic inside a hook (plugin v0.10.5).** A gate holding a machine-wide slot that ran a child gate
+  (the ci-local self-test sandbox) made the child queue for a second slot: with the rest held by other sessions nothing progressed (a gate sat 30+ min).
+  `pp_heavy_begin` now exports `PP_SLOT_INHERITED` and nested callers return at once. Also: `ci-local.sh` scrubs `git rev-parse --local-env-vars` once for
+  the whole gate, and the prepush self-tests unset them, set `GIT_ALLOW_PROTOCOL=file` and abort (`must_be_temp`) unless every repo they create is inside their temp dir:
+  run from a pre-push hook, git's exported `GIT_DIR` had let the tests re-initialise the real repo, set `core.bare=true`/a test user and add stray branches.
+  The hook stub also finds the worktree root without `rev-parse` (a `core.bare=true` main checkout) and scrubs those variables before running the hook.
 - **semgrep preset takes `options.timeout` (plugin v0.10.4).** The gate ran semgrep with its default 5 s per-rule timeout, and a timed-out rule
   is reported as a scanner error that the gate counts as a finding. Very large files (EasyCaller `softphone.test.ts`, 3,300 lines) time out
   reproducibly. `options.timeout` (whole seconds) is now passed as `--timeout`; unset keeps the default. No rule or file is skipped.

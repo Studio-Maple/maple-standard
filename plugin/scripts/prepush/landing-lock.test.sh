@@ -32,6 +32,7 @@ trap 'rm -rf "$W"' EXIT
 # git command at the REAL repo: an earlier version re-initialised it, set
 # core.bare=true, added a remote and pushed the real HEAD.)
 for v in GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX GIT_NAMESPACE GIT_QUARANTINE_PATH $(git rev-parse --local-env-vars 2>/dev/null); do unset "$v"; done
+unset PP_SLOT_INHERITED
 export GIT_ALLOW_PROTOCOL=file GIT_TERMINAL_PROMPT=0 GIT_CONFIG_NOSYSTEM=1
 # must_be_temp <dir>: abort unless <dir> is its OWN git repo inside this test's temp area
 must_be_temp() {
