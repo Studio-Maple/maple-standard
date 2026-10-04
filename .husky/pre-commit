@@ -47,8 +47,9 @@ fi
 STAGED_TS=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(ts|tsx)$' || true)
 if [ -n "$STAGED_TS" ]; then
   echo "  TS files staged — running lint (staged scope) + typecheck..."
-  # shellcheck disable=SC2086  # word-split is the point: one arg per file
-  pnpm exec eslint --cache --quiet $STAGED_TS || exit 1
+  # one arg per staged file (xargs: no unquoted word splitting)
+  printf '%s
+' "$STAGED_TS" | xargs pnpm exec eslint --cache --quiet || exit 1
   pnpm exec tsc --noEmit --pretty || exit 1
   echo "  Lint + typecheck: OK"
 fi

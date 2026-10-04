@@ -94,12 +94,12 @@ pp_init() {
     PP_FULL=1; PP_FULL_REASON="CI_FULL=1 / --full / non-gate tier"
   fi
 
-  local g head="" resolved=0 remote_base="" cand lsha rsha base up out
+  local g resolved=0 remote_base="" cand lsha rsha base up out
   # one call: head sha, tree sha, common dir
   g="$(git -C "$PP_ROOT" rev-parse HEAD 'HEAD^{tree}' --path-format=absolute --git-common-dir 2>/dev/null || true)"
   # (|| true on each: a non-repo directory yields no lines, and `read` at EOF
   # fails -- fatal under the callers' `set -e`.)
-  { read -r head || true; read -r PP_TREE || true; read -r PP_COMMON || true; } <<EOF
+  { read -r _ || true; read -r PP_TREE || true; read -r PP_COMMON || true; } <<EOF
 $g
 EOF
 
@@ -697,10 +697,10 @@ pp_land_release_all() {
 # take the lock, check again. Exits the caller's shell (return 1) on staleness.
 # Needs the refs text given to pp_init and PP_ROOT; <remote> defaults to origin.
 pp_land_hook_begin() {
-  local remote="${1:-${MAPLE_LAND_REMOTE:-origin}}" re="${MAPLE_LAND_REFS_RE:-^refs/heads/(development|production|main|master)$}" lref lsha rref rsha
+  local remote="${1:-${MAPLE_LAND_REMOTE:-origin}}" re="${MAPLE_LAND_REFS_RE:-^refs/heads/(development|production|main|master)$}" lsha rref rsha
   [ -n "$PP_REFS_TEXT" ] || return 0
   PP_LAND_TARGETS=()
-  while IFS=' ' read -r lref lsha rref rsha; do
+  while IFS=' ' read -r _ lsha rref rsha; do
     [ -n "${rref:-}" ] || continue
     [[ "$lsha" =~ $_pp_zero_re ]] && continue                 # branch delete
     [[ "$rref" =~ $re ]] || continue

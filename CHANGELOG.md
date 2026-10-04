@@ -6,6 +6,10 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Prepush scripts are shellcheck-clean without suppressions (plugin v0.10.6).** The predeploy gate runs `shellcheck --norc -x --severity=style` and audits for
+  `# shellcheck disable`; the prepush toolkit (lib, three tests, land-lock.sh) and `scripts/ci-local.sh` had 100+ findings and 4 disables in EasyCaller's copy. Real
+  if/then/else instead of `A && B || C`, `$'...'` snippets, argument arrays instead of unquoted splitting, exported cross-file variables, root-relative
+  `shellcheck source=` directives. The template's own `ci-local.sh` (`run_live`) and `.husky/pre-commit` lose their last two disables too.
 - **Nested gates inherit the parent's slot; tests are hermetic inside a hook (plugin v0.10.5).** A gate holding a machine-wide slot that ran a child gate
   (the ci-local self-test sandbox) made the child queue for a second slot: with the rest held by other sessions nothing progressed (a gate sat 30+ min).
   `pp_heavy_begin` now exports `PP_SLOT_INHERITED` and nested callers return at once. Also: `ci-local.sh` scrubs `git rev-parse --local-env-vars` once for

@@ -12,7 +12,6 @@ set -uo pipefail
 # gate inside a pre-push hook they would point every `git init`/`git config` below
 # at the REAL repository (it corrupted core.bare/user/branches once). Hermetic:
 for v in $(git rev-parse --local-env-vars 2>/dev/null); do unset "$v"; done
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 INSTALL="${INSTALL_HOOKS:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/install-hooks.mjs}"
 FAILURES=0
 pass() { printf '  ok   %s\n' "$1"; }
@@ -64,66 +63,66 @@ git config core.hooksPath .husky/_
 echo "before the fix (the incident)"
 git worktree add -q "$W/wt" -b feat 2>/dev/null
 ( cd "$W/wt" && echo a > a && git add a && git commit -q -m a && git push -q origin feat >/dev/null 2>&1 )
-[ ! -f "$W/main/.git/hook-ran.log" ] && pass "old relative .husky/_ with no generated dir: the push ran NO hook (reproduces the hole)" || fail "reproduce the hole" "hook ran"
+if [ ! -f "$W/main/.git/hook-ran.log" ]; then pass "old relative .husky/_ with no generated dir: the push ran NO hook (reproduces the hole)"; else fail "reproduce the hole" "hook ran"; fi
 
 echo "install"
 node "$INSTALL" --check >/dev/null 2>&1; rc=$?
-[ "$rc" -ne 0 ] && pass "--check fails before install" || fail "--check fails before install" "rc=$rc"
+if [ "$rc" -ne 0 ]; then pass "--check fails before install"; else fail "--check fails before install" "rc=$rc"; fi
 node "$INSTALL" --quiet; rc=$?
-[ "$rc" -eq 0 ] && pass "install succeeds" || fail "install succeeds" "rc=$rc"
-node "$INSTALL" --check >/dev/null 2>&1 && pass "--check passes after install" || fail "--check passes after install"
+if [ "$rc" -eq 0 ]; then pass "install succeeds"; else fail "install succeeds" "rc=$rc"; fi
+if node "$INSTALL" --check >/dev/null 2>&1; then pass "--check passes after install"; else fail "--check passes after install"; fi
 HP="$(git config core.hooksPath)"
 case "$HP" in /*|[A-Za-z]:*) pass "core.hooksPath is absolute ($HP)" ;; *) fail "core.hooksPath is absolute" "$HP" ;; esac
 
 echo "worktree that never ran npm ci"
 ( cd "$W/wt" && echo b > b && git add b && git commit -q -m b && git push -q origin feat >/dev/null 2>&1 ); rc=$?
-[ "$rc" -eq 0 ] && pass "push from the worktree succeeds when the hook passes" || fail "push passes" "rc=$rc"
-grep -q "ran in .*wt" "$W/main/.git/hook-ran.log" 2>/dev/null && pass "the hook RAN, from the worktree's own checkout" || fail "hook ran in the worktree" "$(cat "$W/main/.git/hook-ran.log" 2>/dev/null)"
-grep -q "refs/heads/feat" "$W/main/.git/hook-stdin.log" 2>/dev/null && pass "the hook received the pushed refs on stdin" || fail "stdin refs" "$(cat "$W/main/.git/hook-stdin.log" 2>/dev/null)"
-grep -q "origin" "$W/main/.git/hook-ran.log" && pass "the hook received git's arguments (remote name)" || fail "hook args" ""
+if [ "$rc" -eq 0 ]; then pass "push from the worktree succeeds when the hook passes"; else fail "push passes" "rc=$rc"; fi
+if grep -q "ran in .*wt" "$W/main/.git/hook-ran.log" 2>/dev/null; then pass "the hook RAN, from the worktree's own checkout"; else fail "hook ran in the worktree" "$(cat "$W/main/.git/hook-ran.log" 2>/dev/null)"; fi
+if grep -q "refs/heads/feat" "$W/main/.git/hook-stdin.log" 2>/dev/null; then pass "the hook received the pushed refs on stdin"; else fail "stdin refs" "$(cat "$W/main/.git/hook-stdin.log" 2>/dev/null)"; fi
+if grep -q "origin" "$W/main/.git/hook-ran.log"; then pass "the hook received git's arguments (remote name)"; else fail "hook args" ""; fi
 
-grep -q "GIT_DIR=unset" "$W/main/.git/hook-env.log" 2>/dev/null && pass "the stub scrubbed GIT_DIR from the hook's environment (tests it runs cannot hit the real repo)" || fail "GIT_DIR scrubbed" "$(cat "$W/main/.git/hook-env.log" 2>/dev/null)"
+if grep -q "GIT_DIR=unset" "$W/main/.git/hook-env.log" 2>/dev/null; then pass "the stub scrubbed GIT_DIR from the hook's environment (tests it runs cannot hit the real repo)"; else fail "GIT_DIR scrubbed" "$(cat "$W/main/.git/hook-env.log" 2>/dev/null)"; fi
 
 echo "a red gate blocks the push"
 touch "$W/main/.git/block-push"
 ( cd "$W/wt" && echo c > c && git add c && git commit -q -m c && git push -q origin feat >/dev/null 2>&1 ); rc=$?
-[ "$rc" -ne 0 ] && pass "hook exit 1 blocks the push from a worktree" || fail "hook blocks" "rc=$rc"
+if [ "$rc" -ne 0 ]; then pass "hook exit 1 blocks the push from a worktree"; else fail "hook blocks" "rc=$rc"; fi
 rm -f "$W/main/.git/block-push"
 
 echo "a checkout without the hook file refuses (fail closed)"
 git worktree add -q "$W/old" -b old 2>/dev/null
 ( cd "$W/old" && git rm -q .husky/pre-push && git commit -q -m "drop hook" && git push -q origin old >/dev/null 2>"$W/refuse.err" ); rc=$?
-[ "$rc" -ne 0 ] && pass "push REFUSED when .husky/pre-push is missing" || fail "refuse when missing" "rc=$rc"
-grep -q "missing - refusing" "$W/refuse.err" && pass "...with a message that says why" || fail "refusal message" "$(cat "$W/refuse.err")"
+if [ "$rc" -ne 0 ]; then pass "push REFUSED when .husky/pre-push is missing"; else fail "refuse when missing" "rc=$rc"; fi
+if grep -q "missing - refusing" "$W/refuse.err"; then pass "...with a message that says why"; else fail "refusal message" "$(cat "$W/refuse.err")"; fi
 
 echo "main checkout"
 ( cd "$W/main" && echo m > m && git add m && git commit -q -m m && git push -q origin development >/dev/null 2>&1 ); rc=$?
-[ "$rc" -eq 0 ] && grep -q "ran in .*main" "$W/main/.git/hook-ran.log" && pass "the main checkout is gated by the same stubs" || fail "main checkout gated" "rc=$rc"
+if [ "$rc" -eq 0 ] && grep -q "ran in .*main" "$W/main/.git/hook-ran.log"; then pass "the main checkout is gated by the same stubs"; else fail "main checkout gated" "rc=$rc"; fi
 
 echo "main checkout whose config says core.bare=true (left behind by a stray test; rev-parse --show-toplevel then fails)"
 git config core.bare true
 : > "$W/main/.git/hook-ran.log"
 ( cd "$W/main" && git push -q origin development >/dev/null 2>"$W/bare.err" ); rc=$?
-grep -q "ran in" "$W/main/.git/hook-ran.log" && pass "the stub still finds the root (pwd fallback) and runs the hook" || fail "stub works with core.bare=true" "$(cat "$W/bare.err")"
-grep -q "cannot locate" "$W/bare.err" && fail "no 'cannot locate the worktree root' refusal" "$(cat "$W/bare.err")" || pass "no 'cannot locate the worktree root' refusal"
+if grep -q "ran in" "$W/main/.git/hook-ran.log"; then pass "the stub still finds the root (pwd fallback) and runs the hook"; else fail "stub works with core.bare=true" "$(cat "$W/bare.err")"; fi
+if grep -q "cannot locate" "$W/bare.err"; then fail "no 'cannot locate the worktree root' refusal" "$(cat "$W/bare.err")"; else pass "no 'cannot locate the worktree root' refusal"; fi
 git config core.bare false
 
 echo "husky resets core.hooksPath to the relative .husky/_ (what npm ci does)"
 git config core.hooksPath .husky/_
 : > "$W/main/.git/hook-ran.log"
 ( cd "$W/wt" && echo d > d && git add d && git commit -q -m d && git push -q origin feat >/dev/null 2>&1 )
-grep -q "ran in .*wt" "$W/main/.git/hook-ran.log" && pass "a worktree that existed at install time is STILL gated: its .husky/_ holds the fail-closed stubs" || fail "worktree .husky/_ stubs" "$(cat "$W/main/.git/hook-ran.log")"
-node "$INSTALL" --check >/dev/null 2>&1 && fail "--check notices the reset" "" || pass "--check notices the reset"
-node "$INSTALL" --quiet && node "$INSTALL" --check >/dev/null 2>&1 && pass "re-running the installer restores the absolute hooksPath" || fail "heal" ""
+if grep -q "ran in .*wt" "$W/main/.git/hook-ran.log"; then pass "a worktree that existed at install time is STILL gated: its .husky/_ holds the fail-closed stubs"; else fail "worktree .husky/_ stubs" "$(cat "$W/main/.git/hook-ran.log")"; fi
+if node "$INSTALL" --check >/dev/null 2>&1; then fail "--check notices the reset" ""; else pass "--check notices the reset"; fi
+if node "$INSTALL" --quiet && node "$INSTALL" --check >/dev/null 2>&1; then pass "re-running the installer restores the absolute hooksPath"; else fail "heal" ""; fi
 git worktree add -q "$W/late" -b late 2>/dev/null
 git config core.hooksPath .husky/_
 node "$INSTALL" --quiet
-[ -f "$W/late/.husky/_/pre-push" ] && pass "a worktree created AFTER the first install gets its .husky/_ stubs on the next install" || fail "late worktree stubs" ""
+if [ -f "$W/late/.husky/_/pre-push" ]; then pass "a worktree created AFTER the first install gets its .husky/_ stubs on the next install"; else fail "late worktree stubs" ""; fi
 
 echo "repair"
 rm -rf "$W/main/.git/maple-hooks"
-node "$INSTALL" --check >/dev/null 2>&1 && fail "--check detects a deleted hooks dir" "" || pass "--check detects a deleted hooks dir"
-node "$INSTALL" --quiet && node "$INSTALL" --check >/dev/null 2>&1 && pass "re-running the installer repairs it" || fail "repair" ""
+if node "$INSTALL" --check >/dev/null 2>&1; then fail "--check detects a deleted hooks dir" ""; else pass "--check detects a deleted hooks dir"; fi
+if node "$INSTALL" --quiet && node "$INSTALL" --check >/dev/null 2>&1; then pass "re-running the installer repairs it"; else fail "repair" ""; fi
 
 echo ""
 printf 'install-hooks self-test: %s failure(s)\n' "$FAILURES"

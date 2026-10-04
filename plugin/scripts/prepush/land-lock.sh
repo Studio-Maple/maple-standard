@@ -15,7 +15,7 @@
 # calling script's $$); a dead owner frees the lock.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=prepush-lib.sh
+# shellcheck source=plugin/scripts/prepush/prepush-lib.sh
 . "$HERE/prepush-lib.sh"
 
 cmd="${1:-}"; shift || true

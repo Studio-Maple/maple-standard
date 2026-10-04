@@ -49,7 +49,7 @@ ROOT_DIR="$(pwd)"
 # in a temp repo hits the REAL repository (it corrupted core.bare/user/branches).
 for _v in $(git rev-parse --local-env-vars 2>/dev/null); do unset "$_v"; done
 
-# shellcheck source=../plugin/scripts/prepush/prepush-lib.sh
+# shellcheck source=plugin/scripts/prepush/prepush-lib.sh
 . "$ROOT_DIR/plugin/scripts/prepush/prepush-lib.sh"
 
 for _arg in "$@"; do
@@ -60,7 +60,7 @@ done
 
 # Shared inputs: a change here can alter the verdict of every check, so the
 # gate runs everything. When in doubt, add the path here.
-PP_FULL_RE='^scripts/(ci-local\.(sh|ps1)|lib/)|^plugin/scripts/prepush/|^\.husky/|(^|/)(package\.json|pnpm-lock\.yaml|\.npmrc)$|(^|/)tsconfig[^/]*\.json$|^(eslint\.config\.mjs|vitest\.config\.ts|next\.config\.ts|knip\.jsonc|\.dependency-cruiser\.cjs|maple\.config\.json)$|^src/test/setup\.ts$'
+export PP_FULL_RE='^scripts/(ci-local\.(sh|ps1)|lib/)|^plugin/scripts/prepush/|^\.husky/|(^|/)(package\.json|pnpm-lock\.yaml|\.npmrc)$|(^|/)tsconfig[^/]*\.json$|^(eslint\.config\.mjs|vitest\.config\.ts|next\.config\.ts|knip\.jsonc|\.dependency-cruiser\.cjs|maple\.config\.json)$|^src/test/setup\.ts$'
 
 step() { echo ""; echo "--- $1 ---"; }
 die()  { echo ""; echo "x $1" >&2; exit 1; }
@@ -198,8 +198,9 @@ run_live() {
   pnpm run test:supabase
 
   step "live: Playwright — $2"
-  # shellcheck disable=SC2086  # deliberate word-split of the literal arg set
-  pnpm exec playwright test --config e2e/playwright.config.ts $1
+  local -a pw_args
+  read -ra pw_args <<<"$1"   # the literal arg set, split into words
+  pnpm exec playwright test --config e2e/playwright.config.ts "${pw_args[@]}"
 }
 
 run_audit() {
@@ -217,7 +218,7 @@ pp_prepare() {
     while IFS= read -r line || [ -n "$line" ]; do refs="$refs$line"$'\n'; done
     exec </dev/null
   fi
-  case "$1" in gate) ;; *) PP_FORCE_FULL=1 ;; esac
+  case "$1" in gate) ;; *) export PP_FORCE_FULL=1 ;; esac
   pp_init "$ROOT_DIR" "$refs"
 }
 # On exit: a gate that passed re-checks that the target branch did not move
