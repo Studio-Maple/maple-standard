@@ -35,13 +35,24 @@ import { dockerPull, dockerImagePresent, dockerUsable, nativePath } from "./tool
 
 const stripCaret = (re) => re.replace(/^\^/, "");
 const HOST_ANY = "https?://[^/]+";
+const HEADER_NAME = /^[A-Za-z0-9-]+$/;
+/** POSIX single-quote a literal for the container's sh. */
+const sq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
+/** Exit code the container script uses when an authenticated target rejects its credentials. */
+export const PREFLIGHT_EXIT = 97;
 
-/** Pure: build the ZAP Automation Framework plan (JSON is valid YAML). Secrets appear only as ${ENV} placeholders. */
+/**
+ * Pure: build the ZAP Automation Framework plan (JSON is valid YAML). The plan holds NO auth
+ * header and no credential name: ZAP does not expand ${ENV} inside replacer rules (it sent
+ * the literal "${ZAPSCAN_H0}", so every authenticated target was scanned unauthenticated).
+ * Auth headers are injected as ZAP `-config replacer.full_list(n).*` options that the
+ * container's shell expands from `docker run -e` variables (containerScript). The plan has
+ * no replacer job, because one with deleteAllRules would wipe those rules.
+ */
 export function buildPlan(ls) {
   const dur = ls.maxDurationMin || 60;
   const threads = ls.threads || 5;
   const callEx = (ls.callOriginationExcludes || []).map((re) => `${HOST_ANY}${stripCaret(re)}${re.endsWith("$") ? "" : ".*"}`);
-  const headers = [];
   const envNames = [];
   const contexts = [];
   const jobs = [];
@@ -54,12 +65,10 @@ export function buildPlan(ls) {
       excludePaths: [...callEx, ...(t.excludeRegexes || []), ...(ls.extraExcludes || [])],
     });
     (t.headers || []).forEach((h) => {
-      const env = `ZAPSCAN_H${envNames.length}`;
-      envNames.push({ env, ref: h.credentialRef });
-      headers.push({ description: `${t.id}:${h.name}`, matchType: "req_header", matchString: h.name, matchRegex: false, replacementString: "${" + env + "}", initiators: [] });
+      if (!HEADER_NAME.test(h.name)) throw new Error(`liveScan target ${t.id}: invalid header name ${JSON.stringify(h.name)}`);
+      envNames.push({ env: `ZAPSCAN_H${envNames.length}`, ref: h.credentialRef, target: t.id, name: h.name });
     });
   });
-  jobs.push({ type: "replacer", parameters: { deleteAllRules: true }, rules: headers });
   jobs.push({ type: "passiveScan-config", parameters: { scanOnlyInScope: true, maxAlertsPerRule: 0 } });
   ls.targets.forEach((t) => {
     jobs.push({ type: "spider", parameters: { context: t.id, maxDuration: Math.min(dur, 15), maxDepth: 10, threadCount: threads } });
@@ -77,6 +86,76 @@ export function buildPlan(ls) {
   jobs.push({ type: "passiveScan-wait", parameters: { maxDuration: 10 } });
   jobs.push({ type: "report", parameters: { template: "traditional-json", reportDir: "/zap/wrk", reportFile: "zap-report", reportTitle: "predeploy live scan" }, risks: ["info", "low", "medium", "high"], confidences: ["falsepositive", "low", "medium", "high", "confirmed"] });
   return { plan: { env: { contexts, parameters: { failOnError: false, failOnWarning: false, progressToStdout: true } }, jobs }, envNames };
+}
+
+/**
+ * Pure: the `sh -c` script run inside the ZAP container. Secrets are referenced only as
+ * "$ZAPSCAN_Hn", expanded by the container's shell from `docker run -e ZAPSCAN_Hn` (value
+ * inherited from the host process env), so they never appear in host argv, the plan or disk.
+ * 1. Preflight: curl each authenticated target's URL with its headers; 401/403, a redirect
+ *    to Cloudflare Access, or no response aborts with PREFLIGHT_EXIT before any scanning.
+ * 2. exec zap.sh with one `replacer.full_list(n)` rule per header (ZAP's documented way
+ *    to add auth headers), then the plan.
+ */
+export function containerScript(ls, envNames) {
+  const out = ["fail=0"];
+  for (const t of ls.targets) {
+    const hs = envNames.filter((e) => e.target === t.id);
+    if (!hs.length) continue;
+    const hdr = hs.map((e) => `-H "${e.name}: $${e.env}"`).join(" ");
+    out.push(`r=$(curl -s -o /dev/null --max-time 30 -w '%{http_code} %{redirect_url}' ${hdr} ${sq(t.url)} 2>/dev/null)`);
+    out.push(`echo ${sq("MAPLE_PREFLIGHT " + t.id)} "$r"`);
+    out.push(`case "$r" in 000*|401*|403*|3*cloudflareaccess.com*) fail=1;; esac`);
+  }
+  out.push(`if [ "$fail" != 0 ]; then echo MAPLE_PREFLIGHT_FAILED; exit ${PREFLIGHT_EXIT}; fi`);
+  const cfg = [];
+  envNames.forEach((e, i) => {
+    const k = `replacer.full_list(${i})`;
+    cfg.push(
+      `-config ${sq(`${k}.description=${e.target}:${e.name}`)}`,
+      `-config ${sq(`${k}.enabled=true`)}`,
+      `-config ${sq(`${k}.matchtype=REQ_HEADER`)}`,
+      `-config ${sq(`${k}.matchstr=${e.name}`)}`,
+      `-config ${sq(`${k}.regex=false`)}`,
+      `-config "${k}.replacement=$${e.env}"`,
+    );
+  });
+  out.push(["exec zap.sh -cmd", ...cfg, "-autorun /zap/wrk/plan.yaml"].join(" "));
+  return out.join("\n");
+}
+
+/** Pure: the docker argv. Only env var NAMES are passed (`-e NAME`); values come from the spawn env. */
+export function dockerArgs({ runDirNative, image, ls, envNames }) {
+  return ["run", "--rm", "-v", `${runDirNative}:/zap/wrk:rw`, ...envNames.flatMap((e) => ["-e", e.env]), image, "sh", "-c", containerScript(ls, envNames)];
+}
+
+const trimSlash = (u) => u.replace(/\/+$/, "");
+
+/**
+ * Pure: blocking findings when an authenticated target was not actually authenticated —
+ * a failed preflight line, or ZAP's spider reporting 401/403 on the target URL itself
+ * ("Job spider error accessing URL <u> status code returned : 403 expected 200").
+ * Such a scan tested the Access login wall, not the app; it must never pass or produce
+ * findings that look like the app's.
+ */
+export function authRejections(log, ls, envNames) {
+  const authed = new Map(ls.targets.filter((t) => envNames.some((e) => e.target === t.id)).map((t) => [t.id, t]));
+  const out = [];
+  const seen = new Set();
+  const add = (t, why) => {
+    if (seen.has(t.id)) return;
+    seen.add(t.id);
+    out.push({ check: "live-scan", id: `auth-rejected:${t.id}`, severity: "high", message: `target ${t.id} has auth headers configured but was not authenticated (${why}) — check the credential(s) and the Access policy; the scan did not test the app`, location: t.url });
+  };
+  for (const m of String(log).matchAll(/^MAPLE_PREFLIGHT (\S+) (\d{3})[ \t]*(\S*)[ \t]*\r?$/gm)) {
+    const t = authed.get(m[1]);
+    const code = m[2];
+    if (t && (code === "000" || code === "401" || code === "403" || (code[0] === "3" && /cloudflareaccess\.com/.test(m[3])))) add(t, code === "000" ? "preflight: no response" : `preflight: HTTP ${code}${m[3] ? " -> " + m[3] : ""}`);
+  }
+  for (const m of String(log).matchAll(/error accessing URL (\S+) status code returned : (401|403)\b/g)) {
+    for (const t of authed.values()) if (trimSlash(m[1]) === trimSlash(t.url)) add(t, `ZAP spider got HTTP ${m[2]} on the target URL`);
+  }
+  return out;
 }
 
 export async function main(argv) {
@@ -101,7 +180,7 @@ export async function main(argv) {
   mkdirSync(runDir, { recursive: true });
   const { plan, envNames } = buildPlan(ls);
   writeFileSync(join(runDir, "plan.yaml"), JSON.stringify(plan, null, 2));
-  if (args.dryRun) { console.log(JSON.stringify(plan, null, 2)); console.log(`\n(dry run — plan written to ${join(runDir, "plan.yaml")}; no request was sent)`); return 0; }
+  if (args.dryRun) { console.log(JSON.stringify(plan, null, 2)); console.log("\n# container script (secrets only as $ZAPSCAN_Hn, expanded inside the container):\n" + containerScript(ls, envNames)); console.log(`\n(dry run — plan written to ${join(runDir, "plan.yaml")}; no request was sent)`); return 0; }
 
   const missing = envNames.filter((e) => !credentialExists(e.ref));
   if (missing.length) { console.error("missing credential(s): " + missing.map((m) => m.ref).join(", ") + " — store them via the credential-manager skill"); return 2; }
@@ -113,15 +192,19 @@ export async function main(argv) {
   const coversSeq = readLedger(root).reduce((m, e) => Math.max(m, e.seq || 0), 0);
   const env = { ...process.env };
   for (const e of envNames) env[e.env] = getCredential(e.ref) || "";
-  const dargs = ["run", "--rm", "-v", `${nativePath(runDir)}:/zap/wrk:rw`, ...envNames.flatMap((e) => ["-e", e.env]), image, "zap.sh", "-cmd", "-autorun", "/zap/wrk/plan.yaml"];
+  const dargs = dockerArgs({ runDirNative: nativePath(runDir), image, ls, envNames });
   console.log(`live scan: ${ls.targets.length} target(s), FULL ACTIVE policy (strength High / threshold Low); excluded call-origination routes: ${(ls.callOriginationExcludes || []).length}`);
   const timeoutMs = (ls.targets.length * (ls.maxDurationMin || 60) + 90) * 60000;
   const r = spawnSync("docker", dargs, { env, encoding: "utf8", timeout: timeoutMs, maxBuffer: 512 * 1024 * 1024 });
-  writeFileSync(join(runDir, "zap.log"), (r.stdout || "") + (r.stderr || ""));
+  const log = (r.stdout || "") + (r.stderr || "");
+  writeFileSync(join(runDir, "zap.log"), log);
   const reportFile = join(runDir, "zap-report.json");
-  const findings = [];
+  const findings = authRejections(log, ls, envNames);
+  if (findings.length) console.error(`\nLIVE SCAN AUTH FAILURE — ${findings.length} authenticated target(s) were NOT authenticated:\n` + findings.map((f) => `  ${f.id}: ${f.message}`).join("\n") + "\n");
+  const preflightAborted = r.status === PREFLIGHT_EXIT;
+  if (preflightAborted && !findings.length) findings.push({ check: "live-scan", id: "auth-preflight-failed", severity: "high", message: `auth preflight aborted the scan (see ${join(runDir, "zap.log")})`, location: "" });
   let reportText = existsSync(reportFile) ? readFileSync(reportFile, "utf8") : null;
-  if (r.status !== 0 && !reportText) findings.push({ check: "live-scan", id: "zap-failed", severity: "high", message: `ZAP exited ${r.status} without a report (see ${join(runDir, "zap.log")})`, location: "" });
+  if (r.status !== 0 && !preflightAborted && !reportText) findings.push({ check: "live-scan", id: "zap-failed", severity: "high", message: `ZAP exited ${r.status} without a report (see ${join(runDir, "zap.log")})`, location: "" });
   if (reportText) {
     findings.push(...parseOutput("zap-json", { reports: ["r"], readReport: () => reportText }).map((f) => ({ ...f, check: "live-scan" })));
     const sites = (JSON.parse(reportText).site || []).map((s) => s["@name"]);

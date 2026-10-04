@@ -6,6 +6,12 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Live scan actually authenticates (plugin v0.10.7).** `buildPlan` put auth headers in a ZAP `replacer` job as `replacementString: "${ZAPSCAN_Hn}"`;
+  ZAP does not expand env vars there and sent the literal text, so every target with `headers` was scanned unauthenticated (Access 403 pages produced
+  false findings). The plan now has no replacer job; each header becomes ZAP `-config replacer.full_list(n).*` options in an `sh -c` script whose
+  `"$ZAPSCAN_Hn"` the container's shell expands from `docker run -e`, so values stay out of host argv, the plan and disk. Before ZAP starts, the script
+  curls each authenticated target with its headers and aborts on 401/403, a Cloudflare Access redirect or no response; a spider 401/403 on the target
+  URL is also caught. Both record a blocking `auth-rejected:<target>` finding and print a loud error. Verified against a local echo server; regression tests added.
 - **Prepush scripts are shellcheck-clean without suppressions (plugin v0.10.6).** The predeploy gate runs `shellcheck --norc -x --severity=style` and audits for
   `# shellcheck disable`; the prepush toolkit (lib, three tests, land-lock.sh) and `scripts/ci-local.sh` had 100+ findings and 4 disables in EasyCaller's copy. Real
   if/then/else instead of `A && B || C`, `$'...'` snippets, argument arrays instead of unquoted splitting, exported cross-file variables, root-relative

@@ -3,7 +3,7 @@ import { applyAllowlist, validateEntries } from "./allowlist.mjs";
 import { validatePredeploy } from "./config.mjs";
 import { applyDecisions, decisionIdsIn, summarizeDecisions, validateDecisions } from "./decisions.mjs";
 import { parseOutput } from "./parsers.mjs";
-import { buildPlan } from "./livescan.mjs";
+import { authRejections, buildPlan, containerScript, dockerArgs, PREFLIGHT_EXIT } from "./livescan.mjs";
 import { semgrepArgs } from "./catalog.mjs";
 import { matchDeploy, touchesGateState } from "../../hooks/predeploy-guard.mjs";
 
@@ -103,9 +103,52 @@ t("plan: full attack policy, call routes excluded on every context, secrets only
   for (const j of active) { assert.equal(j.policyDefinition.defaultStrength, "High"); assert.equal(j.policyDefinition.defaultThreshold, "Low"); }
   for (const c of plan.env.contexts) assert.ok(c.excludePaths.some((p) => new RegExp("^" + p + "$").test("https://x.example:8443/call/dial-action?a=1")));
   const text = JSON.stringify(plan);
-  assert.ok(text.includes("${ZAPSCAN_H0}")); assert.equal(envNames[0].ref, "Proj-Scan-Token");
+  assert.ok(!text.includes("ZAPSCAN_"), "no auth placeholder in the plan: ZAP does not expand env vars in replacer rules");
+  assert.equal(envNames[0].ref, "Proj-Scan-Token");
   assert.ok(!/Proj-Scan-Token/.test(text), "credential name must not leak into the plan either");
+  assert.ok(!plan.jobs.some((j) => j.type === "replacer"), "a replacer job (deleteAllRules) would wipe the -config auth rules");
   assert.ok(plan.jobs.some((j) => j.type === "report"));
+});
+// Regression (0.10.7): replacer rules with replacementString "${ZAPSCAN_H0}" were sent literally,
+// so every authenticated target was scanned unauthenticated. Auth now goes through -config
+// replacer.full_list(n).* options expanded by the container's shell from `docker run -e`.
+t("auth headers: -config replacer rules expanded in-container; secrets never in argv", () => {
+  const cfg = ls(); cfg.targets[0].headers.push({ name: "CF-Access-Client-Secret", credentialRef: "Proj-Scan-Secret" }); cfg.targets.push({ id: "pub", url: "https://p.example" });
+  const { envNames } = buildPlan(cfg);
+  const argv = dockerArgs({ runDirNative: "C:/run", image: "zap:img", ls: cfg, envNames });
+  assert.deepEqual(argv.slice(0, 9), ["run", "--rm", "-v", "C:/run:/zap/wrk:rw", "-e", "ZAPSCAN_H0", "-e", "ZAPSCAN_H1", "zap:img"]);
+  assert.deepEqual(argv.slice(9, 11), ["sh", "-c"]);
+  assert.equal(argv.length, 12);
+  const sh = argv[11];
+  for (const [i, name] of [[0, "X-T"], [1, "CF-Access-Client-Secret"]]) {
+    for (const kv of [`.enabled=true`, `.matchtype=REQ_HEADER`, `.matchstr=${name}`, `.regex=false`]) assert.ok(sh.includes(`-config 'replacer.full_list(${i})${kv}'`), kv);
+    assert.ok(sh.includes(`-config "replacer.full_list(${i}).replacement=$ZAPSCAN_H${i}"`), "replacement must be shell-expanded (double quotes)");
+  }
+  assert.ok(!/'[^']*\$ZAPSCAN/.test(sh.replace(/"[^"]*"/g, "")), "a $ZAPSCAN ref inside single quotes would be sent literally");
+  assert.match(sh, /exec zap\.sh -cmd .*-autorun \/zap\/wrk\/plan\.yaml$/);
+  assert.ok(sh.indexOf("MAPLE_PREFLIGHT_FAILED") < sh.indexOf("exec zap.sh"), "preflight runs before the scan");
+  assert.ok(sh.includes(`-H "X-T: $ZAPSCAN_H0" -H "CF-Access-Client-Secret: $ZAPSCAN_H1" 'https://a.example'`));
+  assert.ok(!sh.includes("p.example"), "unauthenticated targets get no preflight");
+  assert.ok(sh.includes(`exit ${PREFLIGHT_EXIT}`));
+  assert.ok(!/Proj-Scan/.test(argv.join(" ")), "credential refs never reach docker");
+  assert.equal(containerScript({ targets: [{ id: "o", url: "https://o.example" }] }, []).includes("-config"), false);
+  assert.throws(() => buildPlan({ ...ls(), targets: [{ id: "x", url: "https://x", headers: [{ name: "A: b\"; rm", credentialRef: "r" }] }] }), /invalid header name/);
+});
+t("auth rejection fails loudly: preflight 401/403/Access redirect/no response, or spider 401/403 on the target URL", () => {
+  const cfg = ls(); cfg.targets.push({ id: "pub", url: "https://p.example" });
+  const { envNames } = buildPlan(cfg);
+  const ids = (log) => authRejections(log, cfg, envNames).map((f) => f.id + ":" + f.severity);
+  assert.deepEqual(ids("MAPLE_PREFLIGHT app 200 \nJob spider requesting URL https://a.example\n"), []);
+  for (const line of ["MAPLE_PREFLIGHT app 403 ", "MAPLE_PREFLIGHT app 401 ", "MAPLE_PREFLIGHT app 000 ", "MAPLE_PREFLIGHT app 302 https://team.cloudflareaccess.com/cdn-cgi/access/login"])
+    assert.deepEqual(ids(line + "\nMAPLE_PREFLIGHT_FAILED\n"), ["auth-rejected:app:high"], line);
+  assert.equal(authRejections("MAPLE_PREFLIGHT app 403 \r\nMAPLE_PREFLIGHT_FAILED\r\n", cfg, envNames)[0].message.includes("MAPLE_PREFLIGHT_FAILED"), false, "next line is not parsed as a redirect");
+  assert.deepEqual(ids("MAPLE_PREFLIGHT app 302 https://a.example/home\n"), [], "an app redirect is not an auth failure");
+  const spider = (u, c) => `Job spider error accessing URL ${u} status code returned : ${c} expected 200\n`;
+  assert.deepEqual(ids(spider("https://a.example/", 403)), ["auth-rejected:app:high"]);
+  assert.deepEqual(ids(spider("https://a.example", 401) + spider("https://a.example", 403)), ["auth-rejected:app:high"], "one finding per target");
+  assert.deepEqual(ids(spider("https://a.example/admin", 403)), [], "a 403 on a sub-path is the app's business");
+  assert.deepEqual(ids(spider("https://p.example/", 403) + "MAPLE_PREFLIGHT pub 403 \n"), [], "targets without auth headers are not judged here");
+  assert.deepEqual(ids(spider("https://a.example/", 500)), []);
 });
 
 // ── deploy matching ─────────────────────────────────────────────────────────
