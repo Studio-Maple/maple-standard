@@ -147,6 +147,7 @@ run_fast() {
   plugin_suite agent-wt
   plugin_suite jev
   plugin_suite predeploy
+  plugin_suite deps
   # The affected-only selection + pass stamp + gate slots, proven fail-closed.
   if pp_want plugin-prepush '^(plugin/scripts/prepush/|scripts/install-hooks\.mjs$|\.husky/)'; then
     pnpm run test:plugin-prepush
@@ -164,6 +165,11 @@ run_fast() {
     node scripts/check-docs-drift.mjs
   else
     pp_skip "docs-drift" "docs/ and the checker untouched, nothing deleted"
+  fi
+  # D064: every dependency added/changed vs the target branch must be at the latest major (registry lookup;
+  # diff-scoped, so it only ever touches the network when a package.json changed).
+  if pp_want dep-freshness '(^|/)package\.json$|^maple\.config\.json$|^docs/decisions\.md$|^plugin/scripts/deps/'; then
+    node scripts/check-dep-freshness.mjs
   fi
 }
 

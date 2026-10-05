@@ -112,7 +112,7 @@ export function validateConfig(config) {
   }
   checkNoExtraKeys(
     config,
-    ["$schema", "project", "repo", "worktrees", "docs", "ci", "lint", "sizeCaps", "errorTracker", "loops", "hooks", "jev", "quality", "predeploy"],
+    ["$schema", "project", "repo", "worktrees", "docs", "ci", "lint", "sizeCaps", "errorTracker", "loops", "hooks", "jev", "quality", "predeploy", "deps"],
     "root",
     errors
   );
@@ -407,6 +407,30 @@ export function validateConfig(config) {
 
   // ---- predeploy (D060) ----------------------------------------------------------------
   errors.push(...validatePredeploy(config));
+
+  // ---- deps (D064) ------------------------------------------------------------------
+  // Shape only; that each `decision` exists in the ledger is verified at run time by
+  // plugin/scripts/deps/exceptions.mjs (the validator has no docs paths to read).
+  if (config.deps !== undefined) {
+    if (!isPlainObject(config.deps)) {
+      errors.push("deps: must be an object");
+    } else {
+      checkNoExtraKeys(config.deps, ["exceptions"], "deps", errors);
+      const ex = config.deps.exceptions;
+      if (ex !== undefined && !Array.isArray(ex)) errors.push("deps.exceptions: must be an array");
+      else if (Array.isArray(ex)) {
+        ex.forEach((e, i) => {
+          const at = `deps.exceptions[${i}]`;
+          if (!isPlainObject(e)) return errors.push(`${at}: must be an object`);
+          checkNoExtraKeys(e, ["name", "range", "decision", "why"], at, errors);
+          if (!isNonEmptyString(e.name)) errors.push(`${at}.name: must be a non-empty string`);
+          if (e.range !== undefined && typeof e.range !== "string") errors.push(`${at}.range: must be a string`);
+          if (typeof e.decision !== "string" || !/^D\d{3,}$/.test(e.decision)) errors.push(`${at}.decision: must be a decision id like "D064"`);
+          if (typeof e.why !== "string" || e.why.trim().length < 10) errors.push(`${at}.why: must be a string of at least 10 characters`);
+        });
+      }
+    }
+  }
 
   // ---- hooks ------------------------------------------------------------------------
   if (config.hooks !== undefined) {

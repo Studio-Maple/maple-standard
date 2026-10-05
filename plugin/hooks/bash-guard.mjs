@@ -24,6 +24,10 @@
 //   hooks.bashGuard.pushGuardMinTimeoutMs  default 600000 (10 min)
 //   hooks.bashGuard.cleanGuardEnabled      default true
 //
+// Guard 4 (deps, D064): `pnpm|npm|yarn|bun add <pkg>@<version>` behind the latest major is denied
+// (registry lookup, ~4 s timeout, fail-open with a warning; exceptions via maple.config.json
+// deps.exceptions). Logic lives in ../scripts/deps/install-guard.mjs.
+//
 // PROJECT ROOT for config lookup: the hook payload's own `cwd` field
 // (falling back to $CLAUDE_PROJECT_DIR, then process.cwd()) — not this
 // script's own location, which lives under the plugin's install directory.
@@ -31,6 +35,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import process from 'node:process';
+import { checkInstallCommand } from '../scripts/deps/install-guard.mjs';
 
 function loadMapleConfig(root) {
   try {
@@ -79,7 +84,7 @@ function countForce(args) {
 let raw = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => { raw += chunk; });
-process.stdin.on('end', () => {
+process.stdin.on('end', async () => {
   let payload;
   try {
     payload = JSON.parse(raw);
@@ -142,6 +147,19 @@ process.stdin.on('end', () => {
       );
       process.exit(2);
     }
+  }
+
+  // Guard 4 (deps, D064): an install pinned to a version behind the latest major is denied.
+  // Fail-open on any error here — a broken guard must not block unrelated Bash.
+  try {
+    const { deny, warnings } = await checkInstallCommand(command, root);
+    for (const w of warnings) process.stderr.write(`${w}\n`);
+    if (deny) {
+      process.stderr.write(`BLOCKED (dep-freshness): ${deny}\n`);
+      process.exit(2);
+    }
+  } catch (err) {
+    process.stderr.write(`dep-freshness: guard error ignored (${err instanceof Error ? err.message : err})\n`);
   }
 
   process.exit(0);

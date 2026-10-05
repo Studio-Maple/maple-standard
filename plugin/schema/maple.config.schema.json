@@ -330,6 +330,28 @@
       }
     },
 
+    "deps": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "plugin extension (D064) — dependency freshness. New/changed dependencies must be at the latest release's major (0.x: minor): dep-version-guard hook, bash-guard install check, check-dep-freshness ci:fast gate. exceptions[] are decision-backed (each cites a D### that must exist in the decisions ledger; verified at run time, not by the schema).",
+      "properties": {
+        "exceptions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "decision", "why"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1, "description": "Package name (dependency key or the target of an npm: alias)." },
+              "range": { "type": "string", "description": "Optional. The old spec being excepted; covers the same freshness bucket (same major, 0.x same minor). Omitted = any version of the package." },
+              "decision": { "type": "string", "pattern": "^D\\d{3,}$", "description": "Decision id in the decisions ledger that requires the old version." },
+              "why": { "type": "string", "minLength": 10, "description": "Why the old version cannot be upgraded." }
+            }
+          }
+        }
+      }
+    },
+
     "hooks": {
       "type": "object",
       "additionalProperties": false,

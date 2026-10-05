@@ -57,10 +57,13 @@ function Run-Fast {
     Invoke-Checked "pnpm run test:plugin-agent-wt"
     Invoke-Checked "pnpm run test:plugin-jev"
     Invoke-Checked "pnpm run test:plugin-predeploy"
+    Invoke-Checked "pnpm run test:plugin-deps"
 
     Step "fast 7/7: build (next build) + docs-drift"
     Invoke-Checked "pnpm run build"
     Invoke-Checked "node scripts/check-docs-drift.mjs"
+    # D064: dependencies added/changed vs the target branch must be at the latest major (diff-scoped).
+    Invoke-Checked "node scripts/check-dep-freshness.mjs"
 }
 
 function Stack-Up {
