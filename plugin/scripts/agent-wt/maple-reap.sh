@@ -8,6 +8,15 @@
 #   - <branchPrefix><slug> branches merged into origin/<targetBranch> -> worktree + branch deleted
 #   - orphan worktree dirs whose branch is already gone                -> removed
 #
+# Never removed, merged or not, --force or not (all three bypassed by
+# maple_remove_worktree's `--force` + `rm -rf` fallback if we didn't check):
+#
+#   - a worktree with uncommitted changes (`git status --porcelain` non-empty)
+#   - a fresh, unstarted worktree: branch tip == the target and its HEAD
+#     reflog touched within staleHours. `git worktree add -b agent/x
+#     origin/<target>` has zero commits, so it is trivially "merged".
+#   - a `git worktree lock`ed worktree
+#
 # Unmerged branches are NEVER auto-deleted (that's unlanded work). They're
 # reported with their idle age; --force removes their *worktree* (freeing
 # disk) but keeps the branch so the commits survive.
@@ -47,6 +56,16 @@ git worktree prune
 TARGET_REF="$MAPLE_REMOTE/$MAPLE_TARGET"
 
 is_merged() { git merge-base --is-ancestor "$1" "$TARGET_REF" 2>/dev/null; }
+# Uncommitted changes in a worktree. A failed `status` counts as dirty.
+wt_dirty() { [ -n "$(git -C "$1" status --porcelain 2>/dev/null || echo unknown)" ]; }
+# Hours since the worktree's HEAD reflog was last written (checkout, commit,
+# reset…). No reflog / unreadable -> 0, i.e. "just touched": err toward keeping.
+wt_head_idle_hours() {
+  local gd log now; gd="$(git -C "$1" rev-parse --absolute-git-dir 2>/dev/null || true)"
+  log="$gd/logs/HEAD"; now="$(date +%s)"
+  [ -n "$gd" ] && [ -f "$log" ] || { echo 0; return; }
+  echo $(( (now - $(_maple_dir_mtime "$log")) / 3600 ))
+}
 branch_idle_hours() {
   local last now; last="$(git log -1 --format=%ct "$1" 2>/dev/null || echo 0)"
   now="$(date +%s)"; echo $(( (now - last) / 3600 ))
@@ -77,7 +96,7 @@ PROD_BRANCH="$(maple_cfg repo.prodBranch '')";  PROD_BRANCH="${PROD_BRANCH:-:non
 DEV_BRANCH="$(maple_cfg repo.devBranch '')";    DEV_BRANCH="${DEV_BRANCH:-:none:}"
 
 # ── pass 1: worktrees under MAPLE_WT_ROOT ────────────────────────────────────
-cur_path="" cur_branch=""
+cur_path="" cur_branch="" cur_locked=false
 flush() {
   [ -n "$cur_path" ] || return 0
   case "$cur_path" in
@@ -87,6 +106,9 @@ flush() {
   [ "$(basename "$cur_path")" = "$MAPLE_PREVIEW_NAME" ] && return 0   # never reap preview
   [ "$(basename "$cur_path")" = "$STANDING_LOOP_DIR_NAME" ] && return 0   # never reap the standing loop-pack worktree (MJ-3)
   [ "$cur_branch" = "$STANDING_LOOP_BRANCH" ] && return 0                 # ...or its branch, by name, defensively
+  if $cur_locked; then
+    maple_log "keeping ${cur_branch:-detached worktree} — locked (git worktree lock), never reaped ($cur_path)"; kept=$((kept+1)); return 0
+  fi
 
   # Ownership guard. When worktrees lived in a sibling `<repo>-wt` dir only our
   # own scripts ever wrote there, so "under MAPLE_WT_ROOT" meant "ours". Since
@@ -111,10 +133,9 @@ flush() {
     # Detached HEAD: its commits may be reachable from NO branch, so removing it
     # can destroy work outright. Remove only when the tree is clean AND HEAD is
     # already contained in the target; anything else is kept for a human.
-    local head dirty
+    local head
     head="$(git -C "$cur_path" rev-parse HEAD 2>/dev/null || true)"
-    dirty="$(git -C "$cur_path" status --porcelain 2>/dev/null || echo unknown)"
-    if [ -n "$head" ] && [ -z "$dirty" ] && is_merged "$head"; then
+    if [ -n "$head" ] && ! wt_dirty "$cur_path" && is_merged "$head"; then
       maple_warn "detached worktree, clean and merged: $cur_path -> removing"
       do_or_echo maple_remove_worktree "$cur_path"; reaped=$((reaped+1))
     else
@@ -122,7 +143,21 @@ flush() {
     fi
     return 0
   fi
+  # Uncommitted work is lost by removal whether or not the branch landed.
+  if wt_dirty "$cur_path"; then
+    maple_log "keeping $cur_branch — uncommitted changes in the worktree ($cur_path)"; kept=$((kept+1)); return 0
+  fi
   if is_merged "$cur_branch"; then
+    # Tip == target with a recently touched HEAD reflog is a worktree that was
+    # just created and not started, not one that landed. Landed-by-fast-forward
+    # looks the same, so it waits out staleHours and goes on a later run.
+    local head_idle
+    if [ "$(git rev-parse "$cur_branch" 2>/dev/null)" = "$(git rev-parse "$TARGET_REF" 2>/dev/null)" ]; then
+      head_idle="$(wt_head_idle_hours "$cur_path")"
+      if [ "$head_idle" -lt "$STALE_HOURS" ]; then
+        maple_log "keeping $cur_branch — at the target tip and active ${head_idle}h ago, a fresh worktree ($cur_path)"; kept=$((kept+1)); return 0
+      fi
+    fi
     maple_ok "merged: $cur_branch -> removing worktree + branch"
     do_or_echo maple_remove_worktree "$cur_path"
     do_or_echo git branch -D "$cur_branch"; reaped=$((reaped+1))
@@ -138,9 +173,10 @@ flush() {
 }
 while IFS= read -r line; do
   case "$line" in
-    worktree\ *) flush; cur_path="${line#worktree }"; cur_branch="" ;;
+    worktree\ *) flush; cur_path="${line#worktree }"; cur_branch=""; cur_locked=false ;;
     branch\ refs/heads/*) cur_branch="${line#branch refs/heads/}" ;;
     detached) cur_branch="" ;;
+    locked|locked\ *) cur_locked=true ;;
   esac
 done < <(git worktree list --porcelain)
 flush

@@ -19,7 +19,7 @@
  * Builds a repo + bare origin with:
  *   .worktrees/main          branch main          (protected)       -> KEPT
  *   .worktrees/feature-x     branch feature/x     (merged, foreign) -> KEPT
- *   .worktrees/done          branch agent/done    (merged, ours)    -> REMOVED
+ *   .worktrees/done          branch agent/done    (landed, ours)    -> REMOVED
  *   .worktrees/wip           branch agent/wip     (unmerged, ours)  -> KEPT
  *   .worktrees/det-clean     detached, clean, merged                -> REMOVED
  *   .worktrees/det-dirty     detached, uncommitted change           -> KEPT
@@ -83,6 +83,11 @@ try {
   git(["worktree", "add", "-q", wt("main"), "main"]);
   git(["worktree", "add", "-q", wt("feature-x"), "feature/x"]);
   git(["worktree", "add", "-q", wt("done"), "agent/done"]);
+  // Land agent/done for real (a commit, merged with --no-ff): a zero-commit
+  // branch at the target tip is a fresh worktree, which reap keeps.
+  git(["commit", "-q", "--allow-empty", "-m", "landed work"], wt("done"));
+  git(["merge", "-q", "--no-ff", "-m", "land agent/done", "agent/done"], wt("main"));
+  git(["push", "-q", "origin", "main"]);
   git(["worktree", "add", "-q", wt("wip"), "agent/wip"]);
   git(["worktree", "add", "-q", "--detach", wt("det-clean"), "main"]);
   git(["worktree", "add", "-q", "--detach", wt("det-dirty"), "main"]);

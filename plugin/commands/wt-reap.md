@@ -11,6 +11,12 @@ branch) and orphan worktree dirs whose branch is gone. Unmerged branches are
 **never** auto-deleted (that's unlanded work); they're reported with their
 idle age.
 
+Never removed, merged or not and with or without `--force`: a worktree with
+uncommitted changes, a `git worktree lock`ed worktree, and a fresh one whose
+branch tip equals the target and whose HEAD reflog moved within
+`worktrees.reap.staleHours` (a just-created, zero-commit worktree is
+trivially "merged"; a fast-forward-landed one waits out that window).
+
 ## Config this command reads (`maple.config.json` at project root)
 
 Canonical keys per `docs/standard-architecture.md` (reconciled #T11):
@@ -21,7 +27,7 @@ Canonical keys per `docs/standard-architecture.md` (reconciled #T11):
 | `repo.devBranch` / `repo.prodBranch` | origin's default branch, else `"main"` |
 | `worktrees.namePattern` | `"agent/<slug>"` |
 | `worktrees.root` | `".worktrees"` (inside the repo, gitignored) |
-| `worktrees.reap.staleHours` | `24` — idle threshold for `--force` |
+| `worktrees.reap.staleHours` | `24` — idle threshold for `--force`; also the fresh-worktree window |
 
 Malformed config? Run
 `node "$CLAUDE_PLUGIN_ROOT/scripts/validate-config.mjs"`.

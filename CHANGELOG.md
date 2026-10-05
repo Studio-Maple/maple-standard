@@ -6,6 +6,11 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Reap never destroys uncommitted work (plugin v0.10.8).** `maple-reap` removed any `agent/*` worktree whose branch was an ancestor of the target, with
+  `git worktree remove --force` falling back to `rm -rf`. A fresh worktree (`-b agent/x origin/<target>`, zero commits) is trivially "merged", so its
+  in-progress uncommitted edits were deleted. Reap now keeps, merged or `--force`d: any worktree with `git status --porcelain` output; a branch at the
+  target tip whose HEAD reflog moved within `staleHours` (fresh, not landed; a fast-forward-landed one goes on a later run); and `git worktree lock`ed
+  worktrees. Regression test `reap-fresh-worktree.test.mjs`.
 - **Live scan actually authenticates (plugin v0.10.7).** `buildPlan` put auth headers in a ZAP `replacer` job as `replacementString: "${ZAPSCAN_Hn}"`;
   ZAP does not expand env vars there and sent the literal text, so every target with `headers` was scanned unauthenticated (Access 403 pages produced
   false findings). The plan now has no replacer job; each header becomes ZAP `-config replacer.full_list(n).*` options in an `sh -c` script whose
