@@ -1,12 +1,28 @@
 import { withSentryConfig } from "@sentry/nextjs";
+import { realpathSync } from "node:fs";
+import path from "node:path";
 
 import type { NextConfig } from "next";
 
+// Pin the workspace root to this repo so Next.js never mis-infers a parent
+// directory's lockfile as the monorepo root. In a /wt-start worktree,
+// node_modules is a junction into the main checkout (an ancestor of
+// <repo>/.worktrees/<slug>); widen the root to that checkout so Turbopack
+// accepts the junction instead of rejecting it as outside the root.
+function turbopackRoot(): string {
+  try {
+    const modulesOwner = path.dirname(realpathSync(path.join(__dirname, "node_modules")));
+    const rel = path.relative(modulesOwner, __dirname);
+    if (rel && !rel.startsWith("..") && !path.isAbsolute(rel)) return modulesOwner;
+  } catch {
+    // no node_modules yet (fresh clone before install) — keep the repo root
+  }
+  return __dirname;
+}
+
 const nextConfig: NextConfig = {
-  // Pin the workspace root to this repo so Next.js never mis-infers a
-  // parent directory's lockfile as the monorepo root.
   turbopack: {
-    root: __dirname,
+    root: turbopackRoot(),
   },
 };
 
