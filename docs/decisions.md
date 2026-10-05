@@ -14,6 +14,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D064 | 2026-10-05 | New dependencies enter at the latest release, enforced at add-time
+Hand-edited dependency versions in package.json are hook-denied (use pnpm add); pinned installs behind the latest major are denied in bash-guard. A diff-scoped ci:fast check fails any added/changed dep not on the latest major unless an exception cites a D###. pnpm minimumReleaseAge keeps latest supply-chain-safe; Dependabot still handles drift of untouched deps.
+
 ## D063 | 2026-10-02 | Third-party image debt is a dated, shrink-only gate category, never an allowlist
 Third-party VM images cannot reach zero findings on our timeline. predeploy.imageDebt: a committed per-image ledger (owner, plan, due, snapshot). Reported as its own NOT ZERO block; the gate fails on any finding outside the snapshot, a changed digest, findings left after due, an unlisted third-party pin, our own image listed, or an uncommitted file. Snapshots grow only via run.mjs --rebaseline-image-debt (reviewable diff, due never extended). Stamp binds the file hash. Builds on D061/D062.
 
