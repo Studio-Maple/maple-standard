@@ -28,6 +28,8 @@ below are the canonical schema (`docs/standard-architecture.md`
 - `docs/.docs-index.json` — generated via the bundled index script (step 4).
 - `CLAUDE.md` at the project root — created if missing, or a proposed diff
   if it already exists (step 5) — never a blind overwrite.
+- `pnpm-workspace.yaml` — `minimumReleaseAge: 1440` added if missing, and the
+  dependency-freshness check wired into the fast tier (step 6b, pnpm projects).
 - `.claude/settings.json` — normally **left untouched**. The plugin's own
   hooks apply globally once the plugin is enabled — there's no per-project
   wiring step for the plugin's *own* hooks. Step 6 only checks whether the
@@ -318,8 +320,9 @@ have frontmatter yet.
 
 - **`CLAUDE.md` doesn't exist**: write a minimal skeleton — audience,
   one-paragraph project description placeholder, a pointer to
-  `docs/index.md` for session start, and a note that this plugin's hooks +
-  commands are active. Do **not** copy this template's full charter
+  `docs/index.md` for session start, a note that this plugin's hooks +
+  commands are active, and one line: before using a package's API, read the
+  installed version's docs/types in `node_modules`, not memory (D064). Do **not** copy this template's full charter
   (long-run-over-patches rules, stack table, etc.) verbatim — that content
   is opinionated to *this* template's Next.js/Supabase stack; a `CLAUDE.md`
   for an arbitrary adopting project needs its own description of its own
@@ -351,7 +354,7 @@ Concretely:
   nothing to merge, the plugin's hooks already apply.
 - If it has a `hooks` key with existing entries, verify none of them
   collide with the plugin's own hook filenames (`ask-gate.mjs`,
-  `bash-guard.mjs`, `decision-reminder.js`, `deny-credential-paths.mjs`,
+  `bash-guard.mjs`, `decision-reminder.js`, `dep-version-guard.mjs`, `deny-credential-paths.mjs`,
   `dirty-tree-guard.js`, `docs-sync-reminder.js`,
   `parallel-session-warn.js`, `scrub-secrets.mjs`) — if a project already
   has a same-named hook wired for the same event+matcher, flag the
@@ -359,6 +362,31 @@ Concretely:
   Otherwise, no merge is needed (the plugin's hooks run independently via
   its own `hooks.json`) — report that project-local hooks were found and
   left untouched.
+
+### 6b. Dependency freshness (D064) — pnpm projects only
+
+Skip if the project does not use pnpm. The plugin's hooks already enforce
+the add-time half (`dep-version-guard` + bash-guard) once enabled; two
+things need planting in the project itself:
+
+- **`pnpm-workspace.yaml`**: ensure it contains `minimumReleaseAge: 1440`
+  (create the file if absent; add only that key if the file exists and lacks
+  it — never overwrite an existing value). Requires pnpm >= 10.16: if
+  `package.json` `packageManager` pins an older pnpm, report it and ask
+  before bumping (a major pnpm bump can change lifecycle-script handling —
+  `onlyBuiltDependencies` — and the lockfile).
+- **The ci gate**: add `node "$CLAUDE_PLUGIN_ROOT/scripts/deps/check-dep-freshness.mjs"`
+  to the project's **fast** tier (`ci.tiers.fast`, or the project's own
+  fast-tier script — resolve `$CLAUDE_PLUGIN_ROOT` as described above; a
+  project that vendors plugin scripts may add a thin delegate like this
+  template's `scripts/check-dep-freshness.mjs` instead). It is diff-scoped:
+  it checks only dependencies added/changed vs the target branch, needs the
+  registry, and exits 0 when no package.json changed. Report if no fast tier
+  exists.
+
+Legitimate old versions are recorded in `maple.config.json`
+`deps.exceptions[]` (`name`, optional `range`, `decision`, `why`); each must
+cite a `D###` that exists in `docs.decisions`. Do not stamp any.
 
 ### 7. Verify
 

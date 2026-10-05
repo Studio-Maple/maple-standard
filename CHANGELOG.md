@@ -6,6 +6,16 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **New dependencies enter at the latest release (plugin v0.11.0, D064).** Agents add dependencies at versions remembered from training, so they land a
+  major behind. Three mechanisms, none trusting discipline: the `dep-version-guard` PreToolUse hook (`Write|Edit|MultiEdit`) denies any added or re-specced
+  dependency in a `package.json` (use `pnpm add`; removals, scripts/config edits and workspace/file/link/git/tag specs pass; no network); `bash-guard` denies
+  `pnpm|npm|yarn|bun add pkg@<version>` behind the latest major (0.x: minor) after a registry lookup (4 s, fail-open with a warning; timeout raised to 10 s);
+  `plugin/scripts/deps/check-dep-freshness.mjs` is a diff-scoped `ci:fast` gate (every dependency added/changed vs the merge-base with the target branch,
+  `npm:` aliases resolved, an unreachable registry fails). Exceptions are `maple.config.json` `deps.exceptions[]`, each citing a `D###` that must exist in the
+  decisions ledger (schema + validator updated). This repo moves to pnpm 12.9.1 with `minimumReleaseAge: 1440` in `pnpm-workspace.yaml` (the gate and hooks honor
+  it when choosing "latest"); `/adopt-standard` step 6b plants the same setting and the gate wiring in consumers. AGENTS.md: read the installed version's
+  docs/types, not memory. Tests: `pnpm test:plugin-deps` (parsing, diffing, floors incl. 0.x/ranges/aliases/prereleases, release-age selection, exceptions,
+  a real temp-repo gate run, hook processes).
 - **Live scan never sends auth headers to third parties (plugin v0.10.9).** The `replacer.full_list(n)` auth-header rules had no URL scope, so ZAP
   added every target's headers (e.g. the Cloudflare Access `CF-Access-Client-Id`/`-Secret` service token) to EVERY proxied request, including the
   third-party fonts, CDNs, Turnstile and analytics the scanned pages load. Each rule now sets `.url` to an anchored regex of its own target's exact

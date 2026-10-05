@@ -1,0 +1,20 @@
+# Supply-chain guard (D064): pnpm will not resolve a release younger than this many minutes (24 h), so
+# "install the latest" (what the dep-freshness guards require) never means "install what was published
+# an hour ago". Needs pnpm >= 10.16. check-dep-freshness honors the same window.
+minimumReleaseAge: 1440
+
+# pnpm 11+ runs an install before every `pnpm run` when it thinks node_modules is stale. In a parallel-session
+# worktree node_modules is a junction into the MAIN checkout (D012), so that implicit install would write
+# through it (it currently just fails: "workspace hoist directory is not a real directory"). Installs here are
+# explicit (`pnpm install`, /wt-start), never a side effect of running a script.
+verifyDepsBeforeRun: false
+
+# pnpm >= 10 does not run dependency lifecycle scripts unless allowed (pnpm 12 fails the install with
+# ERR_PNPM_IGNORED_BUILDS). These four ran under pnpm 9; keeping them preserves behaviour:
+# @sentry/cli and sharp fetch/verify native binaries, unrs-resolver is the eslint import resolver's
+# native binding, msw copies its service worker. Anything new must be reviewed before it is added here.
+allowBuilds:
+  "@sentry/cli": true
+  msw: true
+  sharp: true
+  unrs-resolver: true

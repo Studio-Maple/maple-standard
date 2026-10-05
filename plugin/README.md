@@ -29,7 +29,8 @@ single-package project.
 | `/predeploy-gate` | The **enforced pre-deploy gate** (D060): zero-findings checks (local scanners + one remote workflow), expiring allowlist + permanent decision-backed exceptions (D061, essentials only) + dated, shrink-only third-party image debt (D063), sha-bound stamp, `predeploy-guard` hook that blocks deploy commands without a stamp, `doctor`, and the aggressive post-deploy live ZAP scan. See `docs/predeploy-gate.md`. |
 | `plugin/scripts/prepush/prepush-lib.sh` | The **affected-only pre-push gate toolkit** (v0.10.0): source it from a project's `ci-local.sh` to select checks from the push range (`pp_want` / `pp_want_graph` / `pp_list_*`, one "ran / skipped (reason)" line per step), fail closed to FULL (no range, `--full`, gate scripts / lockfiles / shared configs), keep a tree-sha-bound pass stamp under `.git/ci-gate-pass/` so `/wt-land` + the push it makes run the gate once, keep per-checkout caches, and cap concurrent heavy gates machine-wide with a stale-safe slot semaphore (`MAPLE_GATE_SLOTS`, default 2). Selection is builtins-only (a fork costs seconds under load). Companion `install-hooks.mjs` makes the git hooks fail closed in every worktree (absolute `core.hooksPath` into the git common dir; see `docs/quality.md`). Vendor the file into a project (EasyCaller: `scripts/lib/prepush-lib.sh`); `node plugin/scripts/prepush/run-tests.mjs` proves the fail-closed rules. |
 | `plugin/skills/credential-manager` | The **credential skill** — read secrets from the OS credential store (Windows Credential Manager) just-in-time for local commands, instead of reading `.env*` (which `deny-credential-paths.mjs` blocks anyway) or asking the owner to paste a value. Pairs with that hook: the hook closes the wrong path, the skill supplies the right one. |
-| `plugin/hooks/hooks.json` | 9 always-on safety/hygiene hooks (credential-read blocking, secret scrubbing, a Bash cwd/push guard, dirty-tree + decision + docs-sync reminders, parallel-session warning, and the loop-pack's mechanical budget guard). |
+| `plugin/hooks/dep-version-guard.mjs`, `plugin/scripts/deps/` | **Dependency freshness** (D064, v0.11.0): agents write versions from memory, so new deps land outdated. A PreToolUse hook denies hand-writing a dependency (added or re-specced) in any `package.json` — use `pnpm add <pkg>`; `bash-guard` denies `pnpm/npm/yarn/bun add pkg@<version>` behind the latest major (0.x: minor; registry lookup, fail-open with a warning); `plugin/scripts/deps/check-dep-freshness.mjs` is the diff-scoped **ci:fast** gate (every dep added/changed vs the target branch must be at the latest major; honors pnpm `minimumReleaseAge`; unreachable registry fails). Exceptions: `deps.exceptions[]` in `maple.config.json`, each citing a `D###` that exists in the decisions ledger. Consumers wire the gate into their fast tier via `/adopt-standard` (step 6b). `node plugin/scripts/deps/run-tests.mjs` (`pnpm test:plugin-deps`). |
+| `plugin/hooks/hooks.json` | 10 always-on safety/hygiene hooks (credential-read blocking, secret scrubbing, a Bash cwd/push/clean/dependency-version guard, a package.json dependency-version guard, dirty-tree + decision + docs-sync reminders, parallel-session warning, and the loop-pack's mechanical budget guard). |
 
 ## How updates propagate
 
@@ -341,6 +342,14 @@ fixed during #T11's reconciliation pass:
 | `hooks.bashGuard.cwdGuardEnabled` | `true` | blocks bare `npm`/`npx`/`yarn`/`pnpm` without an anchoring `cd` |
 | `hooks.bashGuard.pushGuardEnabled` | `true` | blocks a foreground `git push` without `run_in_background`/a long timeout |
 | `hooks.bashGuard.pushGuardMinTimeoutMs` | `600000` | minimum explicit timeout that satisfies the push guard |
+
+### `deps.*` — used by `dep-version-guard.mjs`, `bash-guard.mjs`, `scripts/deps/check-dep-freshness.mjs` (D064)
+
+| Key | Default | Notes |
+|---|---|---|
+| `deps.exceptions[]` | `[]` | decision-backed exceptions to "new dependencies are at the latest major": `{ name, range?, decision, why }`. `range` (optional) scopes it to one freshness bucket (same major; 0.x same minor). `decision` must be a `D###` present in `docs.decisions` — otherwise the exception is invalid (hooks deny, the gate fails). `why` >= 10 chars. |
+
+The registry is `$npm_config_registry` (default `https://registry.npmjs.org`). `pnpm-workspace.yaml` `minimumReleaseAge` (minutes) makes "latest" mean the newest non-prerelease release older than that window — the same version pnpm installs.
 
 ### `loops.*` — used by the loop pack (`/dev-burner` + the four loop commands)
 
