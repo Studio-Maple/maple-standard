@@ -8,7 +8,7 @@
  * lib/preamble.mjs) — and emits <docs.docsIndexJson>: a machine-readable
  * map of { path, title, topic, audience, authoritative_for[],
  * anchor_type, anchor_paths[], related[] }. Same JSON shape as before
- * D010 (docs-sync-reminder.js and friends keep working unmodified), just
+ * D010, just
  * fed by a frontmatter-aware reader now.
  *
  * ALSO maintains the generated Catalog block in <docs.index> (docs/index.md
@@ -21,7 +21,7 @@
  * markers is never touched. If the markers are missing entirely, catalog
  * maintenance is skipped (check-docs-drift.mjs warns about that).
  *
- * Why: an AI agent (or the ask-gate hook / doc-search) resolves "where is X
+ * Why: an AI agent (or doc-search) resolves "where is X
  * documented?" in one read instead of grep-and-pray over markdown.
  *
  * maple.config.json keys read (all optional — see lib/config.mjs for

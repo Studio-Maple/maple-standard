@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Thin delegate — the canonical implementation lives in
 // plugin/scripts/docs/next-task-id.mjs, bundled into the maple-standard
-// plugin (its /sync-docs command and ask-gate hook depend on it too). See
+// plugin (its /sync-docs command depends on it too). See
 // docs/decisions.md D010, docs/tasks.md #T13.
 //
 // This wrapper exists so `node scripts/next-task-id.mjs` / `pnpm next-id`

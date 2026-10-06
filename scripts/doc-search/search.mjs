@@ -1,12 +1,10 @@
 #!/usr/bin/env node
 // Thin delegate — the canonical implementation lives in
 // plugin/scripts/docs/doc-search/search.mjs, bundled into the
-// maple-standard plugin (the ask-gate hook's optional BM25 signal depends
-// on this doc-search shape too). See docs/decisions.md D010,
+// maple-standard plugin. See docs/decisions.md D010,
 // docs/tasks.md #T13.
 //
-// Re-exports everything so `import` callers (e.g. plugin/hooks/ask-gate.mjs
-// via its configured docs.searchScript) keep working unchanged, and runs
+// Re-exports everything so `import` callers (library callers) keep working unchanged, and runs
 // the CLI (`node scripts/doc-search/search.mjs "query"` / `pnpm
 // docs:search`) against THIS template repo's own root regardless of
 // invocation cwd.

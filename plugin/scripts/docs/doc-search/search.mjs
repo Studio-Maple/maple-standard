@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // search.mjs (canonical, plugin-bundled — docs/decisions.md D010,
 // docs/tasks.md #T13) — BM25 chunk-level search over a project's docs/,
-// powering the ask-gate hook + manual lookups. Generic BM25 over markdown
+// powering manual lookups. Generic BM25 over markdown
 // (no project-specific logic).
 //
 // Live-chunks the corpus on every index build (no stored index file, so
@@ -19,7 +19,6 @@
 //
 // CLI: node search.mjs "your question" [-k 6] [--json]
 import { readFileSync, readdirSync } from "node:fs";
-import { statSync } from "node:fs";
 import { join, relative, basename } from "node:path";
 import { pathToFileURL } from "node:url";
 import { resolveDocsConfig, defaultRoot } from "../lib/config.mjs";
@@ -50,29 +49,12 @@ function* walkMd(dir) {
  * Resolve the project root + docs.* paths this corpus reads from.
  *
  * `root` defaults to `defaultRoot()` (CLAUDE_PROJECT_DIR or process.cwd())
- * for direct/CLI callers, but plugin/hooks/ask-gate.mjs's `bm25Signal()`
- * (#T12 hardening) now threads the payload-resolved project root through
- * explicitly on every call — `chunkDocs(ROOT)` / `buildIndex(chunks)` —
- * rather than relying on this fallback.
+ * for direct/CLI callers; library callers pass their own root.
  */
 export function resolveCorpus(root = defaultRoot()) {
   const ROOT = root;
   const cfg = resolveDocsConfig(ROOT);
   return { ROOT, DOCS: cfg.root, tasksPath: cfg.tasks, gapsPath: cfg.gaps };
-}
-
-// Cheap freshness stamp so long-lived consumers know when to re-chunk: file
-// count + max mtime across the corpus.
-export function corpusStamp(root) {
-  const { DOCS } = resolveCorpus(root);
-  let max = 0;
-  let n = 0;
-  for (const f of walkMd(DOCS)) {
-    n++;
-    const m = statSync(f).mtimeMs;
-    if (m > max) max = m;
-  }
-  return `${n}:${max}`;
 }
 
 export function chunkDocs(root) {
@@ -170,52 +152,6 @@ export function search(query, k = 6, index = buildIndex()) {
           ? chunk.text.slice(0, 1500) + "\n… (truncated — open the anchor for the full section)"
           : chunk.text,
     }));
-}
-
-// Discriminative relevance signal for gating (ask-gate). Raw BM25 top-score
-// does not separate on-topic from off-topic questions well — idfCoverage
-// (the fraction of the query's information content present in the best
-// chunk) does: off-topic questions match only corpus-common words; their
-// rare terms are absent, so coverage stays low.
-export function relevanceSignal(query, index = buildIndex()) {
-  const { chunks, stats, df, N, avgdl } = index;
-  const K1 = 1.2;
-  const B = 0.75;
-  const qTerms = [...new Set(tokenize(query))];
-  if (!qTerms.length) return null;
-  const idfOf = (t) => {
-    const n = df.get(t) || 0;
-    return Math.log(1 + (N - n + 0.5) / (n + 0.5));
-  };
-  let best = -1;
-  let bestScore = 0;
-  for (let i = 0; i < chunks.length; i++) {
-    const { tf, len } = stats[i];
-    let score = 0;
-    for (const t of qTerms) {
-      const f = tf.get(t);
-      if (!f) continue;
-      score += (idfOf(t) * f * (K1 + 1)) / (f + K1 * (1 - B + (B * len) / avgdl));
-    }
-    if (score > bestScore) {
-      bestScore = score;
-      best = i;
-    }
-  }
-  if (best === -1) return { topScore: 0, idfCoverage: 0, anchor: null };
-  const tf = stats[best].tf;
-  let covered = 0;
-  let total = 0;
-  for (const t of qTerms) {
-    const w = idfOf(t);
-    total += w;
-    if (tf.get(t)) covered += w;
-  }
-  return {
-    topScore: Math.round(bestScore * 100) / 100,
-    idfCoverage: total ? Math.round((covered / total) * 100) / 100 : 0,
-    anchor: `${chunks[best].doc}:${chunks[best].startLine}`,
-  };
 }
 
 // Reciprocal-rank fusion across query variants. Each variant votes

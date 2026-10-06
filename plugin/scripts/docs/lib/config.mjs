@@ -11,15 +11,7 @@
  * plugin/scripts/docs/ works unmodified in a project with NO
  * maple.config.json at all.
  *
- * The plugin's own hooks (plugin/hooks/ask-gate.mjs, docs-sync-reminder.js,
- * decision-reminder.js) read this SAME canonical key set now (reconciled
- * docs/tasks.md #T11/#T12 — they used to ship their own older
- * decisionsFile/tasksFile/gapsFile/indexFile/changelogFile/searchScript/
- * idAllocatorScript names; retired, one key set, no aliases). ask-gate.mjs
- * imports this module directly (both are ESM); the two CommonJS hooks
- * (decision-reminder.js, docs-sync-reminder.js) mirror this module's
- * defaults/lookup order inline rather than bridging module systems with an
- * async import().
+ * One canonical key set, no aliases.
  */
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -40,10 +32,7 @@ export const DOCS_DEFAULTS = {
   log: "docs/log.md",
   gaps: "docs/gaps.md",
   docsIndexJson: "docs/.docs-index.json",
-  // Read by docs-sync-reminder.js:69 (`docs.changelog`, default
-  // "CHANGELOG.md") but missing here — this module is the OTHER canonical
-  // resolver every plugin.scripts/docs/ script uses, so it silently had no
-  // default for a key its own sibling hook already treats as canonical.
+  // docs.changelog: default CHANGELOG.md.
   changelog: "CHANGELOG.md",
 };
 
@@ -62,10 +51,8 @@ export function resolveDocsConfig(root, env = process.env) {
   // of the flat "docs/.docs-index.json" DOCS_DEFAULTS entry above — a
   // project that customizes docs.root without also setting
   // docs.docsIndexJson would otherwise get a default silently pointing at
-  // the WRONG folder. Mirrors docs-sync-reminder.js:67-68's own derivation
-  // (`${docsRoot}/.docs-index.json`) — that hook is CommonJS and can't
-  // import this ESM module, so it duplicates the same logic inline; keep
-  // both in sync if this ever changes.
+  // the WRONG folder. Derived the same way as the other docs.* defaults
+  // (`${docsRoot}/.docs-index.json`).
   const docsRootRaw = (cfg.root || DOCS_DEFAULTS.root).replace(/[/\\]+$/, "");
   const docsIndexJsonDefault = `${docsRootRaw}/.docs-index.json`;
 
