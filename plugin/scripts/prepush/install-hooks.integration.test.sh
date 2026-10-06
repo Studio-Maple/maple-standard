@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# plugin/scripts/prepush/install-hooks.test.sh -- real `git push`es from real worktrees prove
+# plugin/scripts/prepush/install-hooks.integration.test.sh -- real `git push`es from real worktrees prove
 # scripts/install-hooks.mjs makes the pre-push hook fail CLOSED:
 #   * a worktree that never ran `npm ci` (no .husky/_) still runs the hook
 #   * the hook sees the pushed refs on stdin and its exit code blocks the push

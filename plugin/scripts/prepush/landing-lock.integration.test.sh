@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# plugin/scripts/prepush/landing-lock.test.sh -- concurrency-proof pushing (prepush-lib pp_land_*):
+# plugin/scripts/prepush/landing-lock.integration.test.sh -- concurrency-proof pushing (prepush-lib pp_land_*):
 #   * staleness: a pushed commit that does not contain the remote tip is refused at
 #     once, with the "<branch> moved to <sha> (<subject>, by <author>) - rebase" message
 #   * the per-target-ref landing lock: holder record, a second pusher WAITS and is told

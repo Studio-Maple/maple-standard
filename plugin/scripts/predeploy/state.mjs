@@ -10,6 +10,9 @@
  *   emergency.json        the (owner-only) one-shot emergency override
  *   emergency.log.jsonl   append-only record of every override ever granted
  *
+ * HEAVY PROMOTION (D066): verifyStamp additionally requires <git-common-dir>/maple/heavy-pass/<sha>.json (a green
+ * heavy tier on exactly HEAD) and zero unpaid gate debt (gate-state.mjs verifyPromotion).
+ *
  * LIVE-SCAN DEBT (the stamp model for the aggressive live scan): a live
  * active scan can only meaningfully run AFTER something is deployed, so it is
  * a post-deploy verification that blocks the NEXT deploy. Every deploy the
@@ -25,6 +28,7 @@ import { configHash, normalize } from "./config.mjs";
 import { decisionsCommitted, decisionsHash, loadDecisions } from "./decisions.mjs";
 import { imageDebtCommitted, imageDebtHash, loadImageDebt } from "./imagedebt.mjs";
 import { headSha, loadMapleConfig, nowIso, stateDir, trackedDirty } from "./lib.mjs";
+import { verifyPromotion } from "../gate/gate-state.mjs";
 
 function sub(root, name) {
   const d = join(stateDir(root), name);
@@ -145,5 +149,9 @@ export function verifyStamp(root) {
   if (!decisionsCommitted(root, dl)) return { ok: false, sha, reason: "decision-backed exceptions file is not committed" };
   const debt = liveScanDebt(root, pd, { stampSha: sha, stampIssuedAt: stamp.issuedAt });
   if (!debt.ok) return { ok: false, sha, reason: debt.reason };
-  return { ok: true, sha, stamp, reason: `valid stamp for ${sha.slice(0, 8)} issued ${stamp.issuedAt}, expires ${stamp.expiresAt}` };
+  // D066: promotion also needs a green heavy run (live RLS/E2E, integration suites, Jev audit) on THIS exact commit
+  // and zero unpaid gate debt among the commits it contains. No knob: a skipped step is paid for, never forgiven.
+  const promo = verifyPromotion(root, sha);
+  if (!promo.ok) return { ok: false, sha, reason: promo.reason };
+  return { ok: true, sha, stamp, reason: `valid stamp for ${sha.slice(0, 8)} issued ${stamp.issuedAt}, expires ${stamp.expiresAt}; ${promo.reason}` };
 }

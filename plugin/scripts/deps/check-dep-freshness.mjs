@@ -73,7 +73,7 @@ function readJson(text) {
  * Run the gate. Returns `{ errors, lines }` (lines are the report; errors the failing count).
  * `fetchImpl` / `git` / `now` are injectable for tests.
  */
-export async function run({ root, git = defaultGit, fetchImpl = fetch, now, timeoutMs = 15_000 } = {}) {
+export async function run({ root, base, git = defaultGit, fetchImpl = fetch, now, timeoutMs = 15_000 } = {}) {
   const lines = [];
   let errors = 0;
   const fail = (msg) => { errors += 1; lines.push(`[error] ${msg}`); };
@@ -81,7 +81,8 @@ export async function run({ root, git = defaultGit, fetchImpl = fetch, now, time
   const { valid, problems } = loadExceptions(root);
   for (const p of problems) fail(`invalid exception: ${p}`);
 
-  const resolved = resolveBase(root, git);
+  // `base` (heavy tier, D066): every dependency changed since the last green heavy run, not just since the merge-base.
+  const resolved = base ? { base, ref: base.slice(0, 10) } : resolveBase(root, git);
   if (!resolved) {
     fail("dep-freshness: cannot resolve the target branch to diff against (tried repo.devBranch, the origin default branch, main) — set repo.devBranch in maple.config.json.");
     return { errors, lines };
@@ -122,7 +123,8 @@ export async function run({ root, git = defaultGit, fetchImpl = fetch, now, time
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const { errors, lines } = await run({ root: process.env.CLAUDE_PROJECT_DIR || process.cwd() });
+  const bi = process.argv.indexOf("--base");
+  const { errors, lines } = await run({ root: process.env.CLAUDE_PROJECT_DIR || process.cwd(), base: bi > 0 ? process.argv[bi + 1] : undefined });
   for (const l of lines) (l.startsWith("[error]") ? console.error : console.log)(l);
   process.exit(errors > 0 ? 1 : 0);
 }

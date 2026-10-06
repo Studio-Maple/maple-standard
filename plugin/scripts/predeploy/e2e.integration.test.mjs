@@ -9,6 +9,7 @@ import { main as runGate } from "./run.mjs";
 import { appendLedger, readLedger, liveScanDebt, reportPath, stampPath } from "./state.mjs";
 import { headSha, stateDir } from "./lib.mjs";
 import { normalize } from "./config.mjs";
+import { payDebt, readHeavyStamp, recordDebt, writeHeavyStamp } from "../gate/gate-state.mjs";
 
 const HOOK = join(fileURLToPath(import.meta.url), "..", "..", "..", "hooks", "guard.mjs");
 const repo = mkdtempSync(join(tmpdir(), "predeploy-e2e-"));
@@ -24,7 +25,15 @@ const commit = (cfg, files = {}) => {
   for (const [k, v] of Object.entries(files)) { mkdirSync(dirname(join(repo, k)), { recursive: true }); writeFileSync(join(repo, k), v); }
   sh(["add", "-A"]); sh(["commit", "-q", "-m", "c", "--allow-empty"]);
 };
-const hook = (command, tool = "Bash") => spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ tool_name: tool, tool_input: { command }, cwd: repo }), encoding: "utf8" });
+// D066: production promotion also needs a green heavy run for HEAD and zero unpaid gate debt. Every case below that
+// is about the predeploy stamp itself gets a heavy stamp for the current HEAD automatically; the dedicated D066
+// cases at the end switch that off.
+let autoHeavy = true;
+const hook = (command, tool = "Bash") => {
+  if (autoHeavy) { const s = headSha(repo); if (s && !readHeavyStamp(repo, s)) writeHeavyStamp(repo, s); }
+  return hookRaw(command, tool);
+};
+const hookRaw = (command, tool = "Bash") => spawnSync(process.execPath, [HOOK], { input: JSON.stringify({ tool_name: tool, tool_input: { command }, cwd: repo }), encoding: "utf8" });
 const quiet = async (fn) => { const log = console.log; console.log = () => {}; try { return await fn(); } finally { console.log = log; } };
 const gate = (...a) => quiet(() => runGate(["--root", repo, ...a]));
 let n = 0;
@@ -247,6 +256,33 @@ await t("a decision entry past its expires blocks the gate (decision-expired) an
   commit(cfgOf([SUP]), withDecisions([...ALL_ENTRIES.slice(0, 3), dEntry("suppression-file:osv-scanner.toml", "osv-scanner.toml", { expires: inDays(5) })]));
   assert.equal(await gate(), 0);
   assert.equal(report().decisionExceptions.items.find((i) => i.scope === "osv-scanner.toml").expires, inDays(5));
+});
+
+await t("D066: a valid predeploy stamp is not enough - HEAD needs a green heavy run, and zero unpaid gate debt", async () => {
+  commit(cfgOf([OK]), { "d066.txt": "1" });
+  assert.equal(await gate(), 0);
+  autoHeavy = false;
+  const sha = headSha(repo);
+  let r = hook("bash deploy.sh");
+  assert.equal(r.status, 2, r.stdout + r.stderr);
+  assert.match(r.stderr, /no green heavy run for HEAD/);
+  writeHeavyStamp(repo, sha);
+  assert.equal(hook("bash deploy.sh").status, 0, "stamp + heavy run => allowed");
+  recordDebt(repo, { sha, step: "live", reason: "docker-unavailable", ref: "#T15" });
+  r = hook("bash deploy.sh");
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /unpaid gate debt/);
+  assert.equal(payDebt(repo, sha).length, 1);
+  assert.equal(hook("bash deploy.sh").status, 0, "a green heavy run paid the debt");
+  autoHeavy = true;
+});
+
+await t("D066: a heavy stamp for an OLDER commit does not promote a newer HEAD", async () => {
+  autoHeavy = false;
+  commit(cfgOf([OK]), { "d066b.txt": "1" });
+  assert.equal(await gate(), 0);
+  assert.equal(hook("bash deploy.sh").status, 2, "the previous commit's heavy stamp must not count");
+  autoHeavy = true;
 });
 
 console.log(`\n${n} e2e tests passed`);
