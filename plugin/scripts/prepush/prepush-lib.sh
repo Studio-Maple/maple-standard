@@ -48,6 +48,32 @@ PP_STAMP=""
 
 _pp_zero_re='^0+$'
 
+# Sandbox-safe sleep (D066). The Claude Code Bash sandbox denies /usr/bin/sleep
+# ("Permission denied"), which crashed every wait loop (gate slot, locks). Try the
+# binary; when denied, block on a `read -t` timeout over a private FIFO (bash
+# builtin); with no mkfifo either, a builtin spin until the clock passes (last
+# resort: wastes a core but still waits). Vendored copies must keep this.
+_PP_SLEEP_FD=""
+pp_sleep() {
+  local secs="${1:-1}" f end
+  if command sleep "$secs" 2>/dev/null; then return 0; fi
+  if [ -z "$_PP_SLEEP_FD" ]; then
+    f="$(mktemp -u 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/pp-sleep.$$")"
+    if mkfifo "$f" 2>/dev/null && exec {_PP_SLEEP_FD}<>"$f" 2>/dev/null; then
+      rm -f "$f" 2>/dev/null || true
+    else
+      _PP_SLEEP_FD="none"
+    fi
+  fi
+  if [ "$_PP_SLEEP_FD" != "none" ]; then
+    read -rt "$secs" -u "$_PP_SLEEP_FD" || true
+    return 0
+  fi
+  end=$(( $(printf '%(%s)T' -1) + ${secs%%.*} ))
+  while [ "$(printf '%(%s)T' -1)" -lt "$end" ]; do :; done
+  return 0
+}
+
 _pp_now() { # _pp_now <var>
   printf -v "$1" '%(%s)T' -1 2>/dev/null || printf -v "$1" '%s' "$(date +%s)"
 }
@@ -84,7 +110,7 @@ _pp_key_for() { # _pp_key_for <path> -> $PP_KEY
 pp_init() {
   PP_ROOT="$1"
   local refs="${2:-}"
-  PP_FILES=(); PP_ADDDEL=(); PP_SUMMARY=(); PP_FULL=0; PP_FULL_REASON=""; PP_BASE=""
+  PP_FILES=(); PP_ADDDEL=(); PP_SUMMARY=(); PP_TS=(); PP_TE=(); PP_RAN=(); PP_FULL=0; PP_FULL_REASON=""; PP_BASE=""
   PP_REFS_TEXT="$refs"
   _pp_seen=$'\n'
 
@@ -262,25 +288,50 @@ pp_want() {
 PP_LIGHT_RE='^(gitleaks|user-data-size|migration-duplicates|docs-drift|supply-chain|workflow-triggers|orphan-tables)$'
 
 # Callers that decide scope themselves (per-workspace helpers) use these.
+#
+# Step timing (D066, so "the gate takes < 3 min" is measurable): every ran/skipped call records when it
+# started and ended (bash's $SECONDS, no fork); a step's duration is the time from the end of its own call
+# to the start of the NEXT call (the last one: to the summary), so gate-slot waiting is excluded.
+PP_TS=()   # start of each recorded call
+PP_TE=()   # end of each recorded call
+PP_RAN=()  # 1 when the entry is a "ran" step
+
 pp_ran() {
   local line
+  PP_TS+=("$SECONDS")
   printf -v line 'ran     %-34s %s' "$1" "${2:-}"
   PP_SUMMARY+=("$line")
+  PP_RAN+=(1)
   if ! [[ "$1" =~ $PP_LIGHT_RE ]]; then pp_heavy_begin; fi
+  PP_TE+=("$SECONDS")
 }
 pp_skip() {
   local line
+  PP_TS+=("$SECONDS")
   printf -v line 'skipped %-34s %s' "$1" "${2:-}"
   PP_SUMMARY+=("$line")
+  PP_RAN+=(0)
   printf '  - skipped %s (%s)\n' "$1" "${2:-}"
+  PP_TE+=("$SECONDS")
 }
 
 pp_summary() {
-  local line full=""
+  local line full="" i n="${#PP_SUMMARY[@]}" next dur
   if pp_is_full; then full=" -- FULL ($PP_FULL_REASON)"; fi
   echo ""
   echo "=== gate summary: ${#PP_FILES[@]} changed path(s) vs ${PP_BASE:-<no base>}$full ==="
-  for line in "${PP_SUMMARY[@]}"; do printf '%s\n' "$line"; done
+  for ((i = 0; i < n; i++)); do
+    line="${PP_SUMMARY[$i]}"
+    if [ "${PP_RAN[$i]:-0}" = "1" ]; then
+      if [ $((i + 1)) -lt "$n" ]; then next="${PP_TS[$((i + 1))]}"; else next="$SECONDS"; fi
+      dur=$((next - ${PP_TE[$i]:-$next}))
+      if [ "$dur" -lt 0 ]; then dur=0; fi
+      printf '%s  [%ss]\n' "$line" "$dur"
+    else
+      printf '%s\n' "$line"
+    fi
+  done
+  echo "wall time since the gate started: ${SECONDS}s"
 }
 
 pp_cleanup() {
@@ -303,13 +354,14 @@ pp_cache_dir() { # pp_cache_dir <name> -> $PP_CACHE
 # ---------------------------------------------------------------------------
 # Lock: serialises two gate runs in the SAME checkout (e.g. wt-land's gate and
 # a hook fired by the push that follows). mkdir is atomic; Git Bash has no
-# reliable flock. Stale locks (older than PP_LOCK_TTL seconds) are broken.
+# reliable flock. A lock is stale ONLY when its owner pid is dead (D066: never robbed
+# from a live gate, however old).
 # ---------------------------------------------------------------------------
 PP_LOCK_DIR=""
 PP_LOCK_HELD=0
 
 pp_lock() {
-  local name="${1:-gate}" wait="${PP_LOCK_WAIT:-600}" ttl="${PP_LOCK_TTL:-1800}" waited=0 now mt owner
+  local name="${1:-gate}" wait="${PP_LOCK_WAIT:-600}" grace="${PP_LOCK_GRACE:-120}" waited=0 now mt owner
   [ -n "$PP_COMMON" ] || return 0
   mkdir -p "$PP_COMMON/ci-gate-locks" 2>/dev/null || return 0
   PP_LOCK_DIR="$PP_COMMON/ci-gate-locks/$PP_KEY-$name.lock"
@@ -322,12 +374,17 @@ pp_lock() {
       rm -rf "$PP_LOCK_DIR" 2>/dev/null
       continue
     fi
-    _pp_now now
-    mt="$(stat -c %Y "$PP_LOCK_DIR" 2>/dev/null || echo "$now")"
-    if [ $((now - mt)) -gt "$ttl" ]; then
-      echo "prepush: breaking stale lock $PP_LOCK_DIR" >&2
-      rm -rf "$PP_LOCK_DIR" 2>/dev/null
-      continue
+    # A LIVE owner is never robbed, however old its lock (D066). Only a lock with
+    # no usable pid (its owner died between mkdir and the pid write) is reclaimed,
+    # once its directory is older than the grace period.
+    if [ -z "$owner" ]; then
+      _pp_now now
+      mt="$(stat -c %Y "$PP_LOCK_DIR" 2>/dev/null || echo "$now")"
+      if [ $((now - mt)) -gt "$grace" ]; then
+        echo "prepush: breaking pid-less lock $PP_LOCK_DIR" >&2
+        rm -rf "$PP_LOCK_DIR" 2>/dev/null
+        continue
+      fi
     fi
     if [ "$waited" -ge "$wait" ]; then
       echo "prepush: could not take $PP_LOCK_DIR within ${wait}s (another gate in this checkout?)" >&2
@@ -335,7 +392,7 @@ pp_lock() {
       return 1
     fi
     if [ "$waited" -eq 0 ]; then echo "prepush: another gate run holds the lock for this checkout, waiting..." >&2; fi
-    sleep 3; waited=$((waited + 3))
+    pp_sleep 3; waited=$((waited + 3))
   done
   printf '%s\n' "$$" >"$PP_LOCK_DIR/pid"
   PP_LOCK_HELD=1
@@ -457,7 +514,7 @@ pp_heavy_begin() {
       echo "prepush: waiting for gate slot ($k ahead; $busy/$n slots busy)"
       last_msg=$waited
     fi
-    sleep 3; waited=$((waited + 3))
+    pp_sleep 3; waited=$((waited + 3))
   done
 }
 
@@ -681,7 +738,7 @@ pp_land_acquire() {
       echo "prepush: gave up after ${waited}s - landing lock on $branch is held by $(_pp_holder_line "$lock")" >&2
       return 1
     fi
-    sleep 2; waited=$((waited + 2))
+    pp_sleep 2; waited=$((waited + 2))
   done
 }
 

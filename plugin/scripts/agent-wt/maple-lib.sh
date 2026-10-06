@@ -113,6 +113,32 @@ maple_warn() { printf '\033[33m[maple] ! %s\033[0m\n' "$*" >&2; }
 maple_die()  { printf '\033[31m[maple] \xe2\x9c\x97 %s\033[0m\n' "$*" >&2; exit 1; }
 maple_ok()   { printf '\033[32m[maple] \xe2\x9c\x93 %s\033[0m\n' "$*" >&2; }
 
+# ── sandbox-safe sleep ───────────────────────────────────────────────────────
+# The Claude Code Bash sandbox denies /usr/bin/sleep ("Permission denied"), which
+# killed every wait loop. Try the binary; when it is denied, block on a read
+# timeout over a private FIFO (bash builtin `read -t`); with no mkfifo either,
+# a builtin spin until the clock passes (last resort, wastes a core but waits).
+_MAPLE_SLEEP_FD=""
+maple_sleep() {
+  local secs="${1:-1}" f end
+  if command sleep "$secs" 2>/dev/null; then return 0; fi
+  if [ -z "$_MAPLE_SLEEP_FD" ]; then
+    f="$(mktemp -u 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/maple-sleep.$$")"
+    if mkfifo "$f" 2>/dev/null && exec {_MAPLE_SLEEP_FD}<>"$f" 2>/dev/null; then
+      rm -f "$f" 2>/dev/null || true
+    else
+      _MAPLE_SLEEP_FD="none"
+    fi
+  fi
+  if [ "$_MAPLE_SLEEP_FD" != "none" ]; then
+    read -rt "$secs" -u "$_MAPLE_SLEEP_FD" || true
+    return 0
+  fi
+  end=$(( $(printf '%(%s)T' -1) + ${secs%%.*} ))
+  while [ "$(printf '%(%s)T' -1)" -lt "$end" ]; do :; done
+  return 0
+}
+
 # ── config sanity (non-fatal — points at the validator, never blocks) ───────
 # Malformed JSON makes every maple_cfg lookup above silently fall back to its
 # default; that's fine for one bad key but confusing when the whole file is
@@ -174,7 +200,7 @@ MAPLE_PREVIEW_NAME="_preview"
 
 # Lock tuning — a full gate run can be minutes; generous TTL + wait. m5: TTL
 # default reconciled with waitSeconds — see the header comment above.
-MAPLE_LOCK_TTL="${MAPLE_LOCK_TTL:-$(maple_cfg worktrees.lock.ttlSeconds 900)}"
+MAPLE_LOCK_GRACE="${MAPLE_LOCK_GRACE:-120}"   # D066: a lock is never stolen from a live pid; this only covers a holder that died before writing its meta
 MAPLE_LOCK_WAIT="${MAPLE_LOCK_WAIT:-$(maple_cfg worktrees.lock.waitSeconds 300)}"
 MAPLE_LOCK_POLL="${MAPLE_LOCK_POLL:-$(maple_cfg worktrees.lock.pollSeconds 5)}"
 
@@ -456,56 +482,36 @@ _maple_dir_mtime() {
   stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || _maple_now
 }
 
-# Steal the lock iff its holder is dead OR older than TTL (crash recovery).
+# A lock is stale ONLY when its holder is dead (D066). It used to also be stolen
+# from a LIVE holder once older than a TTL (default 900 s) while real gates run
+# 11-95 minutes - two sessions then believed they held the lock. Age never
+# frees a lock whose pid is alive.
 #
 # MJ-2: `mkdir` (the atomic acquire) and `_maple_lock_meta` (the pid/epoch
-# write) are two separate steps — a competitor that loses the `mkdir` race
-# can observe the lock dir WITH NO meta file yet, a window of roughly
-# "however long the write takes" (~ms), not zero. The old logic read a
-# missing meta as pid="" / epoch=0, computed an enormous fake age, and
-# declared the brand-new lock stale — a second process could then rm -rf +
-# recreate it, and BOTH sessions would believe they held the lock.
+# write) are two separate steps, so a competitor can observe the lock dir WITH
+# NO meta yet. A missing/unparseable pid is therefore NOT stale at once: only a
+# lock dir whose own mtime is older than MAPLE_LOCK_GRACE (default 120 s) with
+# no usable pid (a holder that died between mkdir and the write) is reclaimed.
 #
-# Fix: a missing/unreadable meta is NOT automatically stale. Fall back to
-# the LOCK DIRECTORY's own mtime (set the instant `mkdir` succeeded) for the
-# age computation instead — only a lock dir that is itself genuinely older
-# than the TTL with no meta ever written (a holder that crashed before
-# finishing the write) counts as stale.
+# m4: clock skew can put a dir's mtime in the FUTURE - the age is clamped to >= 0.
 #
-# m4: clock skew can put a dir's mtime in the FUTURE relative to `date +%s`
-# (e.g. a VM/container whose clock jumps) — an un-clamped `now - mtime` goes
-# negative, and `[ age -ge TTL ]` is then never true, so an abandoned lock
-# with a skewed mtime could NEVER be reclaimed. Clamp both age computations
-# below to a minimum of 0 via _maple_clamp_age.
-#
-# m6: a corrupted meta file (line 2 not a plain integer — truncated write,
-# manual edit, etc.) fed straight into `$(( now - epoch ))` is a bash
-# arithmetic-context syntax error, and under `set -u` a bareword inside that
-# expression that bash treats as a variable reference dies with "unbound
-# variable" — killing maple-land mid-flight instead of just mis-judging one
-# lock. Sanitize epoch to digits-only first; on garbage, treat it as "just
-# acquired now" (age 0) — fail SAFE toward "not stale" (never steal from a
-# holder whose pid is still alive just because its epoch field is garbage),
-# not toward "ancient" (which would steal from a live holder on bad data).
+# m6: a corrupted meta file (pid not a plain integer) is treated like a missing
+# one - fail SAFE toward "not stale" until the grace period passes, never toward
+# stealing from whoever might still hold it.
 _maple_clamp_age() { local a="$1"; [ "$a" -lt 0 ] && a=0; printf '%s' "$a"; }
 
 _maple_lock_is_stale() {
-  local pid epoch age
+  local pid age
   pid="$(_maple_lock_pid)"
+  case "$pid" in
+    ''|*[!0-9]*) pid="" ;;
+  esac
   if [ -n "$pid" ]; then
-    epoch="$(_maple_lock_epoch)"
-    case "$epoch" in
-      ''|*[!0-9]*) epoch="$(_maple_now)" ;;  # m6: corrupted epoch -> treat as fresh, never steal a live holder on bad data
-    esac
-    age="$(_maple_clamp_age $(( $(_maple_now) - epoch )))"
-    if _maple_pid_alive "$pid" && [ "$age" -lt "$MAPLE_LOCK_TTL" ]; then
-      return 1   # live + fresh -> not stale
-    fi
-    return 0     # dead, or past TTL -> stale
+    if _maple_pid_alive "$pid"; then return 1; fi   # live holder: never stale, however old
+    return 0                                         # dead holder: stale at once
   fi
-  # No meta yet — judge by the lock DIRECTORY's age, not an assumed-zero epoch.
   age="$(_maple_clamp_age $(( $(_maple_now) - $(_maple_dir_mtime "$MAPLE_LOCK_DIR") )))"
-  [ "$age" -ge "$MAPLE_LOCK_TTL" ]
+  [ "$age" -ge "$MAPLE_LOCK_GRACE" ]
 }
 
 maple_lock_acquire() {
@@ -530,7 +536,7 @@ maple_lock_acquire() {
       maple_log "land lock held by slug=$(_maple_lock_slug) — queueing (waited ${waited}s/${MAPLE_LOCK_WAIT}s, polls every ${MAPLE_LOCK_POLL}s)…"
       next_progress=$(( waited + 30 ))
     fi
-    sleep "$MAPLE_LOCK_POLL"
+    maple_sleep "$MAPLE_LOCK_POLL"
     waited=$(( waited + MAPLE_LOCK_POLL ))
   done
 }

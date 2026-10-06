@@ -26,7 +26,7 @@ for v in $(git rev-parse --local-env-vars 2>/dev/null); do unset "$v"; done
 
 # This file is run from inside the gate itself (full tier), which exports CI_FULL
 # etc.; the cases below assume a clean slate.
-unset CI_FULL PP_FORCE_FULL PP_NO_STAMP PP_FULL_RE CI_PREPUSH CI_LOCAL_SELFTEST MAPLE_GATE_SLOTS MAPLE_GATE_SLOT_DIR MAPLE_GATE_SLOT_WAIT PP_LOCK_WAIT PP_LOCK_TTL
+unset CI_FULL PP_FORCE_FULL PP_NO_STAMP PP_FULL_RE CI_PREPUSH CI_LOCAL_SELFTEST MAPLE_GATE_SLOTS MAPLE_GATE_SLOT_DIR MAPLE_GATE_SLOT_WAIT PP_LOCK_WAIT PP_LOCK_GRACE
 
 LIB="${PREPUSH_LIB:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/prepush-lib.sh}"
 
@@ -254,6 +254,34 @@ out="$(bash -c 'set -euo pipefail; . "$0"; pp_init "$PWD"; d="$PP_COMMON/ci-gate
 if echo "$out" | grep -q '^GOT$'; then pass "a lock whose owner pid is gone (killed gate) is broken at once, not after the TTL"; else fail "dead-owner lock" "$out"; fi
 out="$(bash -c 'set -euo pipefail; . "$0"; pp_init "$PWD"; pp_lock live; test "$(cat "$PP_LOCK_DIR/pid")" = "$$" && echo OWNER_RECORDED; pp_unlock' "$LIB" 2>&1)"
 if echo "$out" | grep -q '^OWNER_RECORDED$'; then pass "the lock records its owner pid"; else fail "lock owner pid" "$out"; fi
+
+echo "D066: a live lock is never robbed; sandbox-safe sleep; step timings"
+# A lock held by a LIVE pid is kept however old it is (the TTL used to steal it mid-gate).
+LIVEPID=""
+bash -c ". '$LIB'; while :; do pp_sleep 1; done" >/dev/null 2>&1 &
+LIVEPID=$!
+out="$(LIVEPID=$LIVEPID bash -c 'set -euo pipefail; . "$0"; pp_init "$PWD"; d="$PP_COMMON/ci-gate-locks/${PP_KEY}-old.lock"; mkdir -p "$d"; echo "$LIVEPID" > "$d/pid"; touch -d "3 hours ago" "$d" 2>/dev/null || true; PP_LOCK_WAIT=2 pp_lock old && echo STOLE || echo KEPT; test -d "$d" && echo STILL_THERE' "$LIB" 2>/dev/null)"
+if echo "$out" | grep -q '^KEPT$' && echo "$out" | grep -q '^STILL_THERE$' && ! echo "$out" | grep -q STOLE; then pass "a lock held by a live pid is never stolen, however old"; else fail "live lock stolen" "$out"; fi
+kill "$LIVEPID" 2>/dev/null; wait "$LIVEPID" 2>/dev/null
+# no pid yet (owner between mkdir and the pid write): kept while young, reclaimed only past the grace period
+out="$(bash -c 'set -euo pipefail; . "$0"; pp_init "$PWD"; d="$PP_COMMON/ci-gate-locks/${PP_KEY}-nopid.lock"; mkdir -p "$d"; PP_LOCK_WAIT=2 PP_LOCK_GRACE=3600 pp_lock nopid && echo GOT || echo WAITED' "$LIB" 2>/dev/null)"
+if echo "$out" | grep -q '^WAITED$'; then pass "a young pid-less lock is not reclaimed"; else fail "young pid-less lock" "$out"; fi
+out="$(bash -c 'set -euo pipefail; . "$0"; pp_init "$PWD"; d="$PP_COMMON/ci-gate-locks/${PP_KEY}-nopid2.lock"; mkdir -p "$d"; touch -d "3 hours ago" "$d" 2>/dev/null || true; PP_LOCK_WAIT=2 pp_lock nopid2 && echo GOT; pp_unlock' "$LIB" 2>/dev/null)"
+if echo "$out" | grep -q '^GOT$'; then pass "an old pid-less lock (owner died before writing its pid) is reclaimed"; else fail "old pid-less lock" "$out"; fi
+# /usr/bin/sleep denied (the Claude Code sandbox): the wait must still wait, via the read-timeout fallback
+DENY="$W/deny"; mkdir -p "$DENY"; printf '#!/bin/sh\necho "sleep: Permission denied" >&2\nexit 126\n' > "$DENY/sleep"; chmod +x "$DENY/sleep"
+DENY_U="$(cygpath -u "$DENY" 2>/dev/null || printf '%s' "$DENY")"
+out="$(PATH="$DENY_U:$PATH" bash -c 'set -euo pipefail; . "$0"; if command sleep 0 2>/dev/null; then echo STUB_NOT_ACTIVE; fi; s=$SECONDS; pp_sleep 2; echo "waited=$((SECONDS - s))"' "$LIB" 2>/dev/null)"
+case "$out" in
+  *STUB_NOT_ACTIVE*) pass "(skipped) the sleep-deny stub cannot shadow sleep on this platform" ;;
+  *waited=2*|*waited=3*) pass "pp_sleep still waits (read -t fallback) when the sleep binary is denied" ;;
+  *) fail "pp_sleep fallback" "$out" ;;
+esac
+out="$(PATH="$DENY_U:$PATH" bash -c 'set -euo pipefail; . "$0"; pp_sleep 1; pp_sleep 1; echo OK' "$LIB" 2>/dev/null)"
+if [ "$out" = "OK" ]; then pass "pp_sleep fallback is repeatable (the private fd is reused)"; else fail "pp_sleep repeat" "$out"; fi
+# the gate summary carries per-step timings and the wall time
+out="$(bash -c 'set -euo pipefail; . "$0"; pp_init "$PWD"; export MAPLE_GATE_SLOTS=0; pp_ran step-a x; pp_skip step-b y >/dev/null; pp_summary' "$LIB" 2>&1)"
+if echo "$out" | grep -qE '^ran +step-a +x +\[[0-9]+s\]$' && echo "$out" | grep -q 'wall time since the gate started'; then pass "the summary shows per-step seconds and the wall time"; else fail "summary timings" "$out"; fi
 
 echo ""
 printf 'prepush-affected self-test: %s failure(s)\n' "$FAILURES"

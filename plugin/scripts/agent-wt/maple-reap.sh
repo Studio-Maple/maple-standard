@@ -104,6 +104,9 @@ flush() {
     *) return 0 ;;
   esac
   [ "$(basename "$cur_path")" = "$MAPLE_PREVIEW_NAME" ] && return 0   # never reap preview
+  # D066: `_`-prefixed dirs are infrastructure worktrees owned by a running tool, never agent sessions:
+  # `_land` (the landing queue's integration worktree), `_heavy-<sha>` (a scheduled heavy run).
+  case "$(basename "$cur_path")" in _*) return 0 ;; esac
   [ "$(basename "$cur_path")" = "$STANDING_LOOP_DIR_NAME" ] && return 0   # never reap the standing loop-pack worktree (MJ-3)
   [ "$cur_branch" = "$STANDING_LOOP_BRANCH" ] && return 0                 # ...or its branch, by name, defensively
   if $cur_locked; then
