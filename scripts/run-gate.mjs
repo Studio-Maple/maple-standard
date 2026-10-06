@@ -21,6 +21,6 @@ function gitBash() {
   return found;
 }
 
-const script = join(dirname(fileURLToPath(import.meta.url)), "ci-local.sh");
+const script = join(dirname(fileURLToPath(import.meta.url)), "ci-local.sh").replace(/\\/g, "/");
 const r = spawnSync(gitBash(), [script, ...process.argv.slice(2)], { stdio: "inherit" });
 process.exit(r.status ?? 1);

@@ -274,7 +274,7 @@ DENY_U="$(cygpath -u "$DENY" 2>/dev/null || printf '%s' "$DENY")"
 out="$(PATH="$DENY_U:$PATH" bash -c 'set -euo pipefail; . "$0"; if command sleep 0 2>/dev/null; then echo STUB_NOT_ACTIVE; fi; s=$SECONDS; pp_sleep 2; echo "waited=$((SECONDS - s))"' "$LIB" 2>/dev/null)"
 case "$out" in
   *STUB_NOT_ACTIVE*) pass "(skipped) the sleep-deny stub cannot shadow sleep on this platform" ;;
-  *waited=2*|*waited=3*) pass "pp_sleep still waits (read -t fallback) when the sleep binary is denied" ;;
+  *waited=[2-9]*|*waited=[1-5][0-9]*) pass "pp_sleep still waits (read -t fallback) when the sleep binary is denied" ;;
   *) fail "pp_sleep fallback" "$out" ;;
 esac
 out="$(PATH="$DENY_U:$PATH" bash -c 'set -euo pipefail; . "$0"; pp_sleep 1; pp_sleep 1; echo OK' "$LIB" 2>/dev/null)"

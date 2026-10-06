@@ -9,7 +9,7 @@
 # Env:     MAPLE_GATE_SKIP=<reason> as documented in ci-local.sh (SKIP_LIVE_GATE is a deprecated alias)
 
 $ErrorActionPreference = "Continue"
-$script = Join-Path $PSScriptRoot "ci-local.sh"
+$script = (Join-Path $PSScriptRoot "ci-local.sh") -replace "\\", "/"
 
 function Find-GitBash {
     $candidates = @()

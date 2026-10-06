@@ -66,6 +66,29 @@ t("maple_lock_acquire never steals a live holder: it times out instead", () => {
   assert.match(r.err, /timed out after 3s waiting for the land lock/);
 });
 
+// Reclaiming a dead owner's lock must elect exactly ONE new owner even when many landers poll at the same instant
+// (two owners = two integration worktrees on one path). 8 contenders x 4 rounds against a stale lock.
+t("a stale lock is reclaimed by exactly one of many simultaneous contenders", () => {
+  const QUEUE = join(HERE, "maple-queue.sh").replace(/\\/g, "/");
+  const script = [
+    ". '" + QUEUE + "'",
+    'MAPLE_LOCK_DIR="$MAPLE_COMMON_DIR/race.lock"',
+    "for round in 1 2 3 4; do",
+    '  rm -rf "$MAPLE_LOCK_DIR" "$MAPLE_LOCK_DIR.reclaim"; mkdir -p "$MAPLE_LOCK_DIR"; printf \'%s\\n%s\\n%s\\n\' 999999 "$(date +%s)" dead > "$MAPLE_LOCK_DIR/meta"',
+    '  rm -f "$MAPLE_COMMON_DIR"/race.win.*',
+    "  for i in 1 2 3 4 5 6 7 8; do",
+    '    ( if maple_q_try_owner 2>/dev/null; then : > "$MAPLE_COMMON_DIR/race.win.$round.$i"; fi ) &',
+    "  done",
+    "  wait",
+    '  echo "round$round wins=$(ls "$MAPLE_COMMON_DIR"/race.win.* 2>/dev/null | wc -l)"',
+    "done",
+  ].join("\n");
+  const r = run(script);
+  const wins = [...r.out.matchAll(/round\d wins=(\d+)/g)].map((m) => Number(m[1]));
+  assert.equal(wins.length, 4, r.out + r.err);
+  assert.deepEqual(wins, [1, 1, 1, 1], "exactly one owner per round: " + r.out);
+});
+
 // sandbox-safe sleep: stub a `sleep` that is "Permission denied" first on PATH
 const deny = join(base, "deny");
 mkdirSync(deny);
@@ -79,7 +102,7 @@ t("maple_sleep still waits (read -t over a private fifo) when /usr/bin/sleep is 
   `, { PATH: `${denyU}:${process.env.PATH}` });
   if (r.out.includes("STUB_INACTIVE")) { console.log("  (sleep stub not honoured on this platform - skipped)"); return; }
   const m = /waited=(\d+)/.exec(r.out);
-  assert.ok(m && Number(m[1]) >= 3 && Number(m[1]) <= 6, "waited ~3s, got: " + r.out + r.err);
+  assert.ok(m && Number(m[1]) >= 3 && Number(m[1]) <= 60, "waited at least 3s (it must not return early; a loaded box may take longer), got: " + r.out + r.err);
 });
 
 console.log(`\nall ${n} lock-safety tests passed`);

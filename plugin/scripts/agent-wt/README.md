@@ -16,9 +16,13 @@ stages the whole index). The fix is **enforcement, not discipline**:
 - **Isolation by construction** — each session gets its own git worktree +
   ephemeral branch named per `worktrees.namePattern` (default
   `agent/<slug>`). A session physically cannot stage another's files.
-- **A single semaphore** — the only path to the target branch is
-  `maple-land`, which holds one global lock while it rebases -> runs the
-  configured gate command -> pushes.
+- **A landing queue** (D066) — the only path to the target branch is
+  `maple-land`: it enqueues the branch; the first lander becomes the queue
+  owner, rebases everything queued FIFO in a throwaway integration worktree
+  (conflicting branches are returned), runs ONE gate on the combined tip,
+  fast-forward-pushes, and bisects a red gate to the breaking branch. The
+  owner lock is never taken from a live pid (stale only when its holder is
+  dead). See `maple-queue.sh` and `docs/quality.md`.
 - **No sprawl** — `maple-reap` mechanically removes landed/merged worktrees.
 
 ## Commands
@@ -40,7 +44,7 @@ bash "$CLAUDE_PLUGIN_ROOT/scripts/agent-wt/maple-preview.sh" --stop
 bash "$CLAUDE_PLUGIN_ROOT/scripts/agent-wt/maple-land.sh"
 #   --tier <name>   which ci.tiers.<name> command to run (default ci.prePushTier)
 #   --keep          don't prune the worktree after landing
-#   --no-push       rebase + gate only, leave the branch in place
+#   --no-push       rebase + gate this branch alone (behind the owner lock), push nothing
 
 bash "$CLAUDE_PLUGIN_ROOT/scripts/agent-wt/maple-reap.sh" --dry-run
 ```
@@ -67,9 +71,9 @@ one key set now); the subset these scripts read:
 | `worktrees.preview.logFile` | `".preview-dev.log"` | preview |
 | `ci.prePushTier` | `"gate"` | land |
 | `ci.tiers.<name>` | none — **required** for any tier you use | land |
-| `worktrees.lock.ttlSeconds` | `1800` | land (lock) |
-| `worktrees.lock.waitSeconds` | `300` | land (lock) |
-| `worktrees.lock.pollSeconds` | `5` | land (lock) |
+| `worktrees.lock.ttlSeconds` | — | **ignored since D066** (a lock is never taken from a live pid; accepted so old configs validate) |
+| `worktrees.lock.waitSeconds` | `300` | land `--no-push`, `/dev-burner` (lock wait); queued landers wait `MAPLE_LAND_WAIT` (default 14400 s) |
+| `worktrees.lock.pollSeconds` | `5` | lock poll interval (queue followers poll every `MAPLE_LAND_POLL`, default 3 s) |
 | `worktrees.reap.staleHours` | `24` | reap `--force` |
 
 `maple.config.json` failing to parse, or holding an unknown/wrong-typed key?

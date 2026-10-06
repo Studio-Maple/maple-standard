@@ -1,32 +1,36 @@
 #!/usr/bin/env bash
 # maple-land [--tier <name>] [--keep] [--no-push]
 #
-# The semaphore. Run from INSIDE an agent worktree to integrate it back into
-# the target branch. Under a single global lock it:
+# Run from INSIDE an agent worktree to integrate it back into the target branch (D066: via a QUEUE, see
+# maple-queue.sh). It:
 #
-#   1. rebases the branch onto the freshest origin/<targetBranch>,
-#   2. runs the configured gate command for --tier (maple.config.json
-#      ci.tiers.<tier>; default tier ci.prePushTier),
-#   3. pushes HEAD:<targetBranch> (a guaranteed fast-forward, because nothing
-#      else could have advanced the target while we held the lock),
-#   4. prunes the worktree + branch.
+#   1. enqueues this branch (<git-common-dir>/maple/land-queue/);
+#   2. whoever finds the queue-owner lock free becomes the OWNER and lands everyone queued as ONE batch:
+#      rebases each branch FIFO onto the freshest <remote>/<targetBranch> in an integration worktree
+#      (a branch that conflicts is returned to its owner), runs ONE gate for --tier on the combined tip
+#      (a red gate is bisected to the breaking branch, which is returned; the rest land), and
+#      fast-forward-pushes;
+#   3. every lander gets its own verdict (landed / conflict / gate failed) and, when landed, prunes its
+#      worktree + branch.
 #
-# Red gate, rebase conflict, or non-ff push -> it refuses, releases the lock,
-# and hands back. Nothing un-gated can reach the target branch.
+# The owner lock is NEVER taken from a live process: it is stale only when its holder pid is dead.
+# The Jev quality audit no longer runs here: it moved to the heavy tier (D066 amending D059).
 #
-# Ported + generalized from VeHagita's scripts/agent-wt/vh-land.sh
-# (D085 / #T070 there). Config: see maple-lib.sh header + plugin/README.md.
-# CANONICAL keys (docs/standard-architecture.md; reconciled #T11 — this used
-# to read an invented `worktree.gate.*` block, now retired):
+# --no-push  rebase + gate THIS branch alone (serialised behind the owner lock, never queued), push nothing.
+# --keep     keep the worktree + branch after landing.
+#
+# Red gate, rebase conflict, or non-ff push -> it refuses and hands back. Nothing un-gated can reach the target.
+#
+# Ported + generalized from VeHagita's scripts/agent-wt/vh-land.sh (D085 / #T070 there). Config: see
+# maple-lib.sh header + plugin/README.md. CANONICAL keys (docs/standard-architecture.md; reconciled #T11):
 #   ci.prePushTier   default "gate"
-#   ci.tiers.<name>  shell command string to run as the gate for that tier —
-#                    e.g. {"fast": "npm run ci:fast", "gate": "npm run
-#                    ci:gate"}. No default: if a tier has no configured
-#                    command, maple-land refuses to land ungated rather than
-#                    guess.
+#   ci.tiers.<name>  shell command string to run as the gate for that tier — e.g. {"fast": "pnpm ci:fast",
+#                    "gate": "pnpm ci:gate", "heavy": "pnpm ci:heavy"}. No default: if a tier has no
+#                    configured command, maple-land refuses to land ungated rather than guess.
 
 set -euo pipefail
 . "$(dirname "$0")/maple-lib.sh"
+. "$(dirname "$0")/maple-queue.sh"
 
 DEFAULT_TIER="$(maple_cfg ci.prePushTier gate)"
 TIER="$DEFAULT_TIER" KEEP=false PUSH=true
@@ -53,100 +57,78 @@ SLUG="$(maple_slug_from_branch "$BRANCH")"
 WT_DIR="$(git rev-parse --show-toplevel)"
 
 # Clean tree required — uncommitted work means the session isn't done.
+git update-index -q --refresh 2>/dev/null || true   # clear stat-only noise (autocrlf checkouts) before judging cleanliness
 if [ -n "$(git status --porcelain)" ]; then
   git status --short >&2
   maple_die "working tree not clean. Commit (or stash) before landing — maple-land integrates COMMITS."
 fi
 
-# ── acquire the global lock for the whole rebase->gate->push window ──────────
-maple_lock_acquire "$SLUG"
-LAND_LOCK_JS="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/../..}/scripts/prepush/land-lock.sh"
-LAND_REF="refs/heads/$MAPLE_TARGET"
-land_lock_release() { bash "$LAND_LOCK_JS" release --remote "$MAPLE_REMOTE" --ref "$LAND_REF" --id "${PP_LAND_HOLDER_ID:-}" 2>/dev/null || true; }
-trap 'land_lock_release; maple_lock_release' EXIT INT TERM
-
-# The PER-BRANCH landing lock: the same one the pre-push hook takes, so a raw
-# `git push` and /wt-land exclude each other (the global lock above only ever
-# excluded other /wt-land runs). Waits - printing who holds it - never fails for
-# waiting; exports the holder id so this run's own `git push` (and its hook)
-# re-enter the lock instead of waiting on us.
-maple_log "taking the landing lock on $MAPLE_TARGET …"
-LAND_ENV="$(bash "$LAND_LOCK_JS" acquire --remote "$MAPLE_REMOTE" --ref "$LAND_REF" --sha "$(git rev-parse HEAD)" --pid $$ --no-fresh)" \
-  || maple_die "could not take the landing lock on $MAPLE_TARGET (see the holder above). Nothing pushed."
-eval "$LAND_ENV"
-
-maple_log "fetching $MAPLE_REMOTE/$MAPLE_TARGET …"
-git fetch "$MAPLE_REMOTE" "$MAPLE_TARGET" --quiet \
-  || maple_die "fetch failed — cannot determine the integration tip."
-
-BASE="$MAPLE_REMOTE/$MAPLE_TARGET"
-AHEAD="$(git rev-list --count "$BASE..$BRANCH")"
-maple_log "rebasing $BRANCH ($AHEAD commit(s)) onto $BASE …"
-if ! git rebase "$BASE"; then
-  git rebase --abort 2>/dev/null || true
-  maple_die "rebase onto $BASE hit conflicts. Resolve in this worktree, commit, then re-run maple-land."
-fi
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/../..}"
+MAPLE_LAND_LOCK_SH="$PLUGIN_ROOT/scripts/prepush/land-lock.sh"
+MAPLE_Q_GATE_CMD="$GATE_CMD"
+MAPLE_Q_TIER="$TIER"
+maple_q_init
 
 # ── hooks must be fail-closed before anything is pushed ──────────────────────
-# The push below fires the repo's pre-push hook; if this clone's hooksPath is the
-# relative husky one and this worktree never ran `npm ci`, git would skip it and
-# the push would go out ungated. Repair (idempotent) and verify, or refuse.
-if [ -d "$WT_DIR/.husky" ]; then
-  HOOKS_JS="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/../..}/scripts/prepush/install-hooks.mjs"
+# The push fires the repo's pre-push hook; if this clone's hooksPath is the relative husky one and this
+# worktree never ran `npm ci`, git would skip it and the push would go out ungated. Repair (idempotent)
+# and verify, or refuse. (The owner's integration worktree repeats this for itself.)
+if $PUSH && [ -d "$WT_DIR/.husky" ]; then
+  HOOKS_JS="$PLUGIN_ROOT/scripts/prepush/install-hooks.mjs"
   ( cd "$WT_DIR" && node "$HOOKS_JS" --quiet && node "$HOOKS_JS" --check --quiet )     || maple_die "git hooks are not fail-closed in this clone, so the push would run no gate. Nothing pushed. Run: node \"$HOOKS_JS\""
 fi
 
-# ── the gate (serialized by the lock) ────────────────────────────────────────
-maple_log "running gate ($TIER): $GATE_CMD  (this is the enforcement — may take minutes) …"
-if ! ( cd "$WT_DIR" && eval "$GATE_CMD" ); then
-  maple_die "gate ($TIER) FAILED — nothing pushed. Fix in this worktree and re-run maple-land."
-fi
-maple_ok "gate passed"
-
-# ── quality gate: per-function Jev audit of changed functions only ──────────
-# Runs AFTER the repo's own CI gate is green and BEFORE the merge/push, so a
-# red quality gate never lands. Skipped entirely when the target repo has no
-# quality.jevAudit block, or has one with enabled:false — see
-# plugin/scripts/jev/audit/README.md and docs/decisions.md D051.
-QUALITY_ENABLED="$(maple_cfg quality.jevAudit.enabled false)"
-if [ "$QUALITY_ENABLED" = "true" ]; then
-  QUALITY_SCRIPT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/../..}/scripts/jev/audit/run.mjs"
-  maple_log "running quality gate (changed functions vs $BASE) …"
-  # $BASE (the just-fetched remote tip we rebased onto), NOT the bare
-  # "$MAPLE_TARGET": the audit merge-bases against whatever ref it is given,
-  # and the LOCAL target branch in the main checkout is routinely stale or
-  # diverged, which turned every landing into an audit of dozens of other
-  # people's commits (EasyCaller, 2026-09-24: 638 functions for a bash-only
-  # change, 10 unrelated blocking findings).
-  if ! ( cd "$WT_DIR" && node "$QUALITY_SCRIPT" --gate --base "$BASE" ); then
-    maple_die "quality gate FAILED — nothing pushed. See the findings above; fix or add a documented 'jev-audit: accept <rule> — <reason>' comment, then re-run maple-land."
-  fi
-  maple_ok "quality gate passed"
-else
-  maple_log "quality gate skipped (quality.jevAudit.enabled is not true)"
-fi
-
-# ── push: a guaranteed fast-forward, because we held the lock end-to-end ─────
 if $PUSH; then
-  maple_log "pushing $BRANCH -> $MAPLE_REMOTE/$MAPLE_TARGET (fast-forward) …"
-  if ! git push "$MAPLE_REMOTE" "HEAD:$MAPLE_TARGET"; then
-    maple_die "push to $MAPLE_TARGET rejected (non-ff?). Another machine may have advanced it — re-run maple-land to re-rebase. NOT force-pushing."
-  fi
-  maple_ok "landed: $BRANCH integrated into $MAPLE_TARGET"
+  # ── queue: enqueue, then wait for a verdict (becoming the batch owner when the lock is free) ─────────────
+  maple_q_enqueue "$SLUG" "$BRANCH" "$WT_DIR"
+  QENTRY="$MAPLE_Q_ENTRY"
+  trap 'maple_q_release_owner; [ -f "$MAPLE_Q_DIR/results/$QENTRY" ] || maple_q_dequeue "$QENTRY"; maple_q_integ_drop' EXIT INT TERM
+  maple_log "queued '$SLUG' for $MAPLE_TARGET (position $(maple_q_position "$QENTRY"))"
+  maple_q_await "$QENTRY"
+
+  RESULT_FILE="$MAPLE_Q_DIR/results/$QENTRY"
+  STATUS="$(maple_q_get "$RESULT_FILE" status)"
+  MESSAGE="$(maple_q_get "$RESULT_FILE" message)"
+  LANDED_SHA="$(maple_q_get "$RESULT_FILE" sha)"
+  maple_q_dequeue "$QENTRY"
+  trap - EXIT INT TERM
+  maple_q_release_owner
+  case "$STATUS" in
+    landed) maple_ok "landed: $BRANCH integrated into $MAPLE_TARGET (${LANDED_SHA:0:10}; $MESSAGE)" ;;
+    conflict)    maple_die "NOT landed - $MESSAGE. Resolve in this worktree (git fetch $MAPLE_REMOTE && git rebase $MAPLE_REMOTE/$MAPLE_TARGET), commit, then re-run maple-land." ;;
+    gate-failed) maple_die "NOT landed - $MESSAGE. Fix in this worktree and re-run maple-land." ;;
+    *)           maple_die "NOT landed - ${MESSAGE:-unknown error} (status ${STATUS:-none}). Re-run maple-land." ;;
+  esac
+
   if TASK_REF="$(git config --get "branch.$BRANCH.maple-task" 2>/dev/null)" && [ -n "$TASK_REF" ]; then
-    TASK_FIELDS_SCRIPT="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/../..}/scripts/agent-wt/task-fields.mjs"
-    LANDED_VALUE="$(date +%F) $(git rev-parse --short HEAD)"
+    TASK_FIELDS_SCRIPT="$PLUGIN_ROOT/scripts/agent-wt/task-fields.mjs"
+    LANDED_VALUE="$(date +%F) ${LANDED_SHA:0:7}"
     if ! TASK_FIELDS_OUT="$(node "$TASK_FIELDS_SCRIPT" --root "$MAPLE_MAIN_ROOT" --task "$TASK_REF" --set "landed=$LANDED_VALUE" --set "status=review" 2>&1)"; then
       maple_warn "could not update task $TASK_REF: $(printf '%s' "$TASK_FIELDS_OUT" | tr '\r\n' '  ')"
     fi
     git config --unset "branch.$BRANCH.maple-task" 2>/dev/null || true
   fi
 else
+  # ── --no-push: serialised behind the owner lock (never queued, never pushed) ────────────────────────────
+  trap 'maple_q_release_owner' EXIT INT TERM
+  maple_q_wait_owner
+  maple_log "fetching $MAPLE_REMOTE/$MAPLE_TARGET …"
+  git fetch "$MAPLE_REMOTE" "$MAPLE_TARGET" --quiet || maple_die "fetch failed — cannot determine the integration tip."
+  BASE="$MAPLE_REMOTE/$MAPLE_TARGET"
+  maple_log "rebasing $BRANCH ($(git rev-list --count "$BASE..$BRANCH") commit(s)) onto $BASE …"
+  if ! git rebase "$BASE"; then
+    git rebase --abort 2>/dev/null || true
+    maple_die "rebase onto $BASE hit conflicts. Resolve in this worktree, commit, then re-run maple-land."
+  fi
+  maple_log "running gate ($TIER): $GATE_CMD …"
+  if ! ( cd "$WT_DIR" && eval "$GATE_CMD" ); then
+    maple_die "gate ($TIER) FAILED — fix in this worktree and re-run maple-land."
+  fi
+  maple_ok "gate passed"
   maple_warn "--no-push: rebased + gated but NOT pushed. Branch left in place."
+  maple_q_release_owner
+  trap - EXIT INT TERM
 fi
-
-maple_lock_release
-trap - EXIT INT TERM
 
 # ── prune the worktree + branch ──────────────────────────────────────────────
 if $PUSH && ! $KEEP; then

@@ -10,8 +10,8 @@
  * Runs every `*.test.mjs` file in this directory sequentially. Each test
  * file is a plain Node script that exits non-zero on failure. FAILS LOUDLY
  * (non-zero exit) if the local stack is unreachable — it never silently
- * skips; the tier scripts (scripts/ci-local.*) own the "skip if no Docker"
- * decision via SKIP_LIVE_GATE.
+ * skips; the heavy tier (scripts/ci-local.sh) owns the "skip if no Docker"
+ * decision via the verified MAPLE_GATE_SKIP=docker-unavailable (recorded as gate debt).
  *
  * Run: pnpm test:supabase   (stack must be up: pnpm supabase:start)
  */

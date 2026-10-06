@@ -43,6 +43,7 @@ set -euo pipefail
 
 # -> repo root. One subshell, no dirname fork (forks are seconds on a loaded box).
 _self="${BASH_SOURCE[0]}"
+_self="${_self//\\//}"   # a Windows caller (the .ps1 shim, run-gate.mjs) may pass backslashes
 case "$_self" in */*) _self_dir="${_self%/*}" ;; *) _self_dir="." ;; esac
 cd "$_self_dir/.."
 TIER="${1:-gate}"
@@ -74,6 +75,11 @@ GATE_CLI="$PLUGIN_DIR/scripts/gate/gate-cli.mjs"
 # Shared inputs: a change here can alter the verdict of EVERY check, so the gate runs everything.
 # Configs that affect ONE tool (knip, depcruise, gitleaks) are not here: they escalate only their own step.
 export PP_FULL_RE='^scripts/(ci-local\.(sh|ps1)|lib/)|^plugin/scripts/prepush/|^\.husky/|(^|/)(package\.json|pnpm-lock\.yaml|\.npmrc)$|(^|/)tsconfig[^/]*\.json$|^(eslint\.config\.mjs|vitest\.config\.ts|next\.config\.ts|maple\.config\.json)$|^src/test/setup\.ts$'
+
+# Machine-wide gate slots (MAPLE_GATE_SLOTS) cap concurrent HEAVY work. D066: a landing must not queue behind other
+# repos' builds before it has done any work (75-153 s slot waits were measured before the first lint), so only the
+# genuinely heavy steps take a slot: build, the integration suites, the live tier, the audits. Everything else is light.
+export PP_LIGHT_RE='^(lint|typecheck|knip|depcruise|vitest|plugin-(loops|agent-wt|jev|predeploy|deps|gate|prepush)|docs-drift|dep-freshness( \(heavy\))?|edge-typecheck|gitleaks|user-data-size|migration-duplicates|supply-chain|workflow-triggers|orphan-tables)$'
 
 step() { echo ""; echo "--- $1 ---"; }
 die()  { echo ""; echo "x $1" >&2; exit 1; }
