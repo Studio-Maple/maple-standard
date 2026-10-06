@@ -3,7 +3,7 @@ type: guide
 title: Pre-deploy gate
 description: the enforced zero-findings gate in front of every deploy: checks, allowlist, stamp, guard hook, live ZAP policy, emergency override.
 tags: [quality, gates, security, deploy]
-timestamp: 2026-10-02
+timestamp: 2026-10-06
 audience: anyone about to deploy, configuring the gate for a project, or blocked by the deploy guard
 authoritative_for: [the pre-deploy gate's rules, stamp model, live-scan policy, allowlist format and enforcement]
 code: [plugin/scripts/predeploy/, plugin/hooks/guards/deploy-guard.mjs, plugin/commands/predeploy-gate.md, plugin/templates/predeploy-remote.yml]
@@ -197,6 +197,12 @@ config + allowlist hashes, clean tracked tree, no unscanned live deploy), and
 blocks tool writes to the stamp directory itself. Stamps also bind a hash of the decision-backed file. An unparseable
 `maple.config.json` fails closed. Projects also call `verify.mjs` from their
 deploy script's preflight (belt and braces).
+
+**Heavy promotion requirement (D066).** `verify.mjs` and the guard additionally require, on top of everything above, a green **heavy** run for the exact `HEAD`
+(`<git-common-dir>/maple/heavy-pass/<sha>.json`, written by `pnpm ci:heavy` / the scheduled `plugin/scripts/gate/heavy-run.mjs`: live RLS + E2E, plugin
+integration suites, Jev audit, dep-freshness; see [[quality]]) and **zero unpaid gate debt** among the commits `HEAD` contains (`MAPLE_GATE_SKIP` skips are
+recorded in `gate-debt.jsonl` and paid only by a green full heavy run on a containing commit). The refusal says which of the two is missing. There is no
+config knob to turn it off; a project must configure `ci.tiers.heavy` before it can deploy.
 
 **Emergency override**: default off. `emergency.mjs --reason "..."` needs an
 interactive terminal and the owner typing a phrase naming the sha; grants one

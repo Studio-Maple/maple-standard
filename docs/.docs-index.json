@@ -142,7 +142,9 @@
         "plugin/commands/predeploy-gate.md",
         "plugin/templates/predeploy-remote.yml"
       ],
-      "related": []
+      "related": [
+        "quality"
+      ]
     },
     {
       "path": "docs/quality-gate.md",
