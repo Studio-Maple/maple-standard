@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * loop-budget-guard.test.mjs — standalone test for
- * plugin/hooks/loop-budget-guard.mjs (MJ-8, re-review B1/B2/M2/M4/m2/m3).
+ * plugin/hooks/guards/loop-budget-guard.mjs (via the guard.mjs dispatcher) (MJ-8, re-review B1/B2/M2/M4/m2/m3).
  * Same conventions as budget.test.mjs: no framework, spawns the hook as a
  * real subprocess (it's a stdin-JSON-in / exit-code-out CLI, same as any
  * other Claude Code hook) feeding a payload against a throwaway `root`, and
@@ -15,7 +15,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const GUARD = join(HERE, "..", "..", "hooks", "loop-budget-guard.mjs");
+const GUARD = join(HERE, "..", "..", "hooks", "guard.mjs");
 const BUDGET = join(HERE, "budget.mjs");
 
 const results = [];
@@ -53,7 +53,7 @@ function readCycle(root) {
 
 function runGuard(root, extra = {}) {
   return spawnSync(process.execPath, [GUARD], {
-    input: JSON.stringify({ cwd: root, tool_name: "Bash", ...extra }),
+    input: JSON.stringify({ cwd: root, tool_name: "Bash", tool_input: { command: "ls" }, ...extra }),
     encoding: "utf8",
   });
 }

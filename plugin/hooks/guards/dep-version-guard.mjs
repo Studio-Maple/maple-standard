@@ -1,6 +1,4 @@
-#!/usr/bin/env node
-// PreToolUse hook for Write|Edit|MultiEdit — D064: dependency versions are never hand-written.
-// Part of the maple-standard plugin (plugin/hooks/hooks.json).
+// Guard for Write|Edit|MultiEdit (D065 dispatcher) — D064: dependency versions are never hand-written.
 //
 // Agents write dependency versions from training memory, so they land outdated. When the target is a
 // package.json, the dependency maps (dependencies / devDependencies / peerDependencies /
@@ -12,15 +10,14 @@
 // (maple.config.json deps.exceptions, each citing a D### in the decisions ledger) passes too.
 // No network: the freshness itself is checked by `pnpm add` + the ci:fast gate.
 //
-// Exit 0 + deny JSON on stdout = deny (same shape predeploy-guard.mjs uses). Hook errors never block.
+// Hook errors never block.
 
 import { existsSync, readFileSync } from "node:fs";
 import { basename, isAbsolute, resolve } from "node:path";
 import process from "node:process";
-import { pathToFileURL } from "node:url";
-import { findException, loadExceptions } from "../scripts/deps/exceptions.mjs";
-import { applyToolEdit, classifyDep, diffDeps } from "../scripts/deps/pkgjson.mjs";
-import { rangeFloor } from "../scripts/deps/semver-lite.mjs";
+import { findException, loadExceptions } from "../../scripts/deps/exceptions.mjs";
+import { applyToolEdit, classifyDep, diffDeps } from "../../scripts/deps/pkgjson.mjs";
+import { rangeFloor } from "../../scripts/deps/semver-lite.mjs";
 
 const TOOLS = new Set(["Write", "Edit", "MultiEdit"]);
 
@@ -66,20 +63,7 @@ export function evaluate(payload) {
   return offenders.length ? denialReason(offenders, problems) : null;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  let raw = "";
-  process.stdin.setEncoding("utf8");
-  process.stdin.on("data", (chunk) => { raw += chunk; });
-  process.stdin.on("end", () => {
-    let reason = null;
-    try {
-      reason = evaluate(JSON.parse(raw));
-    } catch {
-      process.exit(0); // never let a hook error break tool routing
-    }
-    if (reason) {
-      process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } }));
-    }
-    process.exit(0);
-  });
+export function check(ctx) {
+  const reason = evaluate({ tool_name: ctx.tool, tool_input: ctx.input, cwd: ctx.cwd });
+  return reason ? { deny: reason } : undefined;
 }

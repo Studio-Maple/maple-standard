@@ -1,0 +1,32 @@
+[
+  {
+    "setup": { "linked": ["w1"] },
+    "cases": [
+      { "name": "slot under .worktrees", "input": { "command": "git worktree add .worktrees/slug -b agent/slug" }, "expect": "allow" },
+      { "name": "slot under .claude/worktrees", "input": { "command": "git worktree add -b agent/s .claude/worktrees/s" }, "expect": "allow" },
+      { "name": "absolute slot", "input": { "command": "git worktree add \"{ROOT}/.worktrees/abs\"" }, "expect": "allow" },
+      { "name": "Windows-style absolute slot in PowerShell", "tool": "PowerShell", "input": { "command": "git worktree add \"{ROOT}/.worktrees/psabs\" -b agent/psabs" }, "expect": "allow" },
+      { "name": "list / remove are untouched", "input": { "command": "git worktree list && git worktree remove .worktrees/w1 --force" }, "expect": "allow" },
+      { "name": "message mentioning worktree add", "input": { "command": "git commit -m \"never git worktree add ../x-wt\"" }, "expect": "allow" },
+
+      { "name": "sibling -wt directory", "input": { "command": "git worktree add ../foo-wt" }, "expect": "deny", "match": "\\.worktrees" },
+      { "name": "sibling with -b", "input": { "command": "git worktree add -b agent/x ../x-wt" }, "expect": "deny" },
+      { "name": "arbitrary relative path", "input": { "command": "git worktree add elsewhere" }, "expect": "deny" },
+      { "name": "the container itself", "input": { "command": "git worktree add .worktrees" }, "expect": "deny" },
+      { "name": "two levels under .worktrees", "input": { "command": "git worktree add .worktrees/a/b" }, "expect": "deny", "match": "nested" },
+      { "name": "git -C into the repo with a sibling path", "input": { "command": "git -C \"{ROOT}\" worktree add ../x" }, "expect": "deny" },
+      { "name": "after cd, still a sibling", "input": { "command": "cd \"{ROOT}\" && git worktree add ../sib-wt" }, "expect": "deny" },
+      { "name": "PowerShell sibling", "tool": "PowerShell", "input": { "command": "git worktree add ../foo-wt" }, "expect": "deny" },
+      { "name": "from inside a linked worktree: nested", "cwd": "{ROOT}/.worktrees/w1", "input": { "command": "git worktree add .worktrees/n1" }, "expect": "deny", "match": "nested" },
+      { "name": "from inside a linked worktree: absolute main slot is fine", "cwd": "{ROOT}/.worktrees/w1", "input": { "command": "git worktree add \"{ROOT}/.worktrees/n2\"" }, "expect": "allow" },
+
+      { "name": "unresolvable path warns", "input": { "command": "git worktree add \"$WT\"" }, "expect": "warn", "match": "could not resolve" }
+    ]
+  },
+  {
+    "setup": {},
+    "cases": [
+      { "name": "outside a repo the main root is unknown: warn, allow", "input": { "command": "git worktree add ../x" }, "expect": "warn", "match": "main checkout root" }
+    ]
+  }
+]

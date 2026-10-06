@@ -5,7 +5,7 @@ import { applyDecisions, decisionIdsIn, summarizeDecisions, validateDecisions } 
 import { parseOutput } from "./parsers.mjs";
 import { authRejections, buildPlan, containerScript, dockerArgs, PREFLIGHT_EXIT } from "./livescan.mjs";
 import { semgrepArgs } from "./catalog.mjs";
-import { matchDeploy, touchesGateState } from "../../hooks/predeploy-guard.mjs";
+import { matchDeploy, touchesGateState } from "../../hooks/guards/deploy-guard.mjs";
 
 let n = 0;
 const t = (name, fn) => { fn(); n++; console.log("ok - " + name); };

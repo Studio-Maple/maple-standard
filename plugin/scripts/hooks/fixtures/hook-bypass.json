@@ -1,0 +1,39 @@
+[
+  {
+    "setup": {},
+    "cases": [
+      { "name": "commit message mentioning --no-verify is data", "input": { "command": "git commit -m \"docs: explain why --no-verify is forbidden\"" }, "expect": "allow" },
+      { "name": "heredoc commit message mentioning flags", "input": { "command": "git commit -m \"$(cat <<'EOF'\nfix: stop using --no-verify and HUSKY=0\n\nthe user's -n habit, core.hooksPath too\nEOF\n)\"" }, "expect": "allow" },
+      { "name": "PowerShell here-string message", "tool": "PowerShell", "input": { "command": "git commit -m @'\nnote about --no-verify and HUSKY=0\n'@" }, "expect": "allow" },
+      { "name": "plain commit -am", "input": { "command": "git commit -am \"x\"" }, "expect": "allow" },
+      { "name": "push without a flag", "input": { "command": "git push origin agent/x", "run_in_background": true }, "expect": "allow" },
+      { "name": "reading core.hooksPath", "input": { "command": "git config --get core.hooksPath" }, "expect": "allow" },
+      { "name": "echo HUSKY=0 is text", "input": { "command": "echo HUSKY=0" }, "expect": "allow" },
+      { "name": "-n on push is dry-run, not a bypass", "input": { "command": "git push -n origin agent/x", "run_in_background": true }, "expect": "allow" },
+
+      { "name": "commit --no-verify", "input": { "command": "git commit --no-verify -m x" }, "expect": "deny", "match": "no-verify" },
+      { "name": "commit -m then --no-verify", "input": { "command": "git commit -m \"x\" --no-verify" }, "expect": "deny" },
+      { "name": "commit -nm cluster", "input": { "command": "git commit -nm \"x\"" }, "expect": "deny", "match": "-n" },
+      { "name": "commit -n", "input": { "command": "git commit -n -m x" }, "expect": "deny" },
+      { "name": "push --no-verify", "input": { "command": "git push --no-verify origin x", "run_in_background": true }, "expect": "deny" },
+      { "name": "merge --no-verify", "input": { "command": "git merge --no-verify topic" }, "expect": "deny" },
+      { "name": "rebase --no-verify", "input": { "command": "git rebase --no-verify main" }, "expect": "deny" },
+      { "name": "git -C dir commit --no-verify", "input": { "command": "git -C \"C:/some dir\" commit --no-verify -m x" }, "expect": "deny" },
+      { "name": "after cd and timeout", "input": { "command": "cd \"C:/x\" && timeout 30 git commit --no-verify -m x" }, "expect": "deny" },
+      { "name": "-c core.hooksPath", "input": { "command": "git -c core.hooksPath=/dev/null commit -m x" }, "expect": "deny", "match": "hooksPath" },
+      { "name": "git config --global core.hooksPath", "input": { "command": "git config --global core.hooksPath /tmp/hooks" }, "expect": "deny" },
+      { "name": "git config --unset core.hooksPath", "input": { "command": "git config --unset core.hooksPath" }, "expect": "deny" },
+      { "name": "HUSKY=0 prefix", "input": { "command": "HUSKY=0 git commit -m x" }, "expect": "deny", "match": "HUSKY" },
+      { "name": "export HUSKY=0", "input": { "command": "export HUSKY=0 && git commit -m x" }, "expect": "deny" },
+      { "name": "--no-gpg-sign", "input": { "command": "git commit --no-gpg-sign -m x" }, "expect": "deny" },
+      { "name": "-c commit.gpgsign=false", "input": { "command": "git -c commit.gpgsign=false commit -m x" }, "expect": "deny" },
+      { "name": "git config commit.gpgsign false", "input": { "command": "git config commit.gpgsign false" }, "expect": "deny" },
+
+      { "name": "PowerShell commit --no-verify", "tool": "PowerShell", "input": { "command": "git commit --no-verify -m \"x\"" }, "expect": "deny" },
+      { "name": "PowerShell $env:HUSKY=0", "tool": "PowerShell", "input": { "command": "$env:HUSKY=0; git commit -m x" }, "expect": "deny" },
+      { "name": "PowerShell $env:HUSKY = \"0\"", "tool": "PowerShell", "input": { "command": "$env:HUSKY = \"0\"\ngit commit -m x" }, "expect": "deny" },
+      { "name": "PowerShell Set-Location then push --no-verify", "tool": "PowerShell", "input": { "command": "Set-Location C:\\x; git push --no-verify", "run_in_background": true }, "expect": "deny" },
+      { "name": "PowerShell call operator", "tool": "PowerShell", "input": { "command": "& git commit --no-verify -m x" }, "expect": "deny" }
+    ]
+  }
+]

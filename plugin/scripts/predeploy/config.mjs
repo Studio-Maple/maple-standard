@@ -140,6 +140,7 @@ export function validatePredeploy(cfg) {
     else {
       for (const k of Object.keys(g)) if (!["enabled", "patterns"].includes(k)) e.push(`predeploy.deployGuard.${k}: unknown key`);
       if (g.enabled === false) e.push("predeploy.deployGuard.enabled: false is not allowed — the gate is enforced, not advisory");
+      if (g.patterns !== undefined && !(Array.isArray(g.patterns) && g.patterns.length > 0)) e.push("predeploy.deployGuard.patterns: an explicitly empty list is an error — built-in baseline patterns always apply (wrangler/supabase/terraform/vercel); omit the key, or list ADDITIONAL { id, regex } patterns");
       (g.patterns || []).forEach((pt, i) => {
         const at = `predeploy.deployGuard.patterns[${i}]`;
         if (!isObj(pt) || !isStr(pt.id) || !isStr(pt.regex)) return e.push(`${at}: { id, regex } required`);

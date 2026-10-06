@@ -1,0 +1,38 @@
+[
+  {
+    "setup": { "config": { "project": { "name": "t", "slug": "t" }, "supabase": { "devProjectRefs": ["devref0000000000000"], "prodProjectRefs": ["prodref000000000000"] } } },
+    "cases": [
+      { "name": "apply_migration on an unknown ref", "tool": "mcp__x__apply_migration", "input": { "project_id": "unknownref", "name": "m", "query": "create table t(id int)" }, "expect": "deny", "match": "devProjectRefs" },
+      { "name": "apply_migration on a prod ref", "tool": "mcp__abd1b7ee-3102-417a-a87e-ddfddae2d9aa__apply_migration", "input": { "project_id": "prodref000000000000", "name": "m", "query": "x" }, "expect": "deny", "match": "PRODUCTION" },
+      { "name": "apply_migration on a dev ref", "tool": "mcp__x__apply_migration", "input": { "project_id": "devref0000000000000", "name": "m", "query": "x" }, "expect": "allow" },
+      { "name": "execute_sql DDL on unknown ref", "tool": "mcp__x__execute_sql", "input": { "project_id": "unknownref", "query": "drop table users" }, "expect": "deny" },
+      { "name": "execute_sql multi-statement hiding a write", "tool": "mcp__x__execute_sql", "input": { "project_id": "unknownref", "query": "select 1; drop table users" }, "expect": "deny" },
+      { "name": "execute_sql data-modifying CTE", "tool": "mcp__x__execute_sql", "input": { "project_id": "unknownref", "query": "with d as (delete from t returning *) select * from d" }, "expect": "deny" },
+      { "name": "execute_sql select into", "tool": "mcp__x__execute_sql", "input": { "project_id": "unknownref", "query": "select * into copy from t" }, "expect": "deny" },
+      { "name": "execute_sql on the prod ref even for a write comment trick", "tool": "mcp__x__execute_sql", "input": { "project_id": "prodref000000000000", "query": "-- select\ndelete from t" }, "expect": "deny" },
+      { "name": "execute_sql plain select on unknown ref", "tool": "mcp__x__execute_sql", "input": { "project_id": "unknownref", "query": "select * from t where status = 'delete'" }, "expect": "allow" },
+      { "name": "execute_sql select after comments", "tool": "mcp__x__execute_sql", "input": { "project_id": "unknownref", "query": "-- who\n/* block */ SELECT count(*) FROM auth.users;" }, "expect": "allow" },
+      { "name": "execute_sql explain / show", "tool": "mcp__x__execute_sql", "input": { "project_id": "unknownref", "query": "explain select 1" }, "expect": "allow" },
+      { "name": "deploy_edge_function unknown ref", "tool": "mcp__x__deploy_edge_function", "input": { "project_id": "unknownref", "name": "f", "files": [] }, "expect": "deny" },
+      { "name": "merge_branch", "tool": "mcp__x__merge_branch", "input": { "branch_id": "b", "project_id": "unknownref" }, "expect": "deny" },
+      { "name": "reset_branch", "tool": "mcp__x__reset_branch", "input": { "branch_id": "b", "project_id": "unknownref" }, "expect": "deny" },
+      { "name": "rebase_branch", "tool": "mcp__x__rebase_branch", "input": { "branch_id": "b", "project_id": "unknownref" }, "expect": "deny" },
+      { "name": "delete_branch", "tool": "mcp__x__delete_branch", "input": { "branch_id": "b", "project_id": "unknownref" }, "expect": "deny" },
+      { "name": "pause_project", "tool": "mcp__x__pause_project", "input": { "project_id": "unknownref" }, "expect": "deny" },
+      { "name": "restore_project", "tool": "mcp__x__restore_project", "input": { "project_id": "unknownref" }, "expect": "deny" },
+      { "name": "supabase-named server without a project_id", "tool": "mcp__supabase__apply_migration", "input": { "name": "m", "query": "x" }, "expect": "deny", "match": "unspecified" },
+      { "name": "read-only list_tables", "tool": "mcp__x__list_tables", "input": { "project_id": "unknownref" }, "expect": "allow" },
+      { "name": "read-only get_logs / query_logs", "tool": "mcp__x__query_logs", "input": { "project_id": "unknownref", "sql": "select 1" }, "expect": "allow" },
+      { "name": "list_projects", "tool": "mcp__x__list_projects", "input": {}, "expect": "allow" },
+      { "name": "same tool name on a non-Supabase server (no project_id)", "tool": "mcp__neon__merge_branch", "input": { "branch": "x" }, "expect": "allow" },
+      { "name": "unrelated MCP tool", "tool": "mcp__github__create_issue", "input": { "title": "x" }, "expect": "allow" }
+    ]
+  },
+  {
+    "setup": {},
+    "cases": [
+      { "name": "no config at all: unknown ref is denied", "tool": "mcp__x__apply_migration", "input": { "project_id": "anything", "name": "m", "query": "x" }, "expect": "deny" },
+      { "name": "no config: read-only still fine", "tool": "mcp__x__list_migrations", "input": { "project_id": "anything" }, "expect": "allow" }
+    ]
+  }
+]

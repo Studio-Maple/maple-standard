@@ -1,0 +1,81 @@
+[
+  {
+    "setup": {
+      "git": true,
+      "config": {
+        "project": { "name": "t", "slug": "t" },
+        "repo": { "devBranch": "main", "prodBranch": "production" },
+        "predeploy": { "checks": [{ "id": "ok", "command": "node -e \"process.exit(0)\"" }], "deployGuard": { "patterns": [{ "id": "dep", "regex": "(^|[\\s/\\\\])deploy\\.sh\\b" }] } }
+      }
+    },
+    "cases": [
+      { "name": "baseline: wrangler deploy", "input": { "command": "npx wrangler deploy" }, "expect": "deny", "match": "no predeploy stamp" },
+      { "name": "baseline: wrangler pages deploy", "input": { "command": "cd \"C:/x\" && wrangler pages deploy dist" }, "expect": "deny" },
+      { "name": "baseline: wrangler with flags before deploy", "input": { "command": "wrangler --env production deploy" }, "expect": "deny" },
+      { "name": "baseline: supabase db push", "input": { "command": "pnpm exec supabase db push --linked" }, "expect": "deny" },
+      { "name": "baseline: supabase functions deploy", "input": { "command": "supabase functions deploy ingest" }, "expect": "deny" },
+      { "name": "baseline: terraform apply", "input": { "command": "terraform apply -auto-approve" }, "expect": "deny" },
+      { "name": "baseline: vercel --prod", "input": { "command": "vercel --prod" }, "expect": "deny" },
+      { "name": "baseline: vercel deploy --prod", "input": { "command": "vercel deploy --prebuilt --prod" }, "expect": "deny" },
+      { "name": "configured pattern is added on top", "input": { "command": "bash deploy.sh --prod" }, "expect": "deny" },
+      { "name": "PowerShell call operator", "tool": "PowerShell", "input": { "command": "& wrangler deploy" }, "expect": "deny" },
+      { "name": "PowerShell script", "tool": "PowerShell", "input": { "command": "./deploy.sh" }, "expect": "deny" },
+      { "name": "deploy inside a command substitution is not exempt", "input": { "command": "echo $(wrangler deploy)" }, "expect": "deny" },
+      { "name": "deploy inside backticks is not exempt", "input": { "command": "echo `wrangler deploy`" }, "expect": "deny" },
+      { "name": "deploy after &&", "input": { "command": "echo ok && wrangler deploy" }, "expect": "deny" },
+      { "name": "bash -c", "input": { "command": "bash -c \"terraform apply\"" }, "expect": "deny" },
+
+      { "name": "push to prod ref via src:dst", "input": { "command": "git push origin main:production", "run_in_background": true }, "expect": "deny", "match": "prod" },
+      { "name": "push to refs/heads/<prod>", "input": { "command": "git push origin HEAD:refs/heads/production", "run_in_background": true }, "expect": "deny" },
+      { "name": "push the prod branch by name", "input": { "command": "git push origin production", "run_in_background": true }, "expect": "deny" },
+      { "name": "force push to prod", "input": { "command": "git push --force origin +main:production", "run_in_background": true }, "expect": "deny" },
+      { "name": "delete the prod branch remotely", "input": { "command": "git push origin :production", "run_in_background": true }, "expect": "deny" },
+      { "name": "push --all reaches prod", "input": { "command": "git push --all origin", "run_in_background": true }, "expect": "deny" },
+      { "name": "echo before the prod push does not hide it", "input": { "command": "echo go && git push origin main:production", "run_in_background": true }, "expect": "deny" },
+
+      { "name": "push to the dev branch", "input": { "command": "git push origin main", "run_in_background": true }, "expect": "allow" },
+      { "name": "push a feature branch", "input": { "command": "git push -u origin agent/deploy-fix", "run_in_background": true }, "expect": "allow" },
+      { "name": "bare push on main", "input": { "command": "git push", "run_in_background": true }, "expect": "allow" },
+      { "name": "commit message mentions a deploy", "input": { "command": "git commit -m \"docs: wrangler deploy and terraform apply notes\"" }, "expect": "allow" },
+      { "name": "heredoc message mentions a deploy", "input": { "command": "git commit -F - <<'EOF'\nrun supabase db push later\nEOF" }, "expect": "allow" },
+      { "name": "echo mentions a deploy", "input": { "command": "echo wrangler deploy" }, "expect": "allow" },
+      { "name": "grep for a deploy command", "input": { "command": "grep -rn \"wrangler pages deploy\" docs" }, "expect": "allow" },
+      { "name": "terraform plan", "input": { "command": "terraform plan" }, "expect": "allow" },
+      { "name": "supabase db diff", "input": { "command": "supabase db diff" }, "expect": "allow" },
+      { "name": "git log of a deploy script", "input": { "command": "git log --oneline -- deploy.sh" }, "expect": "allow" },
+      { "name": "ls", "input": { "command": "ls" }, "expect": "allow" },
+      { "name": "Write to the gate state is denied", "tool": "Write", "input": { "file_path": "{ROOT}/.git/maple/predeploy/stamps/x.json" }, "expect": "deny", "match": "gate" },
+      { "name": "shell write to the gate state is denied", "input": { "command": "echo {} > .git/maple/predeploy/stamps/x.json" }, "expect": "deny" },
+      { "name": "reading the ledger is fine", "input": { "command": "cat .git/maple/predeploy/deploys.jsonl" }, "expect": "allow" },
+      { "name": "editing the config asks the owner", "tool": "Edit", "input": { "file_path": "{ROOT}/maple.config.json" }, "expect": "ask" }
+    ]
+  },
+  {
+    "setup": {
+      "git": true,
+      "config": { "project": { "name": "t", "slug": "t" }, "repo": { "prodBranch": "main" }, "predeploy": { "checks": [{ "id": "ok", "command": "node -e 0" }] } }
+    },
+    "cases": [
+      { "name": "single-branch repo: pushing main is not a deploy", "input": { "command": "git push origin main", "run_in_background": true }, "expect": "allow" },
+      { "name": "single-branch repo: HEAD:refs/heads/main", "input": { "command": "git push origin HEAD:refs/heads/main", "run_in_background": true }, "expect": "allow" },
+      { "name": "baseline still applies", "input": { "command": "wrangler deploy" }, "expect": "deny" }
+    ]
+  },
+  {
+    "setup": {
+      "git": true,
+      "config": { "project": { "name": "t", "slug": "t" }, "repo": { "devBranch": "main", "prodBranch": "production" } }
+    },
+    "cases": [
+      { "name": "no predeploy block: prod push is not gated", "input": { "command": "git push origin main:production", "run_in_background": true }, "expect": "allow" },
+      { "name": "no predeploy block: baseline is not applied", "input": { "command": "wrangler deploy" }, "expect": "allow" }
+    ]
+  },
+  {
+    "setup": { "git": true, "files": { "maple.config.json": "{ not json" } },
+    "cases": [
+      { "name": "unparseable config fails closed for deploy-shaped commands", "input": { "command": "wrangler deploy" }, "expect": "deny", "match": "not valid JSON" },
+      { "name": "unparseable config leaves other commands alone", "input": { "command": "ls" }, "expect": "allow" }
+    ]
+  }
+]

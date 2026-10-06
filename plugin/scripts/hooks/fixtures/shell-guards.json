@@ -1,0 +1,37 @@
+[
+  {
+    "setup": {},
+    "cases": [
+      { "name": "cwd: bare pnpm", "input": { "command": "pnpm test" }, "expect": "deny", "match": "cwd-guard" },
+      { "name": "cwd: relative cd does not anchor", "input": { "command": "cd src && pnpm test" }, "expect": "deny" },
+      { "name": "cwd: quoted C:/ cd", "input": { "command": "cd \"C:/Projects/x\" && pnpm test" }, "expect": "allow" },
+      { "name": "cwd: git-bash /c/ cd", "input": { "command": "cd /c/Projects/x && npx vitest run" }, "expect": "allow" },
+      { "name": "cwd: C:\\ cd with backslashes", "input": { "command": "cd \"C:\\Projects\\x\" && pnpm build" }, "expect": "allow" },
+      { "name": "cwd: unix absolute cd", "input": { "command": "cd /home/me/x && npm test" }, "expect": "allow" },
+      { "name": "cwd: --prefix absolute", "input": { "command": "pnpm --prefix C:/Projects/x test" }, "expect": "allow" },
+      { "name": "cwd: PowerShell Set-Location", "tool": "PowerShell", "input": { "command": "Set-Location C:\\Projects\\x; pnpm test" }, "expect": "allow" },
+      { "name": "cwd: PowerShell bare pnpm", "tool": "PowerShell", "input": { "command": "pnpm test" }, "expect": "deny" },
+      { "name": "cwd: pnpm mentioned in a commit message", "input": { "command": "git commit -m \"run pnpm test before pushing\"" }, "expect": "allow" },
+      { "name": "cwd: pnpm inside echo", "input": { "command": "echo pnpm test" }, "expect": "allow" },
+      { "name": "cwd: non package-manager command", "input": { "command": "ls" }, "expect": "allow" },
+      { "name": "cwd: pnpm in a command substitution still needs an anchor", "input": { "command": "echo $(pnpm bin)" }, "expect": "deny" },
+
+      { "name": "clean: -xffd", "input": { "command": "git clean -xffd" }, "expect": "deny", "match": "clean-guard" },
+      { "name": "clean: -f -f", "input": { "command": "git clean -f -f" }, "expect": "deny" },
+      { "name": "clean: --force --force", "input": { "command": "git clean --force --force" }, "expect": "deny" },
+      { "name": "clean: single force", "input": { "command": "git clean -xfd" }, "expect": "allow" },
+      { "name": "clean: dry run", "input": { "command": "git clean -nd" }, "expect": "allow" },
+      { "name": "clean: pathspec named ff", "input": { "command": "git clean -f -- ff.txt" }, "expect": "allow" },
+      { "name": "clean: mention in a message", "input": { "command": "git commit -m \"never git clean -ffd here\"" }, "expect": "allow" },
+
+      { "name": "push: foreground", "input": { "command": "git push origin agent/x" }, "expect": "deny", "match": "push-guard" },
+      { "name": "push: background", "input": { "command": "git push origin agent/x", "run_in_background": true }, "expect": "allow" },
+      { "name": "push: long timeout", "input": { "command": "git push origin agent/x", "timeout": 600000 }, "expect": "allow" },
+      { "name": "push: short timeout", "input": { "command": "git push origin agent/x", "timeout": 120000 }, "expect": "deny" },
+      { "name": "push: after cd", "input": { "command": "cd \"C:/x\" && git push" }, "expect": "deny" },
+      { "name": "push: -C form", "input": { "command": "git -C \"C:/x\" push" }, "expect": "deny" },
+      { "name": "push: PowerShell", "tool": "PowerShell", "input": { "command": "git push origin x" }, "expect": "deny" },
+      { "name": "push: mention in a message", "input": { "command": "git commit -m \"then git push\"" }, "expect": "allow" }
+    ]
+  }
+]

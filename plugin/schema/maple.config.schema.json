@@ -324,7 +324,7 @@
           }
         },
         "remote": { "type": "object", "properties": { "workflow": { "type": "string" }, "ref": { "type": "string" }, "timeoutMin": { "type": "integer" }, "pollSec": { "type": "integer" }, "tagPrefix": { "type": "string" } } },
-        "deployGuard": { "type": "object", "properties": { "enabled": { "const": true }, "patterns": { "type": "array", "items": { "type": "object", "required": ["id", "regex"], "properties": { "id": { "type": "string" }, "regex": { "type": "string" }, "description": { "type": "string" } } } } } },
+        "deployGuard": { "type": "object", "properties": { "enabled": { "const": true }, "patterns": { "type": "array", "minItems": 1, "description": "ADDITIONAL deploy patterns; the built-in baseline (wrangler, supabase db push/functions deploy, terraform apply, vercel --prod) always applies and an empty list is an error.", "items": { "type": "object", "required": ["id", "regex"], "properties": { "id": { "type": "string" }, "regex": { "type": "string" }, "description": { "type": "string" } } } } } },
         "emergency": { "type": "object", "properties": { "enabled": { "type": "boolean" }, "maxMinutes": { "type": "integer", "minimum": 1, "maximum": 240 } } },
         "liveScan": { "type": "object", "description": "Aggressive post-deploy ZAP active scan of the live targets. Guards: noRealCustomerCredentials + noPstnCalls (callOriginationExcludes)." }
       }
@@ -352,6 +352,16 @@
       }
     },
 
+    "supabase": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "plugin extension (D065) — Supabase project refs for the MCP guard. Mutating Supabase MCP tools (apply_migration, execute_sql writes, deploy_edge_function, branch/project mutations) are denied unless tool_input.project_id is listed in devProjectRefs; a ref in prodProjectRefs is always denied; an unlisted ref is treated as production.",
+      "properties": {
+        "devProjectRefs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Project refs of DEVELOPMENT projects (safe for MCP mutations)." },
+        "prodProjectRefs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Project refs of PRODUCTION projects (never mutated through MCP). Optional: any unlisted ref is denied anyway; listing prod refs gives a sharper message." }
+      }
+    },
+
     "hooks": {
       "type": "object",
       "additionalProperties": false,
@@ -362,7 +372,8 @@
           "properties": {
             "cwdGuardEnabled": { "type": "boolean" },
             "pushGuardEnabled": { "type": "boolean" },
-            "pushGuardMinTimeoutMs": { "type": "integer", "minimum": 0 }
+            "pushGuardMinTimeoutMs": { "type": "integer", "minimum": 0 },
+            "cleanGuardEnabled": { "type": "boolean" }
           }
         }
       }

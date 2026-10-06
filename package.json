@@ -25,6 +25,7 @@
     "test:plugin-jev": "node plugin/scripts/jev/run-tests.mjs",
     "test:plugin-predeploy": "node plugin/scripts/predeploy/run-tests.mjs",
     "test:plugin-deps": "node plugin/scripts/deps/run-tests.mjs",
+    "test:plugin-hooks": "node plugin/scripts/hooks/run-tests.mjs",
     "deps:fresh": "node scripts/check-dep-freshness.mjs",
     "test:plugin-prepush": "node plugin/scripts/prepush/run-tests.mjs",
     "hooks:install": "node scripts/install-hooks.mjs",

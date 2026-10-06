@@ -48,6 +48,20 @@ async function git(cwd, args) {
   return stdout.trim();
 }
 
+/**
+ * The MAIN checkout root for `root` (parent of git's common dir), so a run started from inside a linked
+ * worktree still creates its worktree at <main>/.worktrees/<slug> and never nests (D055/D065). Falls back
+ * to `root` when the common dir cannot be resolved (bare repo, not a repo).
+ */
+export async function mainRootOf(root) {
+  try {
+    const common = path.resolve(root, await git(root, ["rev-parse", "--git-common-dir"]));
+    return path.basename(common) === ".git" ? path.dirname(common) : root;
+  } catch {
+    return root;
+  }
+}
+
 function slugify(text) {
   return (
     String(text ?? "")
@@ -114,10 +128,11 @@ export async function runPi({ root, task, prompt, model = DEFAULT_PI_MODEL }) {
 
   const hash = createHash("sha1").update(`${task}:${Date.now()}`).digest("hex").slice(0, 8);
   const dirName = `${PREFIX}${slugify(task)}-${hash}`;
-  const wt = path.join(root, ".worktrees", dirName);
+  const mainRoot = await mainRootOf(root);
+  const wt = path.join(mainRoot, ".worktrees", dirName);
   const branch = `pi/${slugify(task)}-${hash}`;
 
-  mkdirSync(path.join(root, ".worktrees"), { recursive: true });
+  mkdirSync(path.join(mainRoot, ".worktrees"), { recursive: true });
   await git(root, ["worktree", "add", "-q", wt, "-b", branch]);
 
   try {
@@ -163,7 +178,7 @@ export async function runPi({ root, task, prompt, model = DEFAULT_PI_MODEL }) {
   } finally {
     unlinkNodeModules(wt);
     try {
-      await git(root, ["worktree", "remove", "--force", assertPiWorktree(root, wt)]);
+      await git(root, ["worktree", "remove", "--force", assertPiWorktree(mainRoot, wt)]);
     } catch {
       /* best-effort cleanup — an orphaned worktree is a `maple-reap` gap, not a crash */
     }

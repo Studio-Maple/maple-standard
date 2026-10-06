@@ -10,7 +10,7 @@ import { appendLedger, readLedger, liveScanDebt, reportPath, stampPath } from ".
 import { headSha, stateDir } from "./lib.mjs";
 import { normalize } from "./config.mjs";
 
-const HOOK = join(fileURLToPath(import.meta.url), "..", "..", "..", "hooks", "predeploy-guard.mjs");
+const HOOK = join(fileURLToPath(import.meta.url), "..", "..", "..", "hooks", "guard.mjs");
 const repo = mkdtempSync(join(tmpdir(), "predeploy-e2e-"));
 const sh = (args) => { const r = spawnSync("git", args, { cwd: repo, encoding: "utf8" }); assert.equal(r.status, 0, args.join(" ") + r.stderr); return r.stdout.trim(); };
 sh(["init", "-q"]); sh(["config", "user.email", "t@t"]); sh(["config", "user.name", "t"]); sh(["config", "commit.gpgsign", "false"]);

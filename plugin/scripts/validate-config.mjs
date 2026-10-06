@@ -112,7 +112,7 @@ export function validateConfig(config) {
   }
   checkNoExtraKeys(
     config,
-    ["$schema", "project", "repo", "worktrees", "docs", "ci", "lint", "sizeCaps", "errorTracker", "loops", "hooks", "jev", "quality", "predeploy", "deps"],
+    ["$schema", "project", "repo", "worktrees", "docs", "ci", "lint", "sizeCaps", "errorTracker", "loops", "hooks", "jev", "quality", "predeploy", "deps", "supabase"],
     "root",
     errors
   );
@@ -432,6 +432,25 @@ export function validateConfig(config) {
     }
   }
 
+  // ---- supabase (D065: which Supabase projects the MCP guard treats as dev vs production) ----
+  if (config.supabase !== undefined) {
+    if (!isPlainObject(config.supabase)) {
+      errors.push("supabase: must be an object");
+    } else {
+      checkNoExtraKeys(config.supabase, ["devProjectRefs", "prodProjectRefs"], "supabase", errors);
+      for (const key of ["devProjectRefs", "prodProjectRefs"]) {
+        const v = config.supabase[key];
+        if (v === undefined) continue;
+        if (!isStringArray(v) || v.some((r) => r.trim() === "")) errors.push(`supabase.${key}: must be an array of non-empty project ref strings`);
+      }
+      const dev = config.supabase.devProjectRefs;
+      const prod = config.supabase.prodProjectRefs;
+      if (isStringArray(dev) && isStringArray(prod)) {
+        for (const r of dev) if (prod.includes(r)) errors.push(`supabase: ref "${r}" is listed as both a dev and a prod project`);
+      }
+    }
+  }
+
   // ---- hooks ------------------------------------------------------------------------
   if (config.hooks !== undefined) {
     if (!isPlainObject(config.hooks)) {
@@ -442,7 +461,8 @@ export function validateConfig(config) {
         const bg = config.hooks.bashGuard;
         if (!isPlainObject(bg)) errors.push("hooks.bashGuard: must be an object");
         else {
-          checkNoExtraKeys(bg, ["cwdGuardEnabled", "pushGuardEnabled", "pushGuardMinTimeoutMs"], "hooks.bashGuard", errors);
+          checkNoExtraKeys(bg, ["cwdGuardEnabled", "pushGuardEnabled", "pushGuardMinTimeoutMs", "cleanGuardEnabled"], "hooks.bashGuard", errors);
+          if (bg.cleanGuardEnabled !== undefined && !isBool(bg.cleanGuardEnabled)) errors.push("hooks.bashGuard.cleanGuardEnabled: must be a boolean");
           if (bg.cwdGuardEnabled !== undefined && !isBool(bg.cwdGuardEnabled)) errors.push("hooks.bashGuard.cwdGuardEnabled: must be a boolean");
           if (bg.pushGuardEnabled !== undefined && !isBool(bg.pushGuardEnabled)) errors.push("hooks.bashGuard.pushGuardEnabled: must be a boolean");
           if (bg.pushGuardMinTimeoutMs !== undefined && !isIntMin(bg.pushGuardMinTimeoutMs, 0))
