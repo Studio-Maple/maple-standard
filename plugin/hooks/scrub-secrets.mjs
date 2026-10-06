@@ -3,7 +3,7 @@
 // they reach the model's context (and therefore the provider's request
 // logs). Part of the maple-standard plugin (plugin/hooks/hooks.json).
 //
-// Triggered for: Bash, Read, Grep
+// Triggered for: Bash, PowerShell, Read, Grep
 // Receives:  JSON via stdin describing the tool invocation + result
 // Returns:   a hookSpecificOutput.updatedToolOutput rewrite (see MJ-5 below),
 //            or nothing at all when there's nothing to scrub

@@ -36,7 +36,7 @@ commit(cfgOf([OK]));
 await t("deploy is blocked with no stamp (exit 2), non-deploy untouched", () => {
   const r = hook("bash deploy.sh --prod");
   assert.equal(r.status, 2, r.stdout + r.stderr); assert.match(r.stderr, /no predeploy stamp/);
-  assert.equal(hook("npm test").status, 0);
+  assert.equal(hook("node --version").status, 0);
   assert.equal(hook("ls deploy.sh", "PowerShell").status, 0);
   assert.equal(hook("./deploy.sh", "PowerShell").status, 2);
 });

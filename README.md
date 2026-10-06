@@ -32,9 +32,9 @@ a convention someone has to remember.
   drifts from the migrations.
 - **A docs system agents can't rot**: `docs/` wiki (Obsidian-compatible)
   with a machine-readable index, a structural drift gate, BM25 doc search,
-  collision-free ID allocation for decisions/tasks, and Claude Code hooks
-  that nudge decision-logging and doc-syncing at session end.
-- **Secrets hygiene by default**: reads of credential files are hook-blocked,
+  collision-free ID allocation for decisions/tasks, and a `/sync-docs`
+  reconciler.
+- **Secrets hygiene by default**: reads of credential files are blocked by the plugin's guard,
   tool output is secret-scrubbed, gitleaks runs on every PR, `.env.example`
   is the only env file that's ever committed.
 
@@ -72,8 +72,8 @@ pnpm dev            # http://localhost:3000
    cd my-project && git init && pnpm install
    ```
 2. **Rename** — search-and-replace the placeholders:
-   - `maple-standard` → your repo name (`package.json`, `README`, hook temp-file
-     prefixes in `.claude/hooks/*.js`, `e2e/smoke.spec.ts`, `src/app/page.tsx`)
+   - `maple-standard` → your repo name (`package.json`, `README`,
+     `e2e/smoke.spec.ts`, `src/app/page.tsx`)
    - `your-project` → your product name (`CLAUDE.md`, `supabase/config.toml`
      `project_id`, `.env.example`, `zap.yml` staging URL)
    - Rewrite the intro paragraph + Stack table in `CLAUDE.md`.
@@ -144,25 +144,19 @@ pnpm dev            # http://localhost:3000
 | drift-sentinel.yml | prod schema == checked-in migrations (`db diff --linked`); opens/auto-closes a tracking issue | weekly + migration pushes |
 | dependabot-automerge.yml | dep bumps validated with a read-only token; dev/patch classes automerged, runtime-minor/major escalated | Dependabot PRs |
 
-### Claude Code hooks (`.claude/`)
+### Claude Code hooks (plugin-only, D065)
+
+Hooks live in the maple-standard plugin, not in this repo: `.claude/settings.json` registers nothing but the SessionStart branch echo.
 
 | Hook | Event | What it does |
 |---|---|---|
-| eslint-fix | PostToolUse (Edit/Write) | auto-`eslint --fix` the edited file |
-| size-warning | PostToolUse (Edit/Write) | immediate per-layer line-cap warning |
-| build-counter | PostToolUse (Edit/Write) | `tsc --noEmit` every 5th edit — type errors surface fast |
-| scrub-secrets | PostToolUse (Bash/Read/Grep) | redacts secret-shaped strings from tool output before they reach model context |
-| deny-credential-paths | PreToolUse (Read) | blocks reads of `.env*`, ssh keys, npmrc, cloud creds |
-| ask-gate | PreToolUse (AskUserQuestion) | blocks questions the docs already answer (BM25 retrieval + optional headless-model judge; fail-open, max 2 nudges) |
-| dirty-tree-guard | Stop | lists uncommitted code changes at session end |
-| docs-sync-reminder | Stop | names docs whose owned code changed but weren't touched |
-| decision-reminder | Stop | nudges to log a `D###` when the turn contains decision language |
-| parallel-session-warn | SessionStart | warns when other git worktrees are active on a shared checkout |
+| guard (dispatcher) | PreToolUse (Bash, PowerShell, Read, Grep, Glob, Write, Edit, MultiEdit, mcp__*) | one process runs the guard modules: no `--no-verify`/`core.hooksPath`/`HUSKY=0`, no credential reads from any verb, the deploy gate (baseline patterns + prod-branch push), prod Supabase MCP mutations, worktree placement, hand-written dependency versions, cwd/push/clean hazards, loop budget |
+| scrub-secrets | PostToolUse (Bash, PowerShell, Read, Grep) | redacts secret-shaped strings from tool output before they reach model context |
 
 ## Repo map
 
 ```
-.claude/            agent hooks + settings (the always-on enforcement layer)
+.claude/            settings (hooks live in the plugin)
 .claude-plugin/      marketplace manifest (makes this repo a plugin marketplace)
 .github/            cloud CI workflows + dependabot
 .husky/             pre-commit (staged lint+tsc, migration naming) · pre-push (gate tier)

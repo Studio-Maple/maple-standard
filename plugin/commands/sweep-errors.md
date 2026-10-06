@@ -31,7 +31,7 @@ its `/sweep-errors` anatomy table exactly).
 | `errorTracker.query` | `"is:unresolved"` | issue-search query |
 | `ci.tiers.gate` | **required** | the full gate command — no configured `gate` tier → refuse to commit, report and stop (never guess a substitute) |
 | `loops.budgetPerCycle.turns` / `.minutes` | `40` / `20` | this cycle's hard budget (enforced by this file's own `check` calls below) |
-| `loops.budgetPerCycle.toolCalls` | `400` | mechanical guard's runaway backstop (`plugin/hooks/loop-budget-guard.mjs`) — RAW TOOL CALLS, a different unit than `.turns` |
+| `loops.budgetPerCycle.toolCalls` | `400` | mechanical guard's runaway backstop (`plugin/hooks/guards/loop-budget-guard.mjs`) — RAW TOOL CALLS, a different unit than `.turns` |
 | `repo.standingLoopBranch` | `"dev-burner"` | the branch every commit lands on |
 
 Malformed config? `node "$CLAUDE_PLUGIN_ROOT/scripts/validate-config.mjs"`.

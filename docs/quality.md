@@ -98,10 +98,18 @@ loudly). `--no-verify` is forbidden — see CLAUDE.md "No bypass".
 
 ## Always-on hooks
 
-Claude Code hooks (`.claude/settings.json` + `.claude/hooks/`): eslint-fix,
-size-warning, build-counter, scrub-secrets, deny-credential-paths,
-ask-gate, dirty-tree-guard, docs-sync-reminder, decision-reminder,
-parallel-session-warn. Git hooks (`.husky/`): staged lint+tsc + migration
+Claude Code hooks live only in the plugin (D065). One PreToolUse dispatcher
+(`plugin/hooks/guard.mjs`) runs the guard modules in-process for Bash and
+PowerShell alike, plus Read/Grep/Glob, file edits and MCP tools: credential
+reads (any shell verb), git-hook bypass (`--no-verify`, `core.hooksPath`,
+`HUSKY=0`), the deploy gate (baseline wrangler/supabase/terraform/vercel
+patterns + pushes to the prod branch), prod Supabase MCP mutations, worktree
+placement, hand-written dependency versions, the cwd/push/clean shell
+hazards and the loop budget; `scrub-secrets` redacts tool output. The
+template registers none of them: its `.claude/settings.json` holds only the
+SessionStart branch echo, and `check-hook-wiring.mjs` (fast tier) fails any
+project copy. Lint, size caps and types run at commit and in the gate tiers,
+not as per-edit hooks. Git hooks (`.husky/`): staged lint+tsc + migration
 naming (pre-commit), the gate tier (pre-push).
 
 **Dependency freshness (D064).** Agents write versions from memory, so new

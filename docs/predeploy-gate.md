@@ -6,7 +6,7 @@ tags: [quality, gates, security, deploy]
 timestamp: 2026-10-02
 audience: anyone about to deploy, configuring the gate for a project, or blocked by the deploy guard
 authoritative_for: [the pre-deploy gate's rules, stamp model, live-scan policy, allowlist format and enforcement]
-code: [plugin/scripts/predeploy/, plugin/hooks/predeploy-guard.mjs, plugin/commands/predeploy-gate.md, plugin/templates/predeploy-remote.yml]
+code: [plugin/scripts/predeploy/, plugin/hooks/guards/deploy-guard.mjs, plugin/commands/predeploy-gate.md, plugin/templates/predeploy-remote.yml]
 ---
 # Pre-deploy gate
 
@@ -27,7 +27,7 @@ one thing that must run on GitHub.
 | `minSeverity` | per gate / per check floor, default `info` (everything counts) |
 | `stampTtlHours`, `allowlistMaxDays` | defaults 72 / 90 |
 | `remote` | `{ workflow, ref?, timeoutMin, pollSec }` for the single dispatch workflow |
-| `deployGuard.patterns[]` | `{ id, regex }` deploy commands the hook blocks |
+| `deployGuard.patterns[]` | `{ id, regex }` ADDITIONAL deploy commands the guard blocks; the built-in baseline (wrangler deploy/pages deploy, supabase db push/functions deploy, terraform apply, vercel --prod) and `git push` to `repo.prodBranch` always apply; an explicitly empty list is an error (D065) |
 | `emergency` | `{ enabled: false, maxMinutes: 60 }` owner-only override |
 | `liveScan` | the aggressive post-deploy ZAP scan (below) |
 
@@ -191,7 +191,7 @@ of findings that do not reach zero by the next deploy. This is **not** an allowl
 clean tree and writes `<git-common-dir>/maple/predeploy/stamps/<sha>.json`
 bound to the sha, a hash of the `predeploy` config and a hash of the allowlist (also the decisions and image-debt files).
 `verify.mjs` (exit 0/1) is the check deploy scripts call. The
-`predeploy-guard.mjs` PreToolUse hook (Bash, PowerShell, Write, Edit) blocks any
+`deploy-guard` (inside the PreToolUse dispatcher; Bash, PowerShell, Write, Edit) blocks any
 command matching `deployGuard.patterns` unless the stamp verifies (sha, TTL,
 config + allowlist hashes, clean tracked tree, no unscanned live deploy), and
 blocks tool writes to the stamp directory itself. Stamps also bind a hash of the decision-backed file. An unparseable

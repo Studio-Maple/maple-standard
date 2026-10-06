@@ -148,6 +148,7 @@ run_fast() {
   plugin_suite jev
   plugin_suite predeploy
   plugin_suite deps
+  plugin_suite hooks
   # The affected-only selection + pass stamp + gate slots, proven fail-closed.
   if pp_want plugin-prepush '^(plugin/scripts/prepush/|scripts/install-hooks\.mjs$|\.husky/)'; then
     pnpm run test:plugin-prepush
@@ -171,6 +172,7 @@ run_fast() {
   if pp_want dep-freshness '(^|/)package\.json$|^maple\.config\.json$|^docs/decisions\.md$|^plugin/scripts/deps/'; then
     node scripts/check-dep-freshness.mjs
   fi
+  if pp_want hook-wiring '^(\.claude/|plugin/hooks/|plugin/scripts/hooks/)'; then node plugin/scripts/hooks/check-hook-wiring.mjs; fi
 }
 
 stack_up() {

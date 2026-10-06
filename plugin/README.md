@@ -23,14 +23,14 @@ single-package project.
 | `/wt-start`, `/wt-land`, `/wt-preview`, `/wt-reap` | Isolated parallel-session git worktrees + a single merge semaphore (`/wt-land`) so concurrent Claude sessions never collide on the shared tree. |
 | `/sync-docs` | The docs-drift **executor** — semantic reconciliation of `docs/` against code, backed by the bundled structural drift script (`plugin/scripts/docs/check-docs-drift.mjs` — see "Bundled docs tooling" below), OKF v0.1 frontmatter-aware per D010. |
 | `/heal` | Error-tracker-driven self-healing: fetch, cluster, triage, fix, and verify unresolved issues through a 5-tier ladder before marking them resolved. |
-| `/adopt-standard` | Bootstrap: validates + stamps `maple.config.json`, scaffolds canonical `docs/` files + `CLAUDE.md` if missing, generates the docs index, merges in the plugin's hooks, verifies the docs gate + a CI tier before declaring done. |
+| `/adopt-standard` | Bootstrap: validates + stamps `maple.config.json`, scaffolds canonical `docs/` files + `CLAUDE.md` if missing, generates the docs index, checks no project hook duplicates the plugin's, verifies the docs gate + a CI tier before declaring done. |
 | `/sweep-errors`, `/burn-backlog`, `/sweep-quality`, `/detect-drift`, `/dev-burner` | The **loop pack** — budget-bounded autonomous loops orchestrated by `/dev-burner` under `/loop`, working in an isolated standing `dev-burner` worktree that never self-merges. See "The loop pack" below. |
 | `/todo`, `/project-status`, `/session-end`, `/represent`, `/review-aspect` | The **session commands** — open-task list, status board, session close-out (log + tasks + docs gate), a plain-English "where are we" orientation, and a single-aspect code review. All docs-shape-agnostic and allocator-aware; previously machine-local under `~/.claude/commands/`, now bundled so every adopting project gets them. |
 | `/predeploy-gate` | The **enforced pre-deploy gate** (D060): zero-findings checks (local scanners + one remote workflow), expiring allowlist + permanent decision-backed exceptions (D061, essentials only) + dated, shrink-only third-party image debt (D063), sha-bound stamp, `predeploy-guard` hook that blocks deploy commands without a stamp, `doctor`, and the aggressive post-deploy live ZAP scan. See `docs/predeploy-gate.md`. |
 | `plugin/scripts/prepush/prepush-lib.sh` | The **affected-only pre-push gate toolkit** (v0.10.0): source it from a project's `ci-local.sh` to select checks from the push range (`pp_want` / `pp_want_graph` / `pp_list_*`, one "ran / skipped (reason)" line per step), fail closed to FULL (no range, `--full`, gate scripts / lockfiles / shared configs), keep a tree-sha-bound pass stamp under `.git/ci-gate-pass/` so `/wt-land` + the push it makes run the gate once, keep per-checkout caches, and cap concurrent heavy gates machine-wide with a stale-safe slot semaphore (`MAPLE_GATE_SLOTS`, default 2). Selection is builtins-only (a fork costs seconds under load). Companion `install-hooks.mjs` makes the git hooks fail closed in every worktree (absolute `core.hooksPath` into the git common dir; see `docs/quality.md`). Vendor the file into a project (EasyCaller: `scripts/lib/prepush-lib.sh`); `node plugin/scripts/prepush/run-tests.mjs` proves the fail-closed rules. |
 | `plugin/skills/credential-manager` | The **credential skill** — read secrets from the OS credential store (Windows Credential Manager) just-in-time for local commands, instead of reading `.env*` (which `deny-credential-paths.mjs` blocks anyway) or asking the owner to paste a value. Pairs with that hook: the hook closes the wrong path, the skill supplies the right one. |
-| `plugin/hooks/dep-version-guard.mjs`, `plugin/scripts/deps/` | **Dependency freshness** (D064, v0.11.0): agents write versions from memory, so new deps land outdated. A PreToolUse hook denies hand-writing a dependency (added or re-specced) in any `package.json` — use `pnpm add <pkg>`; `bash-guard` denies `pnpm/npm/yarn/bun add pkg@<version>` behind the latest major (0.x: minor; registry lookup, fail-open with a warning); `plugin/scripts/deps/check-dep-freshness.mjs` is the diff-scoped **ci:fast** gate (every dep added/changed vs the target branch must be at the latest major; honors pnpm `minimumReleaseAge`; unreachable registry fails). Exceptions: `deps.exceptions[]` in `maple.config.json`, each citing a `D###` that exists in the decisions ledger. Consumers wire the gate into their fast tier via `/adopt-standard` (step 6b). `node plugin/scripts/deps/run-tests.mjs` (`pnpm test:plugin-deps`). |
-| `plugin/hooks/hooks.json` | 10 always-on safety/hygiene hooks (credential-read blocking, secret scrubbing, a Bash cwd/push/clean/dependency-version guard, a package.json dependency-version guard, dirty-tree + decision + docs-sync reminders, parallel-session warning, and the loop-pack's mechanical budget guard). |
+| `plugin/hooks/guards/dep-version-guard.mjs`, `plugin/scripts/deps/` | **Dependency freshness** (D064, v0.11.0): agents write versions from memory, so new deps land outdated. A guard (inside the PreToolUse dispatcher) denies hand-writing a dependency (added or re-specced) in any `package.json` — use `pnpm add <pkg>`; the bash guard denies `pnpm/npm/yarn/bun add pkg@<version>` behind the latest major (0.x: minor; registry lookup, fail-open with a warning); `plugin/scripts/deps/check-dep-freshness.mjs` is the diff-scoped **ci:fast** gate (every dep added/changed vs the target branch must be at the latest major; honors pnpm `minimumReleaseAge`; unreachable registry fails). Exceptions: `deps.exceptions[]` in `maple.config.json`, each citing a `D###` that exists in the decisions ledger. Consumers wire the gate into their fast tier via `/adopt-standard` (step 6b). `node plugin/scripts/deps/run-tests.mjs` (`pnpm test:plugin-deps`). |
+| `plugin/hooks/hooks.json` | **Hooks v2 (D065, v0.12.0)** — three registrations, nothing per-turn: ONE PreToolUse dispatcher `plugin/hooks/guard.mjs` (matcher `Bash|PowerShell|Read|Grep|Glob|Write|Edit|MultiEdit|mcp__.*`) that lazy-loads only the guard modules a tool needs from `plugin/hooks/guards/` and runs them in-process (first deny wins; the no-op path spawns no child process), `scrub-secrets` (PostToolUse: Bash/PowerShell/Read/Grep), and the `SubagentStop` validator. Guards: **bash-guard** (cwd anchor with `/c/...`, `C:/...`, `C:\...` normalised; foreground push; double-force `git clean`; install freshness), **hook-bypass** (`--no-verify`, `git commit -n`, `core.hooksPath` via `-c` or `git config`, `HUSKY=0`, `--no-gpg-sign`, `commit.gpgsign=false`), **deny-credential-paths** (Read/Grep/Glob paths, plus ANY shell verb naming `.env`, `.env.*`, `.dev.vars`, `.credentials.json`, ssh keys, private `.pem`; `*.example|sample|template` exempt), **deploy-guard** (the D060 stamp gate: a built-in baseline `wrangler deploy|pages deploy`, `supabase db push|functions deploy`, `terraform apply`, `vercel --prod` that config can only ADD to, a `git push` to `repo.prodBranch`, gate-state tampering, fail-closed on its own deadline), **mcp-guard** (mutating Supabase MCP tools only on a listed `supabase.devProjectRefs` project), **worktree-guard** (`git worktree add` only under `<main-root>/.worktrees/` or `.claude/worktrees/`, never nested), **loop-budget-guard** (cheap fs sentinel first), **dep-version-guard** (D064). All of them read Bash and PowerShell through one quote/heredoc-aware tokenizer (`guards/shell.mjs`), so a commit MESSAGE that mentions a flag is not blocked. Removed: dirty-tree-guard, docs-sync-reminder, decision-reminder, parallel-session-warn, ask-gate. Tests: `node plugin/scripts/hooks/run-tests.mjs` (`pnpm test:plugin-hooks`); `plugin/scripts/hooks/check-hook-wiring.mjs` (fast tier) fails a project that registers a copy. |
 
 ## How updates propagate
 
@@ -156,10 +156,9 @@ consumer exists. They're reserved for **this template's own** project-local
 enforcement, not the plugin: `lint.roots`/`lint.maxWarnings` for a future
 generic lint-runner equivalent to this repo's own `eslint.config.mjs`, and
 `sizeCaps.hook`/`.component`/`.service`/`.route` for a future generic
-equivalent to this repo's own `.claude/hooks/size-warning.js` (which today
-hardcodes its caps rather than reading this block). Wiring either up is
+equivalent to the removed `size-warning` hook (D065; size caps are ESLint-enforced). Wiring either up is
 real, separate work — not invented ad hoc here — should a project need a
-config-driven version of what this template's own hooks do inline:
+config-driven version of those checks:
 
 | Key | Default | Notes |
 |---|---|---|
@@ -167,30 +166,25 @@ config-driven version of what this template's own hooks do inline:
 | `lint.maxWarnings` | **none** | non-negative integer — reserved |
 | `sizeCaps.hook` / `.component` / `.service` / `.route` | **none** | positive integers — reserved |
 
-### `docs.*` — used by `/sync-docs`, `/adopt-standard`, the bundled docs tooling, and the docs-aware hooks
+### `docs.*` — used by `/sync-docs`, `/adopt-standard` and the bundled docs tooling
 
 | Key | Default | Notes |
 |---|---|---|
 | `docs.root` | `"docs"` | the wiki folder (flat or nested) |
 | `docs.index` | `"docs/index.md"` | the catalog page |
-| `docs.decisions` | `"docs/decisions.md"` | read by `ask-gate` and `decision-reminder` |
-| `docs.tasks` | `"docs/tasks.md"` | read by `ask-gate` |
-| `docs.gaps` | `"docs/gaps.md"` | read by `ask-gate` |
+| `docs.decisions` | `"docs/decisions.md"` | the decision ledger |
+| `docs.tasks` | `"docs/tasks.md"` | the task ledger |
+| `docs.gaps` | `"docs/gaps.md"` | owner-flagged gaps |
 | `docs.log` | `"docs/log.md"` | session history |
-| `docs.docsIndexJson` | `"docs/.docs-index.json"` | machine-readable doc -> code anchor map, checked by `docs-sync-reminder` |
-| `docs.changelog` | `"CHANGELOG.md"` | plugin extension (nested under the canonical `docs` block) — checked by `docs-sync-reminder` |
+| `docs.docsIndexJson` | `"docs/.docs-index.json"` | machine-readable doc -> code anchor map, checked by the drift gate |
+| `docs.changelog` | `"CHANGELOG.md"` | plugin extension (nested under the canonical `docs` block) — used by `/sync-docs` |
 | `docs.ephemeralPaths` | `[]` | plugin extension — doc-relative paths not owned by code — skipped by `/sync-docs` ownership resolution |
 
-Every one of these is the **same** key `ask-gate.mjs`, `docs-sync-reminder.js`,
-`decision-reminder.js`, and every script under `plugin/scripts/docs/` reads
-— one key set, no aliases (this used to be two drifted-apart sets; see
-"Schema reconciliation" below). There is no more `docs.searchScript` key:
-`ask-gate`'s BM25 relevance signal now always uses the plugin's own bundled
-`plugin/scripts/docs/doc-search/search.mjs` (#T13) directly, so every
-adopting project gets it for free instead of needing to supply its own.
-There is no more `docs.idAllocatorScript` key either — `decision-reminder`'s
-guidance text always points at the plugin's own bundled
-`plugin/scripts/docs/next-task-id.mjs`.
+Every script under `plugin/scripts/docs/` reads this one key set — no aliases
+(this used to be two drifted-apart sets; see "Schema reconciliation" below).
+There is no `docs.searchScript` key (doc search is the plugin's bundled
+`plugin/scripts/docs/doc-search/search.mjs`) and no `docs.idAllocatorScript`
+key (the allocator is the bundled `plugin/scripts/docs/next-task-id.mjs`).
 
 ### Bundled skills (`plugin/skills/`)
 
@@ -198,7 +192,7 @@ guidance text always points at the plugin's own bundled
 |---|---|
 | `credential-manager` | Reads secrets from the OS credential store (Windows Credential Manager; Keychain / `secret-tool` noted for macOS / Linux) just-in-time for local commands — deploys, migrations, CLI auth, Docker env injection. Documents the two safe delivery patterns (process-scope env var, UTF-8-no-BOM temp file) and the PowerShell 5.1 pipe trap that silently BOM-corrupts a piped secret. |
 
-This is the other half of the `deny-credential-paths.mjs` hook. That hook
+This is the other half of the `deny-credential-paths` guard. That hook
 blocks the wrong path (`.env*`, `.dev.vars`, `~/.ssh/id_*`); the skill
 supplies the right one. Blocking a read without offering a working
 alternative just pushes an agent toward asking the owner to paste the value
@@ -218,9 +212,9 @@ free instead of owning its own copies:
 |---|---|
 | `check-docs-drift.mjs` | The structural docs-drift gate — see its own header comment for the full ERROR/WARN inventory. `--fix` regenerates the index + catalog. |
 | `generate-docs-index.mjs` | Walks `docs.root`, emits `docs.docsIndexJson`, and maintains the generated Catalog block in `docs.index` (see "OKF v0.1 frontmatter" below). |
-| `next-task-id.mjs` | Collision-free `#T`/`D`/`S` id allocator — **repo-global across worktrees** (see below). Depended on by `/todo`, `/session-end`, `/project-status`, `/sync-docs`, `decision-reminder`, and this template's own `pnpm next-id`. |
+| `next-task-id.mjs` | Collision-free `#T`/`D`/`S` id allocator — **repo-global across worktrees** (see below). Depended on by `/todo`, `/session-end`, `/project-status`, `/sync-docs`, and this template's own `pnpm next-id`. |
 | `lib/id-store.mjs` | The shared high-water mark the allocator reads: a counter in the git common dir plus a live scan of every worktree's docs file. |
-| `doc-search/search.mjs` | BM25 doc search. Imported directly by `ask-gate.mjs` (both ESM) for its relevance signal — always on, no config key. |
+| `doc-search/search.mjs` | BM25 doc search (`node scripts/doc-search/search.mjs "query"`) — no config key. |
 
 All four are plain Node, zero new dependencies, and read this **canonical**
 `docs.*` key set (via `plugin/scripts/docs/lib/config.mjs`), with defaults
@@ -335,15 +329,27 @@ fixed during #T11's reconciliation pass:
 | `errorTracker.verification.t4.enabled` | `true` | browser console/network check |
 | `errorTracker.verification.t5.waitMinutes` | `8` | wait before the post-deploy tracker recheck |
 
-### `hooks.bashGuard.*` — used by `plugin/hooks/bash-guard.mjs`
+### `hooks.bashGuard.*` — used by `plugin/hooks/guards/bash-guard.mjs`
 
 | Key | Default | Notes |
 |---|---|---|
 | `hooks.bashGuard.cwdGuardEnabled` | `true` | blocks bare `npm`/`npx`/`yarn`/`pnpm` without an anchoring `cd` |
 | `hooks.bashGuard.pushGuardEnabled` | `true` | blocks a foreground `git push` without `run_in_background`/a long timeout |
 | `hooks.bashGuard.pushGuardMinTimeoutMs` | `600000` | minimum explicit timeout that satisfies the push guard |
+| `hooks.bashGuard.cleanGuardEnabled` | `true` | blocks `git clean` with double force (deletes nested worktrees) |
 
-### `deps.*` — used by `dep-version-guard.mjs`, `bash-guard.mjs`, `scripts/deps/check-dep-freshness.mjs` (D064)
+### `supabase.*` — used by `plugin/hooks/guards/mcp-guard.mjs` (D065)
+
+| Key | Default | Notes |
+|---|---|---|
+| `supabase.devProjectRefs` | `[]` | project refs of DEVELOPMENT Supabase projects. Mutating Supabase MCP tools (`apply_migration`, `execute_sql` unless provably read-only, `deploy_edge_function`, `merge_branch`, `reset_branch`, `rebase_branch`, `delete_branch`, `pause_project`, `restore_project`) are allowed only for a ref listed here. An unlisted ref is treated as production and denied. |
+| `supabase.prodProjectRefs` | `[]` | project refs of PRODUCTION projects, always denied (a sharper message than "unlisted"). A ref may not be in both lists. |
+
+### `predeploy.deployGuard.patterns` (D065)
+
+The deploy guard always applies a built-in baseline (wrangler deploy / pages deploy, supabase db push / functions deploy, terraform apply, vercel --prod) and, when `repo.prodBranch` is set and differs from the landing branch (`repo.devBranch`, default `main`), a `git push` to that branch. `predeploy.deployGuard.patterns` only ADDS patterns; an explicitly empty list is a validation error (omit the key instead).
+
+### `deps.*` — used by the `dep-version-guard` and `bash-guard` guards, `scripts/deps/check-dep-freshness.mjs` (D064)
 
 | Key | Default | Notes |
 |---|---|---|
@@ -364,7 +370,7 @@ canonical schema doesn't carry a separate budget per loop name):
 | `loops.enabled` | `["sweep-errors", "burn-backlog", "sweep-quality", "detect-drift"]` | which loops `/dev-burner` rotates through. An explicit `[]` means "run nothing" (`pick-loop.mjs` throws rather than silently falling back to the full set) |
 | `loops.budgetPerCycle.turns` | `40` | shared turn (iteration) ceiling per loop cycle, whichever loop is running — enforced by each command's own `budget.mjs check --used $ITER` calls in its procedure |
 | `loops.budgetPerCycle.minutes` | `20` | shared wall-clock ceiling per loop cycle |
-| `loops.budgetPerCycle.toolCalls` | `400` | plugin extension (re-review B2) — `plugin/hooks/loop-budget-guard.mjs`'s own runaway backstop. Counts RAW TOOL CALLS (every Bash/Read/Edit/etc.), a DIFFERENT UNIT from `.turns` (loop iterations) — deliberately generous; this is a mechanical last-resort, not the primary per-cycle budget |
+| `loops.budgetPerCycle.toolCalls` | `400` | plugin extension (re-review B2) — `plugin/hooks/guards/loop-budget-guard.mjs`'s own runaway backstop. Counts the TOOL CALLS the dispatcher sees (Bash/PowerShell/Read/Grep/Glob/Write/Edit/MultiEdit/MCP), a DIFFERENT UNIT from `.turns` (loop iterations) — deliberately generous; this is a mechanical last-resort, not the primary per-cycle budget |
 | `loops.weights.<loopName>` | `1` for every loop | plugin extension (docs/tasks.md #T8) — `pick-loop.mjs`'s round-robin weight per loop; only keys already in `loops.enabled`'s name set are meaningful, and `validate-config.mjs` rejects any other name |
 | `loops.cooldownCycles` | `3` | plugin extension — how many ledger cycles a loop that just reported `"quiet"` is skipped for by `pick-loop.mjs`; `0` disables cooldown |
 | `loops.sessionCap.cycles` / `.hours` | unset (no cap) | plugin extension — `/dev-burner` step 2's optional global budget; unset means the standing `/loop` session's own stop mechanism is the only ceiling |
@@ -401,7 +407,7 @@ it yourself. `/dev-burner --report` at any time (including from a normal,
 non-standing session) prints the morning-review ledger summary without
 touching anything.
 
-**The mechanical budget guard (`plugin/hooks/loop-budget-guard.mjs`) is a
+**The mechanical budget guard (`plugin/hooks/guards/loop-budget-guard.mjs`) is a
 ONE-SHOT stop, not a standing block.** The first PreToolUse call that finds
 a cycle over budget (wall-clock deadline, or its own `toolCalls` runaway
 backstop — see `loops.budgetPerCycle.toolCalls` above) writes `blocked:
@@ -486,8 +492,7 @@ is set"; there's no separate mode flag to keep in sync with it.
 
 The skeleton shipped with two config key sets that had drifted apart: the
 `wt-*` scripts + some commands invented their own flat `worktree.*` /
-`layout.*` blocks, and the hooks (`ask-gate.mjs`, `docs-sync-reminder.js`,
-`decision-reminder.js`) shipped reading yet another, older `docs.*` key set
+`layout.*` blocks, and the (since removed) docs hooks shipped reading yet another, older `docs.*` key set
 — neither matched `docs/standard-architecture.md`'s schema, which is
 canonical. This pass migrated everything onto that one canonical schema
 (`plugin/schema/maple.config.schema.json`, validated by
@@ -513,7 +518,7 @@ canonical. This pass migrated everything onto that one canonical schema
 | `docs.gapsFile` | `docs.gaps` |
 | `docs.indexFile` (the JSON index, confusingly named) | `docs.docsIndexJson` |
 | `docs.changelogFile` | `docs.changelog` |
-| `docs.searchScript` (optional project-local BM25 script) | retired — `ask-gate.mjs` always uses the plugin's own bundled `doc-search/search.mjs` |
+| `docs.searchScript` (optional project-local BM25 script) | retired — doc search is the plugin's own bundled `doc-search/search.mjs` |
 | `docs.idAllocatorScript` (guidance text only) | retired — always the plugin's bundled `next-task-id.mjs` |
 | `errorTracker.kind` | `errorTracker.provider` |
 | `errorTracker.org` + `errorTracker.project` | `errorTracker.sentryProject` |
@@ -668,16 +673,13 @@ tells you who's allowed to edit it and when it updates:
   executing it, per docs/tasks.md #T11's "keep it small" brief. The two
   need to be kept in sync by hand; a drift between them would show as the
   validator accepting/rejecting something the schema file disagrees with.
-- **`/adopt-standard`'s hook-merge step (6) doesn't (and can't) modify
-  `plugin/hooks/hooks.json`** — that file is the plugin's own, versioned
-  with the plugin, not per-project. Step 6 only reconciles **project-local**
-  hooks already wired directly in the adopting project's own
-  `.claude/settings.json` against the plugin's hook filenames, flagging
-  collisions rather than resolving them automatically.
+- **`/adopt-standard` step 6 only CHECKS hook wiring** (`check-hook-wiring.mjs`):
+  `plugin/hooks/hooks.json` is the plugin's own, versioned with the plugin, and
+  no hook copies are planted in a project. A project registration or stale copy
+  of a plugin/removed hook is reported for deletion, never merged.
 - **`jev-validate-subagent.mjs`'s block mechanism uses the confirmed
   `SubagentStop` exit-code-2 contract** (stderr fed back as the reason the
-  sub-agent must continue — same convention `ask-gate.mjs` already uses for
-  `PreToolUse`), not a documented JSON `decision`/`hookSpecificOutput`
+  sub-agent must continue — the same convention the PreToolUse dispatcher uses to deny), not a documented JSON `decision`/`hookSpecificOutput`
   shape for `Stop`/`SubagentStop` — Claude Code's docs describe the exit-2
   behavior but the excerpted schema didn't include a worked JSON-output
   example for this event pair to cross-check against. If a future Claude

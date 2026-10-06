@@ -35,7 +35,7 @@ under `/loop`. Full spec: [[loop-pack]] (this file implements its
 | `docs.gaps` | `"docs/gaps.md"` | where every detected drift is appended |
 | `docs.root` | `"docs"` | the rotation set — every `.md` file under here |
 | `loops.budgetPerCycle.turns` / `.minutes` | `40` / `20` | this cycle's hard budget (enforced by this file's own `check` calls below) |
-| `loops.budgetPerCycle.toolCalls` | `400` | mechanical guard's runaway backstop (`plugin/hooks/loop-budget-guard.mjs`) — RAW TOOL CALLS, a different unit than `.turns` |
+| `loops.budgetPerCycle.toolCalls` | `400` | mechanical guard's runaway backstop (`plugin/hooks/guards/loop-budget-guard.mjs`) — RAW TOOL CALLS, a different unit than `.turns` |
 | `repo.standingLoopBranch` | `"dev-burner"` | the branch every commit lands on |
 
 This loop's own verification uses the plugin's bundled

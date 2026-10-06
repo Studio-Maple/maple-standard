@@ -28,7 +28,7 @@ standalone under `/loop`. Full spec: [[loop-pack]] (this file implements its
 |---|---|---|
 | `ci.tiers.gate` | **required** | full gate command — unconfigured → refuse to commit, report and stop |
 | `loops.budgetPerCycle.turns` / `.minutes` | `40` / `20` | this cycle's hard budget (enforced by this file's own `check` calls below) |
-| `loops.budgetPerCycle.toolCalls` | `400` | mechanical guard's runaway backstop (`plugin/hooks/loop-budget-guard.mjs`) — RAW TOOL CALLS, a different unit than `.turns` |
+| `loops.budgetPerCycle.toolCalls` | `400` | mechanical guard's runaway backstop (`plugin/hooks/guards/loop-budget-guard.mjs`) — RAW TOOL CALLS, a different unit than `.turns` |
 | `repo.standingLoopBranch` | `"dev-burner"` | the branch every commit lands on |
 
 Malformed config? `node "$CLAUDE_PLUGIN_ROOT/scripts/validate-config.mjs"`.

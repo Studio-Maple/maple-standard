@@ -1,12 +1,11 @@
 ---
-description: Bootstrap an existing project onto the maple-standard (config + docs scaffold + hooks + verify)
+description: Bootstrap an existing project onto the maple-standard (config + docs scaffold + hook-wiring check + verify)
 ---
 
 # /adopt-standard — Bootstrap the maple-standard onto this project
 
 Stamp `maple.config.json`, scaffold the canonical `docs/` files if they
-don't exist, wire the plugin's generic hooks into this project's Claude Code
-settings, and verify the result actually passes — so an **existing** project
+don't exist, check that no project hook duplicates the plugin's, and verify the result actually passes — so an **existing** project
 (not a fresh clone of the maple-standard template) can use every other
 command and hook in this plugin. Idempotent: never overwrite a file that
 already has real content; only fill in what's missing. **Fail loud, never
@@ -30,12 +29,9 @@ below are the canonical schema (`docs/standard-architecture.md`
   if it already exists (step 5) — never a blind overwrite.
 - `pnpm-workspace.yaml` — `minimumReleaseAge: 1440` added if missing, and the
   dependency-freshness check wired into the fast tier (step 6b, pnpm projects).
-- `.claude/settings.json` — normally **left untouched**. The plugin's own
-  hooks apply globally once the plugin is enabled — there's no per-project
-  wiring step for the plugin's *own* hooks. Step 6 only checks whether the
-  project already wires **project-local** hooks there directly and, if so,
-  flags any filename collision with the plugin's hooks rather than merging
-  anything in — per-project hook wiring is not normally needed at all.
+- Nothing in `.claude/`. The plugin's hooks apply globally once the plugin is
+  enabled (D065: hooks live only in the plugin) — no hook copies are planted.
+  Step 6 only verifies the project does not duplicate them.
 
 ## Resolving `$CLAUDE_PLUGIN_ROOT`
 
@@ -320,8 +316,7 @@ have frontmatter yet.
 
 - **`CLAUDE.md` doesn't exist**: write a minimal skeleton — audience,
   one-paragraph project description placeholder, a pointer to
-  `docs/index.md` for session start, a note that this plugin's hooks +
-  commands are active, and one line: before using a package's API, read the
+  `docs/index.md` for session start and one line: before using a package's API, read the
   installed version's docs/types in `node_modules`, not memory (D064). Do **not** copy this template's full charter
   (long-run-over-patches rules, stack table, etc.) verbatim — that content
   is opinionated to *this* template's Next.js/Supabase stack; a `CLAUDE.md`
@@ -329,39 +324,32 @@ have frontmatter yet.
   stack and workflow, written by the owner or a dedicated follow-up
   session, not invented here.
 - **`CLAUDE.md` already exists**: propose the same minimal insertions
-  (session-start pointer to `docs/index.md`, a note that the plugin's hooks
-  are active) as a **diff** and ask for approval before writing anything —
+  (the session-start pointer to `docs/index.md`) as a **diff** and ask for approval before writing anything —
   never a blind overwrite, never append silently. This is how a project
   with its own extras (VeHagita) keeps them (per [[rollout]]). If the
   owner declines, note it and move on — this step is optional, not a
   blocker for the rest of the sequence.
 
-### 6. Wire hooks into `.claude/settings.json`
+### 6. Hook wiring check (D065: hooks live only in the plugin)
 
-Read the project's `.claude/settings.json` (create it, `{}`-shaped, if
-absent). The plugin's own hooks (`plugin/hooks/hooks.json`) are already
-active for any project with the plugin installed — Claude Code loads a
-plugin's `hooks.json` automatically, no per-project wiring needed for the
-plugin's *own* hooks. This step is about the reverse direction: if the
-project already has **project-local** hooks configured directly in
-`.claude/settings.json` (e.g. this template's `.claude/hooks/*` — ESLint
-fix, size warnings, build counter — which stay project-side per
-`docs/standard-architecture.md`'s "Project-specific hooks stay out of the
-plugin"), **do not touch or reorder them.**
+Do **not** write hook copies or hook registrations into the project. The
+plugin's hooks (`plugin/hooks/hooks.json`: one PreToolUse dispatcher,
+scrub-secrets, the sub-agent validator) load automatically for any project
+with the plugin enabled. Run the wiring check:
 
-Concretely:
-- If `.claude/settings.json` has no `hooks` key at all, leave it alone —
-  nothing to merge, the plugin's hooks already apply.
-- If it has a `hooks` key with existing entries, verify none of them
-  collide with the plugin's own hook filenames (`ask-gate.mjs`,
-  `bash-guard.mjs`, `decision-reminder.js`, `dep-version-guard.mjs`, `deny-credential-paths.mjs`,
-  `dirty-tree-guard.js`, `docs-sync-reminder.js`,
-  `parallel-session-warn.js`, `scrub-secrets.mjs`) — if a project already
-  has a same-named hook wired for the same event+matcher, flag the
-  collision and ask which should win rather than silently layering both.
-  Otherwise, no merge is needed (the plugin's hooks run independently via
-  its own `hooks.json`) — report that project-local hooks were found and
-  left untouched.
+```bash
+node "$CLAUDE_PLUGIN_ROOT/scripts/hooks/check-hook-wiring.mjs"
+```
+
+It fails when `.claude/settings*.json` registers a script that duplicates a
+plugin hook (or one of the removed ones: eslint-fix, size-warning,
+build-counter, ask-gate, dirty-tree-guard, docs-sync-reminder,
+decision-reminder, parallel-session-warn), uses a relative
+`node .claude/hooks/...` path, or a stale copy sits in `.claude/hooks/`.
+On failure, propose deleting exactly the listed entries/files and ask before
+changing anything; a project's own, differently named hook is left alone.
+Also add the same command to the project's **fast** tier (as in step 6b,
+resolve `$CLAUDE_PLUGIN_ROOT` the same way) so a copy can't creep back.
 
 ### 6b. Dependency freshness (D064) — pnpm projects only
 

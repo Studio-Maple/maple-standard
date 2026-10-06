@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-03",
+  "generated": "2026-10-06",
   "generator": "plugin/scripts/docs/generate-docs-index.mjs",
   "description": "Machine-readable map of docs/**/*.md preambles (OKF v0.1 frontmatter or legacy prose — docs/decisions.md D010). Regenerate after any preamble/description change: run this script (or check-docs-drift.mjs --fix).",
   "files": [
@@ -137,7 +137,7 @@
       "anchor_type": "code",
       "anchor_paths": [
         "plugin/scripts/predeploy/",
-        "plugin/hooks/predeploy-guard.mjs",
+        "plugin/hooks/guards/deploy-guard.mjs",
         "plugin/commands/predeploy-gate.md",
         "plugin/templates/predeploy-remote.yml"
       ],

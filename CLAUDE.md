@@ -14,7 +14,7 @@ scale** — this is the prime directive, not a footnote.
 
 **The methodology: enforce by mechanism, not by trust.** Context-engineering
 and good discipline drift; a CI check, a hook, or a compile error doesn't.
-Every rule here is (or becomes) one — that's why there's no bypass.
+Every rule here is (or becomes) one; there is no bypass.
 
 1. **Build it right, the first time.** Every schema / RLS policy / query /
    dependency is built for real growth — the complete long-run solution, not
@@ -24,11 +24,9 @@ Every rule here is (or becomes) one — that's why there's no bypass.
    future work, *not* a band-aid over rot you could fix now. Aim for a
    falling debt line, not a quota.
 2. **No bypass.** No `--no-verify`, no `service_role` on the client, no
-   `any`, no blanket `eslint-disable`, no untyped `create*Client` (the
-   `<Database>` generic is ESLint-enforced; `database.types.ts` is
-   freshness-gated). Oversize files get decomposed when touched, not
-   extended. Schema changes are migrations, never dashboard edits (the
-   drift sentinel catches those). The gate is the enforcement.
+   `any`, no blanket `eslint-disable`, no untyped `create*Client` (always the
+   `<Database>` generic). Oversize files get decomposed when touched, not
+   extended. Schema changes are migrations, never dashboard edits.
 3. **Real boundaries in tests.** RLS / auth / edge functions test against
    live local Supabase (`supabase/tests/`); mocks only at unit edges (MSW
    in `src/test/`).
@@ -41,8 +39,7 @@ Every rule here is (or becomes) one — that's why there's no bypass.
    proactively — a dirty tree blocks parallel sessions and loses work.
 6. **Docs stay synced by mechanism.** The drift gate
    (`scripts/check-docs-drift.mjs`, fast tier) blocks dead `Code:` paths /
-   broken wikilinks / stale index; the `docs-sync-reminder` Stop hook flags
-   semantic drift (code changed under a doc's ownership, doc untouched).
+   broken wikilinks / stale index; `/sync-docs` reconciles semantic drift.
 
 ## Stack
 
@@ -55,9 +52,9 @@ Every rule here is (or becomes) one — that's why there's no bypass.
 | **Backend** | Supabase (Postgres + RLS · Deno Edge Functions · Auth · Storage) |
 | **Deploy** | Vercel (git integration — no deploy workflows in this repo) |
 | **Observability** | Sentry (`@sentry/nextjs`) + optional Supabase observability tables |
-| **Enforcement** | tiered local gates + husky + Claude Code hooks + full cloud CI — see `docs/quality.md` |
+| **Gates** | see `docs/quality.md` |
 
-Layering (dependency-cruiser-enforced): `app → components → ui → hooks →
+Layering: `app → components → ui → hooks →
 services → lib`; services/lib are React-free; production never imports
 tests.
 
@@ -76,26 +73,20 @@ update `CHANGELOG.md` after significant changes.
 
 ## Decision integrity
 
-The worst failure is a decision made *in chat* that never lands —
-re-litigated, contradicted, or lost. Three defenses, all hook-backed:
+A decision made *in chat* that never lands gets re-litigated or lost.
 
-1. **Document a decision the moment it's made.** Append a short `D###` to
-   `docs/decisions.md` — the call in 1-2 sentences + pointers, ≤600 chars —
-   then thread it into the affected doc/`#T`. *(The `decision-reminder`
-   Stop hook nudges if you don't.)*
-2. **Check before asking.** Search `docs/decisions.md` + `docs/gaps.md` +
-   `docs/tasks.md` first — if the answer's there, act on it and cite it,
-   don't ask. The `ask-gate` hook enforces this on `AskUserQuestion`.
-3. **IDs are allocated, not guessed.** `node scripts/next-task-id.mjs
-   [--decision|--session]` prints the next id; `--add` allocates AND
-   inserts atomically (lockfile mutex — parallel sessions can't collide)
-   and refuses entries that would break the drift gate.
+1. **Log it when it's made.** `node scripts/next-task-id.mjs --add
+   --decision --title "..." --body "..."` allocates the `D###` and inserts it
+   atomically (the call in 1-2 sentences, ≤600 chars, refused if it would
+   break the drift gate); thread it into the affected doc/`#T`.
+2. **Check the ledgers before asking.** `docs/decisions.md`, `docs/gaps.md`,
+   `docs/tasks.md` first: if the answer is there, act on it and cite it.
+3. **`/session-end` captures** whatever decisions are still unlogged.
 
 ## Code quality
 
-Size limits are **ESLint-enforced per layer** (hook 250 · component 300 ·
-service/util 350 · app route/page 500) — the build fails over the cap;
-**decompose, never raise it**. `ui/` primitives and tests are exempt.
+Size limits per layer: hook 250 · component 300 · service/util 350 · app
+route/page 500 — **decompose, never raise the cap**. `ui/` primitives and tests are exempt.
 
 ## Testing
 
@@ -107,16 +98,14 @@ Vitest unit + component tests (`pnpm test`) · Playwright E2E in `e2e/`
 ## Secrets handling (zero-trust toward agent logs)
 
 Assume every Bash/Read output reaches the model provider's logs — treat
-anything an agent can read as semi-public. **Hard rules (hook-enforced):**
-never read credential files (`.env*`, `.credentials.json`, `~/.ssh/id_*` —
-PreToolUse-blocked); never echo secrets or secret-bearing env vars (outputs
-are scrubbed by `scrub-secrets.mjs` — don't rely on it). Prefer server-side
+anything an agent can read as semi-public. **Hard rules:** never read
+credential files (`.env*`, `.dev.vars`, `.credentials.json`, `~/.ssh/id_*`);
+never echo secrets or secret-bearing env vars. Prefer server-side
 secret stores (Supabase / GitHub / Vercel); local copies live in the OS
 credential manager (Windows Credential Manager / macOS Keychain), never in
 files the agent reads. **Prod deploys / migrations / key rotation:**
 produce the command for the human — they report success only, never
-values. `.env.example` documents the shape; `.env.local` is gitignored and
-hook-blocked.
+values. `.env.example` documents the shape; `.env.local` is gitignored.
 
 ## Session start
 

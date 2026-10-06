@@ -1,11 +1,26 @@
 # Changelog
 
 All notable changes to this project. Format loosely follows
-[Keep a Changelog](https://keepachangelog.com/); newest first. The
-`docs-sync-reminder` hook nags when code changes land without an entry here.
+[Keep a Changelog](https://keepachangelog.com/); newest first.
 
 ## [Unreleased]
 
+- **Hooks v2 (plugin v0.12.0, D065).** Hooks live only in the plugin and cost one process per call. Removed: the three Stop reminders
+  (dirty-tree-guard, docs-sync-reminder, decision-reminder), parallel-session-warn (the husky pre-commit warning stays), ask-gate (supersedes the D054 hook and
+  its nested `claude -p` judge) and the template's project copies and registrations (eslint-fix, size-warning, build-counter: measured 14-22 s per .ts edit and
+  a 40 s `tsc` every fifth, invisible to the model; lint, size and types run at commit and in the gate tiers). The seven duplicated plugin hooks in
+  `.claude/settings.json` are gone (only the SessionStart branch echo remains). `plugin/hooks/guard.mjs` is now the single PreToolUse hook (matcher
+  `Bash|PowerShell|Read|Grep|Glob|Write|Edit|MultiEdit|mcp__.*`): it lazy-loads the guard modules a tool needs from `plugin/hooks/guards/` and runs them in
+  one process, first deny wins, no child process on the no-op path (loop-budget-guard checks an fs sentinel before any git call). One quote- and heredoc-aware
+  shell tokenizer (`guards/shell.mjs`) serves Bash and PowerShell, so a commit message that mentions a flag is data. New: `hook-bypass` (no `--no-verify`/`-n`,
+  `core.hooksPath`, `HUSKY=0`, `--no-gpg-sign`, `commit.gpgsign=false`); credential reads from any shell verb plus `.dev.vars`, private `.pem`, example/sample/template
+  files exempt; deploy guard baseline (wrangler deploy/pages deploy, supabase db push/functions deploy, terraform apply, vercel --prod) that config can only
+  add to (an explicitly empty `predeploy.deployGuard.patterns` is now a config error), `git push` to `repo.prodBranch` needs the stamp, `$(...)`/backticks are
+  no longer exempt, fail-closed on its own deadline; `mcp-guard` (mutating Supabase MCP tools only on a `supabase.devProjectRefs` project; new
+  `supabase.devProjectRefs`/`prodProjectRefs` config); `worktree-guard` (`git worktree add` only under `<main-root>/.worktrees/` or `.claude/worktrees/`, never
+  nested; `pi-run.mjs` now builds its worktree under the main root); cwd-guard normalises `/c/...`, `C:/...`, `C:\...`. scrub-secrets also covers PowerShell.
+  `plugin/scripts/hooks/check-hook-wiring.mjs` (fast tier) fails a project that registers or keeps a copy of a plugin/removed hook; `/adopt-standard` no longer
+  plants hook copies. Tests: `pnpm test:plugin-hooks` (fixture-driven guard contracts, dispatcher process test, wiring check, config).
 - **New dependencies enter at the latest release (plugin v0.11.0, D064).** Agents add dependencies at versions remembered from training, so they land a
   major behind. Three mechanisms, none trusting discipline: the `dep-version-guard` PreToolUse hook (`Write|Edit|MultiEdit`) denies any added or re-specced
   dependency in a `package.json` (use `pnpm add`; removals, scripts/config edits and workspace/file/link/git/tag specs pass; no network); `bash-guard` denies

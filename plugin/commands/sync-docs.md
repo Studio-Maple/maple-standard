@@ -5,7 +5,7 @@ description: Reconcile docs/ with the code (the docs-drift executor)
 # /sync-docs — Reconcile docs/ with the code
 
 Bring the wiki back in sync with reality. This is the **executor** the
-docs-drift gate and the `docs-sync-reminder` Stop hook point you to.
+docs-drift gate points you to.
 Structural checks are automated; **semantic** sync — prose that describes
 superseded behavior while its `Code:` paths still resolve — is the part
 only this pass can do.
@@ -41,7 +41,7 @@ tooling" section for the full `docs.*` key set they read.
 `docs.docsIndexJson` maps each doc -> its `code` anchor paths (frontmatter
 `code`, or the legacy `**Code:**`/`**Enforced by:**` preamble on an
 unmigrated page). The reverse map (code path -> owning doc) is what the
-`docs-sync-reminder` Stop hook prints. A changed code file is "owned" by a
+drift gate reports. A changed code file is "owned" by a
 doc when it sits under one of that doc's anchor paths. Paths under any
 `docs.ephemeralPaths` entry are skipped — they aren't owned by code.
 

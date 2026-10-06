@@ -7,7 +7,7 @@ description: Run the enforced pre-deploy gate (zero findings) and issue a stamp 
 Runs every check in `maple.config.json` → `predeploy.checks` against the
 exact HEAD commit and, only if **nothing** is found (warnings included, minus
 unexpired allowlist entries and decision-backed exceptions), writes a stamp bound to the sha, the config hash,
-the allowlist hash and the decisions-file hash. The `predeploy-guard` hook refuses deploy commands
+the allowlist hash and the decisions-file hash. The `deploy-guard` (in the PreToolUse dispatcher) refuses deploy commands
 without that stamp. Full rules: `docs/predeploy-gate.md` (D060).
 
 `$ARGUMENTS`:

@@ -44,8 +44,8 @@ is untouched by the generator.
   `tags`/`timestamp`, plus this project's custom fields `audience`/
   `authoritative_for`/`code` (the owned-paths list the drift gate
   existence-checks) and `reference_for` (descriptive, not existence-checked).
-  The drift gate errors on dead `code` paths and the docs-sync-reminder
-  hook uses them to reverse-map code changes to owning docs.
+  The drift gate errors on dead `code` paths and `/sync-docs` uses them
+  to reverse-map code changes to owning docs.
 - The legacy prose preamble (`> **Audience:**` / `**Authoritative for:**` /
   `**Code:**` blockquote) is still fully supported — it's how a doc looked
   before D010 — but the gate WARNS on a page with no frontmatter, so

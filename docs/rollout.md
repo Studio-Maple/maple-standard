@@ -22,7 +22,7 @@ Six steps, strictly ordered — each depends on the previous one's verification 
 
 **Verify adopted correctly:**
 - `/adopt-standard` run against a scratch/throwaway clone produces a `maple.config.json` that validates against the schema, a `docs/` skeleton, and a passing docs-drift gate — on the first try, no manual patching.
-- Every plugin command runs without error against that scratch project (`wt-start` → `wt-land` round-trip on a trivial change; each generic hook fires on its trigger — spot-check `deny-credential-paths` blocks a `.env` read, `decision-reminder` nudges on decision language).
+- Every plugin command runs without error against that scratch project (`wt-start` → `wt-land` round-trip on a trivial change; each generic hook fires on its trigger — spot-check the dispatcher denies a `.env` read and a `git commit --no-verify`).
 
 ## 2. EasyCaller adoption (`Caller-development`)
 
