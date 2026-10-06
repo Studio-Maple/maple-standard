@@ -12,7 +12,7 @@
  * Reconstructed at runtime (split constant) purely so secret scanners don't
  * flag the JWT shape — the value itself is public.
  */
-export const LOCAL_SUPABASE_URL = process.env.SUPABASE_URL || "http://127.0.0.1:54321";
+export const LOCAL_SUPABASE_URL = process.env.SUPABASE_URL || "http://127.0.0.1:56321";
 
 const CLI_DEMO_KEY_PARTS = [
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",

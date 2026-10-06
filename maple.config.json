@@ -1,0 +1,12 @@
+{
+  "project": { "name": "maple-standard", "slug": "maple-standard" },
+  "repo": { "remote": "origin", "prodBranch": "main", "devBranch": "main" },
+  "ci": {
+    "prePushTier": "gate",
+    "tiers": {
+      "fast": "pnpm ci:fast",
+      "gate": "pnpm ci:gate",
+      "heavy": "pnpm ci:heavy"
+    }
+  }
+}

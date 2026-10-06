@@ -55,7 +55,7 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "ttlSeconds": { "type": "integer", "minimum": 1 },
+            "ttlSeconds": { "type": "integer", "minimum": 1, "description": "DEPRECATED and ignored since D066: a land lock is never stolen from a live pid, so there is no TTL. Still accepted so existing configs validate." },
             "waitSeconds": { "type": "integer", "minimum": 1 },
             "pollSeconds": { "type": "integer", "minimum": 1 }
           }

@@ -1,15 +1,13 @@
 #!/bin/sh
 
-# Pre-push GATE: fast checks + Supabase RLS suite + @smoke E2E. You cannot
-# push red code — the gate is the enforcement, not trust (see CLAUDE.md
-# "No bypass").
+# Pre-push GATE (D066): the affected-only fast tier - no Docker, no live tier, no plugin
+# integration suites. You cannot push red code - the gate is the enforcement, not trust
+# (see CLAUDE.md "No bypass"). The expensive half (live RLS, E2E, integration suites, Jev audit)
+# is the heavy tier: batched daily and before production promotion (pnpm ci:heavy).
 #
-# The live half needs the local Supabase stack up (Docker):
-#   pnpm supabase:start && pnpm supabase:reset
-#
-# Genuine no-Docker box only (NOT --no-verify, which is forbidden):
-#   SKIP_LIVE_GATE=1 git push
-# runs the fast tier only and records that the live gate was skipped.
+# Genuinely-impossible steps are skipped ONLY for a listed reason, recorded as gate debt (paid by
+# the next green heavy run; production promotion needs zero debt) - NOT --no-verify, which is forbidden:
+#   MAPLE_GATE_SKIP=registry-unreachable git push     (dep-freshness; verified: the registry does not answer)
 
 # AFFECTED-ONLY: CI_PREPUSH=1 makes ci-local.sh read the pushed refs git feeds
 # on stdin, so only the checks this push can affect run (every step prints
@@ -20,11 +18,11 @@
 # this puts back the absolute, fail-closed one (and the stubs in every worktree).
 node scripts/install-hooks.mjs --quiet >/dev/null 2>&1 || true
 
-echo "Pre-push: running local CI gate (affected-only fast + RLS + @smoke)..."
+echo "Pre-push: running the affected-only gate (fast tier; live RLS/E2E is the heavy tier)..."
 CI_PREPUSH=1 CI_PREPUSH_REMOTE="$1" bash scripts/ci-local.sh gate || {
   echo ""
-  echo "Pre-push BLOCKED — gate failed. Fix it, or for a no-Docker box:"
-  echo "  SKIP_LIVE_GATE=1 git push"
+  echo "Pre-push BLOCKED - gate failed. Fix it. (A step that is genuinely impossible on this machine can be"
+  echo "skipped with MAPLE_GATE_SKIP=<reason> - see scripts/ci-local.sh; it is recorded as gate debt.)"
   exit 1
 }
 echo "Pre-push gate passed."

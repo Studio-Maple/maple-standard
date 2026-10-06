@@ -7,18 +7,34 @@
 # (see README "Instantiate a new project").
 project_id = "your-project-local"
 
+# ── Ports: the 5632x block (D066) ────────────────────────────────────────
+# NOT the CLI's 5432x defaults: on Windows, TCP 54207-54906 is typically a
+# dynamic *excluded port range* (netsh interface ipv4 show excludedportrange
+# protocol=tcp), so `supabase start` could not bind and the live gate could
+# never run on that machine. 56320-56329 is outside every range seen reserved
+# there (50000-50359, 50480-50579, 54207-54906, 55320-55331, 60142-60241,
+# 61035-61134). Every service port the CLI binds is pinned below; keep them
+# in this block. On a Windows box make the block permanent with the owner-run
+# admin command in docs/docker.md ("administered exclusion").
+# Other local projects on the same machine use their own block (Caller 5832x,
+# VeHagita 5532x) - when instantiating, pick an unused one.
+
 [api]
 enabled = true
-port = 54321
+port = 56321
 schemas = ["public", "graphql_public"]
 extra_search_path = ["public", "extensions"]
 # Limits payload size for accidental or malicious requests.
 max_rows = 1000
 
 [db]
-port = 54322
-shadow_port = 54320
+port = 56322
+shadow_port = 56320
 major_version = 17
+
+[db.pooler]
+enabled = false
+port = 56329
 
 [db.migrations]
 enabled = true
@@ -29,7 +45,15 @@ sql_paths = ["./seed.sql"]
 
 [studio]
 enabled = true
-port = 54323
+port = 56323
+
+[local_smtp]
+enabled = true
+port = 56324
+
+[analytics]
+enabled = false
+port = 56327
 
 [auth]
 enabled = true
@@ -38,17 +62,3 @@ additional_redirect_urls = ["https://127.0.0.1:3000"]
 
 [edge_runtime]
 enabled = true
-
-# ── Multi-project machines: give each project its own port block ─────────
-# Only project_id is namespaced — the 543xx default ports above are NOT,
-# and collide the moment a second local stack runs on the same machine.
-# When instantiating, move the whole stack to a unique block (e.g. 563xx):
-# [api].port, [db].port, [db].shadow_port, [studio].port above, PLUS the
-# services below, which default into 543xx even without a section here.
-#
-# [analytics]
-# enabled = true
-# port = 54327
-#
-# [local_smtp]   # named [inbucket] in older CLI versions (deprecation WARN)
-# port = 54324

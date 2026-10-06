@@ -5,8 +5,10 @@ import { defineConfig, devices } from "@playwright/test";
 // GitHub Actions job yourself once you have a stable preview/staging URL to
 // target (Vercel preview deployments are a good fit — set BASE_URL to the
 // preview URL and skip the managed webServer below).
-const port = 3000;
-const baseURL = process.env.BASE_URL ?? `http://localhost:${port}`;
+// Gate-only port (D066): the gate must exercise ITS OWN build, never another checkout's dev server. 3000 is the
+// owner's dev server and is never touched; override with E2E_PORT if 3100 is taken.
+const port = Number(process.env.E2E_PORT ?? 3100);
+const baseURL = process.env.BASE_URL ?? `http://127.0.0.1:${port}`;
 const isExternalServer = !!process.env.BASE_URL;
 
 export default defineConfig({
@@ -34,10 +36,12 @@ export default defineConfig({
     : {
         // pnpm 9+ passes a literal `--` through to the script, which Next
         // then misreads as its [directory] positional — use `pnpm exec`.
-        command: `pnpm build && pnpm exec next start --port ${port}`,
+        // The heavy tier builds once (fast 7/7) and sets E2E_SKIP_BUILD=1 so this only starts the server.
+        command: process.env.E2E_SKIP_BUILD === "1" ? `pnpm exec next start --port ${port}` : `pnpm build && pnpm exec next start --port ${port}`,
         cwd: "..",
         url: baseURL,
-        reuseExistingServer: !process.env.CI,
+        // Never reuse a running server (it could be another checkout's): a busy port fails the run loudly.
+        reuseExistingServer: false,
         timeout: 120_000,
       },
 });

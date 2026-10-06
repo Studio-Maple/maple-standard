@@ -1,143 +1,51 @@
-# scripts/ci-local.ps1 — Windows-native mirror of scripts/ci-local.sh.
+# scripts/ci-local.ps1 - a SHIM for scripts/ci-local.sh (D066: one gate runner, bash is canonical).
 #
-# Same four tiers, same semantics (see ci-local.sh's header comment for the
-# full rationale). This script never shells out to bash — it runs the exact
-# same pnpm/node commands directly, so it works on a bare Windows box with
-# no Git Bash / WSL requirement.
+# The old PowerShell mirror drifted from the bash runner (different tool resolution: predeploy
+# tests reported tool-missing and crashed under .ps1 yet passed under .sh), and `bash` on a
+# Windows PATH can be WSL's System32\bash.exe, which sees another filesystem. This shim finds
+# Git for Windows' bash explicitly - never WSL - and execs ci-local.sh with the same arguments.
 #
-# Usage:
-#   .\scripts\ci-local.ps1 [fast|gate|core|full]   (default: gate)
-#
-# Escape hatch (NOT --no-verify — this template's CLAUDE.md forbids that):
-#   $env:SKIP_LIVE_GATE = "1"; .\scripts\ci-local.ps1
+# Usage:   .\scripts\ci-local.ps1 [fast|gate|heavy] [--full]     (default tier: gate)
+# Env:     MAPLE_GATE_SKIP=<reason> as documented in ci-local.sh (SKIP_LIVE_GATE is a deprecated alias)
 
-[CmdletBinding()]
-param(
-    [Parameter(Position = 0)]
-    [ValidateSet("fast", "gate", "core", "full")]
-    [string]$Tier = "gate"
-)
-
-# "Continue", not "Stop": every native call below is explicitly
-# $LASTEXITCODE-checked (Invoke-Checked), and under Windows PowerShell 5.1
-# a Stop preference turns harmless native stderr output (e.g. docs-drift
-# warnings) into a terminating NativeCommandError when streams are merged.
 $ErrorActionPreference = "Continue"
-$repoRoot = Split-Path -Parent $PSScriptRoot
-Set-Location $repoRoot
+$script = Join-Path $PSScriptRoot "ci-local.sh"
 
-function Step($msg) { Write-Host ""; Write-Host "--- $msg ---" -ForegroundColor Cyan }
-function Die($msg) { Write-Host ""; Write-Error "x $msg"; exit 1 }
-
-function Invoke-Checked([string]$Command) {
-    Write-Host "> $Command" -ForegroundColor DarkGray
-    Invoke-Expression $Command
-    if ($LASTEXITCODE -ne 0) { Die "command failed: $Command" }
-}
-
-function Run-Fast {
-    Step "fast 1/7: lint (eslint --max-warnings=0, incl. eslint-plugin-security)"
-    Invoke-Checked "pnpm run lint:ci"
-
-    Step "fast 2/7: typecheck (tsc --noEmit)"
-    Invoke-Checked "pnpm run typecheck"
-
-    Step "fast 3/7: knip (dead code - fails on regressions)"
-    Invoke-Checked "pnpm run knip"
-
-    Step "fast 4/7: dependency-cruiser (module boundaries)"
-    try { Invoke-Checked "pnpm run depcruise" }
-    catch { Write-Host "(depcruise: advisory findings - not blocking unless an 'error' rule fired)" -ForegroundColor Yellow }
-
-    Step "fast 5/7: unit + component tests (vitest)"
-    Invoke-Checked "pnpm run test"
-
-    Step "fast 6/7: plugin tests (loops - m11; agent-wt junction safety)"
-    Invoke-Checked "pnpm run test:plugin-loops"
-    Invoke-Checked "pnpm run test:plugin-agent-wt"
-    Invoke-Checked "pnpm run test:plugin-jev"
-    Invoke-Checked "pnpm run test:plugin-predeploy"
-    Invoke-Checked "pnpm run test:plugin-deps"
-
-    Step "fast 7/7: build (next build) + docs-drift"
-    Invoke-Checked "pnpm run build"
-    Invoke-Checked "node scripts/check-docs-drift.mjs"
-    # D064: dependencies added/changed vs the target branch must be at the latest major (diff-scoped).
-    Invoke-Checked "node scripts/check-dep-freshness.mjs"
-}
-
-function Stack-Up {
-    try {
-        # pnpm exec — a bare `supabase` resolves to whatever global CLI is on
-        # PATH, which can be older than the project's and fail parsing config.toml.
-        & pnpm exec supabase status -o env *> $null
-        return ($LASTEXITCODE -eq 0)
-    } catch { return $false }
-}
-
-function Require-Stack {
-    if (-not (Stack-Up)) {
-        Die @"
-Local Supabase not reachable.
-   Bring it up in another shell:
-     pnpm supabase:start; pnpm supabase:reset
-   (needs Docker Desktop). To push from a no-Docker box anyway:
-     `$env:SKIP_LIVE_GATE = "1"; git push   # runs fast tier only, records the skip
-"@
+function Find-GitBash {
+    $candidates = @()
+    $git = Get-Command git -ErrorAction SilentlyContinue
+    if ($git) {
+        # git --exec-path = <Git>\mingw64\libexec\git-core; bash lives in <Git>\bin (and, in older
+        # layouts, <Git>\mingw64\bin).
+        $exec = (& git --exec-path) -replace "/", "\"
+        if ($exec) {
+            $candidates += (Join-Path $exec "..\..\..\bin\bash.exe")
+            $candidates += (Join-Path $exec "..\..\bin\bash.exe")
+        }
     }
-}
-
-function Check-TypesFresh {
-    Step "types-freshness: src/types/database.types.ts vs local schema"
-    Invoke-Checked "node scripts/check-types-fresh.mjs"
-}
-
-function Run-Live([string]$PlaywrightArgs, [string]$Label) {
-    Require-Stack
-
-    Step "live: Supabase RLS + trigger suite"
-    Invoke-Checked "pnpm run test:supabase"
-
-    Step "live: Playwright - $Label"
-    Invoke-Checked "pnpm exec playwright test --config e2e/playwright.config.ts $PlaywrightArgs"
-}
-
-function Run-Audit {
-    Step "full: pnpm audit (SCA)"
-    try { Invoke-Checked "pnpm audit --audit-level=high" }
-    catch { Write-Host "(pnpm audit: high/critical advisories - triage)" -ForegroundColor Yellow }
-}
-
-if ($env:SKIP_LIVE_GATE -eq "1") {
-    Write-Host "!! SKIP_LIVE_GATE=1 - running fast tier ONLY. The live gate (RLS + E2E) was SKIPPED." -ForegroundColor Yellow
-    Run-Fast
-    Write-Host ""
-    Write-Host "fast tier passed. LIVE GATE SKIPPED - re-run with the local Supabase stack up." -ForegroundColor Yellow
-    exit 0
-}
-
-switch ($Tier) {
-    "fast" {
-        Run-Fast
-        Write-Host ""; Write-Host "fast tier passed (no live checks - use 'gate' before push)." -ForegroundColor Green
+    $candidates += "C:\Program Files\Git\bin\bash.exe"
+    $candidates += "C:\Program Files (x86)\Git\bin\bash.exe"
+    foreach ($c in $candidates) {
+        if (Test-Path $c) { return (Resolve-Path $c).Path }
     }
-    "gate" {
-        Run-Fast
-        Check-TypesFresh
-        Run-Live "--grep @smoke --project=desktop" "@smoke (desktop)"
-        Write-Host ""; Write-Host "gate passed - safe to push." -ForegroundColor Green
-    }
-    "core" {
-        Run-Fast
-        Check-TypesFresh
-        Run-Live "--project=desktop" "all specs (desktop)"
-        Write-Host ""; Write-Host "core passed - fast + RLS + full desktop E2E green (pre-merge)." -ForegroundColor Green
-    }
-    "full" {
-        Run-Fast
-        Check-TypesFresh
-        Run-Live "" "all specs, all projects"
-        Run-Audit
-        Write-Host ""; Write-Host "full passed - fast + RLS + full E2E + audit." -ForegroundColor Green
-    }
+    return $null
 }
+
+if ($env:MAPLE_CI_SHIM_PRINT_BASH -eq "1") {
+    # test hook: print the bash this shim would use, run nothing
+    $b = Find-GitBash
+    if ($b) { Write-Output $b; exit 0 } else { exit 2 }
+}
+
+$bash = Find-GitBash
+if (-not $bash) {
+    Write-Error "ci-local.ps1: Git Bash not found. Install Git for Windows (WSL's bash is deliberately not used)."
+    exit 2
+}
+if ($bash -match "System32") {
+    Write-Error "ci-local.ps1: refusing to use WSL bash ($bash)."
+    exit 2
+}
+
+& $bash $script @args
+exit $LASTEXITCODE

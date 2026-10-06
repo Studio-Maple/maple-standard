@@ -45,7 +45,7 @@ jobs:
         run: supabase db reset
 
       - name: Verify migrations applied cleanly
-        run: supabase migration list --db-url "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+        run: supabase migration list --db-url "postgresql://postgres:postgres@127.0.0.1:56322/postgres"
 
       - name: Verify generated types are fresh (database.types.ts)
         # The typed Supabase clients are only as honest as

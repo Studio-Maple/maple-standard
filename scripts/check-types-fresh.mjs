@@ -7,7 +7,7 @@
  * canonical) into a temp file and diffs against the committed file. Requires
  * the local Supabase stack to be up (`pnpm supabase:start`); fails open
  * (skips, exit 0) if it's not reachable, so this never blocks a machine
- * without Docker — the CI backstop is
+ * without Docker (the heavy tier sets MAPLE_REQUIRE_STACK=1 and fails instead) — the CI backstop is
  * .github/workflows/supabase-migrations.yml, which builds the DB fresh
  * from migrations every run.
  *
@@ -23,7 +23,8 @@ const ROOT = join(fileURLToPath(import.meta.url), "..", "..");
 const TYPES_PATH = join(ROOT, "src", "types", "database.types.ts");
 
 function stackUp() {
-  const probe = spawnSync("supabase", ["status", "-o", "env"], { cwd: ROOT, encoding: "utf8" });
+  // pnpm exec: the project's own CLI, not whatever global one is on PATH (shell: pnpm is a .cmd shim on Windows)
+  const probe = spawnSync("pnpm", ["exec", "supabase", "status", "-o", "env"], { cwd: ROOT, encoding: "utf8", shell: process.platform === "win32" });
   return probe.status === 0;
 }
 
@@ -44,13 +45,19 @@ function main() {
   }
 
   if (!stackUp()) {
+    // The heavy tier requires the stack (MAPLE_REQUIRE_STACK=1): a freshness check that silently skips is no check.
+    if (process.env.MAPLE_REQUIRE_STACK === "1") {
+      console.error("types-freshness: the local Supabase stack is not up and this run requires it (heavy tier).");
+      process.exit(1);
+    }
     console.log("(skipped — local Supabase not up; CI's supabase-migrations.yml is the backstop)");
     process.exit(0);
   }
 
-  const gen = spawnSync("supabase", ["gen", "types", "typescript", "--local"], {
+  const gen = spawnSync("pnpm", ["exec", "supabase", "gen", "types", "typescript", "--local"], {
     cwd: ROOT,
     encoding: "utf8",
+    shell: process.platform === "win32",
   });
   if (gen.status !== 0) {
     console.error("supabase gen types failed:\n" + gen.stderr);
