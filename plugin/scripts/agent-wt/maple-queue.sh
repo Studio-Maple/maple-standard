@@ -21,6 +21,8 @@
 MAPLE_Q_DIR=""
 MAPLE_Q_ENTRY=""
 MAPLE_Q_POLL="${MAPLE_LAND_POLL:-3}"
+MAPLE_Q_TIER="${MAPLE_Q_TIER:-gate}"        # set by maple-land.sh
+MAPLE_Q_GATE_CMD="${MAPLE_Q_GATE_CMD:-}"    # set by maple-land.sh (ci.tiers.<tier>)
 
 maple_q_init() {
   local key="${MAPLE_REMOTE}--${MAPLE_TARGET}"
@@ -46,7 +48,7 @@ maple_q_enqueue() {
   tmp="$MAPLE_Q_DIR/.tmp-$name"
   printf 'slug=%s\nbranch=%s\nwt=%s\npid=%s\nat=%s\n' "$1" "$2" "$3" "$$" "$(date +%s)" >"$tmp"
   mv -f "$tmp" "$MAPLE_Q_DIR/entries/$name"
-  MAPLE_Q_ENTRY="$name"
+  export MAPLE_Q_ENTRY="$name"
 }
 
 maple_q_dequeue() { # <entry name>: drop the entry and any verdict
@@ -154,7 +156,7 @@ maple_q_gate() {
 # decided (landed or returned), 3 when the push lost a race (caller retries the remaining entries).
 maple_q_batch() {
   local -a entries=("$@") acc=() tips=()
-  local base tip name branch slug files i n lo hi mid land_env culprit rc rb_ok rb_out attempt
+  local base tip name branch slug files i n lo hi mid land_env culprit rc rb_ok rb_out
 
   maple_log "land queue: ${#entries[@]} branch(es) -> $MAPLE_REMOTE/$MAPLE_TARGET"
   git fetch "$MAPLE_REMOTE" "$MAPLE_TARGET" --quiet || { for name in "${entries[@]}"; do maple_q_result "$name" error "fetch of $MAPLE_REMOTE/$MAPLE_TARGET failed"; done; return 0; }
@@ -170,7 +172,7 @@ maple_q_batch() {
       maple_q_result "$name" error "branch '$branch' no longer exists"; continue
     fi
     rb_ok=false; rb_out=""; files=""
-    for attempt in 1 2; do
+    for _ in 1 2; do
       git -C "$MAPLE_Q_INTEG" checkout -q -f -B _land-work "refs/heads/$branch" 2>/dev/null || true
       if rb_out="$(git -C "$MAPLE_Q_INTEG" rebase "$tip" 2>&1)"; then rb_ok=true; break; fi
       files="$(git -C "$MAPLE_Q_INTEG" diff --name-only --diff-filter=U 2>/dev/null | tr '\n' ' ')"

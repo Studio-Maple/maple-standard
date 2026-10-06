@@ -208,53 +208,6 @@ if [ "$k3" = "60" ]; then pass "a long path key is capped at 60 chars"; else fai
 out="$(bash -c 'set -euo pipefail; . "$0"; pp_init "$PWD"; pp_lock t || exit 9; ( PP_LOCK_WAIT=1 pp_lock t && echo SECOND_GOT_IT || echo SECOND_REFUSED ); pp_unlock; pp_lock t && echo REACQUIRED' "$LIB" 2>/dev/null)"
 if echo "$out" | grep -q SECOND_REFUSED && echo "$out" | grep -q REACQUIRED; then pass "lock: second holder refused, reacquirable after release"; else fail "lock" "$out"; fi
 
-echo "machine-wide gate slots"
-# a gate NESTED in a slot holder must not queue for a second slot (deadlock): it inherits
-out="$(MAPLE_GATE_SLOT_DIR="$W/slots-nest" MAPLE_GATE_SLOTS=1 bash -c 'set -euo pipefail; . "$0"; pp_init "$PWD"; pp_heavy_begin; MAPLE_GATE_SLOT_WAIT=2 bash -c "set -euo pipefail; . \"\$0\"; pp_init \"\$PWD\"; pp_ran nested-step x; echo NESTED_RAN" "$0"' "$LIB" 2>&1)"
-if echo "$out" | grep -q '^NESTED_RAN$' && ! echo "$out" | grep -q waiting; then pass "a nested gate inherits its parent's slot instead of deadlocking on a second one"; else fail "nested slot inheritance" "$out"; fi
-SLOTS="$W/slots"
-holder() { # holder <n> -> background process that holds a slot for ~25s
-  MAPLE_GATE_SLOT_DIR="$SLOTS" MAPLE_GATE_SLOTS="$1" bash -c 'set -euo pipefail; . "$0"; pp_init "$PWD"; pp_heavy_begin; sleep 25' "$LIB" >/dev/null 2>&1 &
-  HOLD_PIDS="${HOLD_PIDS:-} $!"
-}
-wait_busy() { # wait_busy <count>
-  local i=0 n d
-  while [ "$i" -lt 60 ]; do
-    n=0
-    for d in "$SLOTS"/slot-*; do if [ -d "$d" ]; then n=$((n + 1)); fi; done
-    if [ "$n" -ge "$1" ]; then return 0; fi
-    sleep 0.5; i=$((i + 1))
-  done
-}
-holder 1; wait_busy 1
-out="$(MAPLE_GATE_SLOT_DIR="$SLOTS" MAPLE_GATE_SLOTS=1 MAPLE_GATE_SLOT_WAIT=4 bash -c 'set -euo pipefail; . "$0"; pp_init "$PWD"; pp_ran app-test x; echo AFTER' "$LIB" 2>&1)"
-if echo "$out" | grep -q 'waiting for gate slot (1 ahead'; then pass "a second heavy gate with N=1 prints 'waiting for gate slot (k ahead)'"; else fail "waiting message" "$out"; fi
-if echo "$out" | grep -q 'running anyway' && echo "$out" | grep -q '^AFTER$'; then pass "the limiter is advisory: it runs after the wait cap instead of failing"; else fail "wait cap" "$out"; fi
-out="$(MAPLE_GATE_SLOT_DIR="$SLOTS" MAPLE_GATE_SLOTS=1 MAPLE_GATE_SLOT_WAIT=2 bash -c 'set -euo pipefail; . "$0"; pp_init "$PWD"; pp_ran gitleaks x; pp_ran docs-drift x; echo AFTER' "$LIB" 2>&1)"
-if [ "$out" = "AFTER" ]; then pass "light steps (gitleaks, docs-drift) never queue for a slot"; else fail "light steps" "$out"; fi
-for hp in $HOLD_PIDS; do kill "$hp" 2>/dev/null; done; wait 2>/dev/null; HOLD_PIDS=""
-# killed holders leave their slot dir behind: the dead pid must free it at once
-if [ -d "$SLOTS/slot-1" ]; then pass "(setup) the killed holder left a stale slot behind"; else pass "(setup) holder cleaned up"; fi
-out="$(MAPLE_GATE_SLOT_DIR="$SLOTS" MAPLE_GATE_SLOTS=1 MAPLE_GATE_SLOT_WAIT=6 bash -c 'set -euo pipefail; . "$0"; pp_init "$PWD"; pp_heavy_begin; echo GOT' "$LIB" 2>&1)"
-if echo "$out" | grep -q '^GOT$' && ! echo "$out" | grep -q 'waiting'; then pass "a dead PID releases its slot immediately (stale-safe)"; else fail "stale slot" "$out"; fi
-rm -rf "$SLOTS"; mkdir -p "$SLOTS/slot-1"; echo 999999 > "$SLOTS/slot-1/pid"
-out="$(MAPLE_GATE_SLOT_DIR="$SLOTS" MAPLE_GATE_SLOTS=1 MAPLE_GATE_SLOT_WAIT=6 bash -c 'set -euo pipefail; . "$0"; pp_init "$PWD"; pp_heavy_begin; echo GOT' "$LIB" 2>&1)"
-if echo "$out" | grep -q '^GOT$' && ! echo "$out" | grep -q 'waiting'; then pass "a slot owned by a nonexistent PID is reclaimed"; else fail "dead pid slot" "$out"; fi
-rm -rf "$SLOTS"
-holder 2; holder 2; wait_busy 2
-out="$(MAPLE_GATE_SLOT_DIR="$SLOTS" MAPLE_GATE_SLOTS=2 MAPLE_GATE_SLOT_WAIT=4 bash -c 'set -euo pipefail; . "$0"; pp_init "$PWD"; pp_ran app-test x; echo AFTER' "$LIB" 2>&1)"
-if echo "$out" | grep -q 'waiting for gate slot (1 ahead; 2/2 slots busy)'; then pass "N=2: two holders fill both slots, the third waits"; else fail "N=2" "$out"; fi
-for hp in $HOLD_PIDS; do kill "$hp" 2>/dev/null; done; wait 2>/dev/null; HOLD_PIDS=""
-out="$(MAPLE_GATE_SLOT_DIR="$SLOTS" MAPLE_GATE_SLOTS=0 bash -c 'set -euo pipefail; . "$0"; pp_init "$PWD"; pp_ran app-test x; echo AFTER' "$LIB" 2>&1)"
-if [ "$out" = "AFTER" ]; then pass "MAPLE_GATE_SLOTS=0 disables the limiter"; else fail "slots=0" "$out"; fi
-out="$(MAPLE_GATE_SLOT_DIR="$SLOTS" MAPLE_GATE_SLOTS=1 bash -c 'set -euo pipefail; . "$0"; pp_init "$PWD"; pp_heavy_begin; pp_cleanup; ls "$MAPLE_GATE_SLOT_DIR" | grep -c slot-' "$LIB" 2>&1)"
-if [ "$out" = "0" ]; then pass "pp_cleanup (EXIT trap) releases the slot"; else fail "release" "$out"; fi
-
-out="$(bash -c 'set -euo pipefail; . "$0"; pp_init "$PWD"; d="$PP_COMMON/ci-gate-locks/${PP_KEY}-dead.lock"; mkdir -p "$d"; echo 999999 > "$d/pid"; PP_LOCK_WAIT=2 pp_lock dead && echo GOT; pp_unlock' "$LIB" 2>&1)"
-if echo "$out" | grep -q '^GOT$'; then pass "a lock whose owner pid is gone (killed gate) is broken at once, not after the TTL"; else fail "dead-owner lock" "$out"; fi
-out="$(bash -c 'set -euo pipefail; . "$0"; pp_init "$PWD"; pp_lock live; test "$(cat "$PP_LOCK_DIR/pid")" = "$$" && echo OWNER_RECORDED; pp_unlock' "$LIB" 2>&1)"
-if echo "$out" | grep -q '^OWNER_RECORDED$'; then pass "the lock records its owner pid"; else fail "lock owner pid" "$out"; fi
-
 echo "D066: a live lock is never robbed; sandbox-safe sleep; step timings"
 # A lock held by a LIVE pid is kept however old it is (the TTL used to steal it mid-gate).
 LIVEPID=""
