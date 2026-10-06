@@ -11,6 +11,7 @@ import { buildBaseline, evaluateImageDebt, findingKey, isoDay } from "./imagedeb
 import { main as runGate } from "./run.mjs";
 import { reportPath, stampPath, verifyStamp } from "./state.mjs";
 import { headSha } from "./lib.mjs";
+import { writeHeavyStamp } from "../gate/gate-state.mjs";
 
 let n = 0;
 const t = async (name, fn) => { await fn(); n++; console.log("ok - " + name); };
@@ -159,6 +160,7 @@ await t("committed snapshot: gate passes with 0 blocking, debt reported separate
   assert.equal(rep.imageDebt.images.length, 2); assert.equal(rep.checks[0].imageDebt, 3);
   const st = JSON.parse(readFileSync(stampPath(repo, headSha(repo)), "utf8"));
   assert.equal(typeof st.imageDebtHash, "string"); assert.equal(st.imageDebt, 3);
+  writeHeavyStamp(repo, headSha(repo)); // D066: promotion also needs a green heavy run for HEAD
   assert.equal(verifyStamp(repo).ok, true);
   writeFileSync(stampPath(repo, headSha(repo)), JSON.stringify({ ...st, imageDebtHash: "0".repeat(64) }));
   assert.equal(verifyStamp(repo).ok, false); assert.match(verifyStamp(repo).reason, /image debt file changed/);
