@@ -97,6 +97,13 @@ One file, repo root, written by `/adopt-standard`, read by every plugin command.
   "loops": {
     "enabled": ["sweep-errors", "burn-backlog", "sweep-quality", "detect-drift"],
     "budgetPerCycle": { "turns": 40, "minutes": 20 }
+  },
+  "deps": {
+    // D064: a dependency kept behind the latest major. Each entry must cite a
+    // D### that exists in docs.decisions, or the hooks deny and the gate fails.
+    "exceptions": [
+      { "name": "eslint", "range": "^9", "decision": "D0xx", "why": "eslint-config-next peer range" }
+    ]
   }
 }
 ```

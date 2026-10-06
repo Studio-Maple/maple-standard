@@ -18,7 +18,7 @@ is (or becomes) one.
 
 | Tier | Contents | When |
 |---|---|---|
-| `fast` | eslint --max-warnings=0 → tsc → knip → depcruise → vitest → next build → docs-drift | inner loop |
+| `fast` | eslint --max-warnings=0 → tsc → knip → depcruise → vitest → next build → docs-drift → dep-freshness (D064; diff-scoped, registry lookup) | inner loop |
 | `gate` | fast + types-freshness + RLS suite + @smoke E2E | **pre-push (husky)** — you cannot push red |
 | `core` | fast + types-freshness + RLS + all E2E (desktop) | pre-merge |
 | `full` | core breadth + all E2E projects + pnpm audit | nightly |
@@ -103,5 +103,15 @@ size-warning, build-counter, scrub-secrets, deny-credential-paths,
 ask-gate, dirty-tree-guard, docs-sync-reminder, decision-reminder,
 parallel-session-warn. Git hooks (`.husky/`): staged lint+tsc + migration
 naming (pre-commit), the gate tier (pre-push).
+
+**Dependency freshness (D064).** Agents write versions from memory, so new
+dependencies land outdated. The plugin's `dep-version-guard` denies
+hand-written dependency versions in any `package.json` (use `pnpm add`);
+`bash-guard` denies `add pkg@<version>` behind the latest major; the fast-tier
+`check-dep-freshness` gate fails any dependency added/changed vs the target
+branch that is behind the latest major (0.x: minor), and fails when the
+registry is unreachable. pnpm `minimumReleaseAge: 1440` keeps "latest" safe.
+Exceptions live in `maple.config.json` `deps.exceptions[]`, each citing a
+D### in the decisions ledger.
 
 Full per-gate detail: the README's "What's enforced" table.

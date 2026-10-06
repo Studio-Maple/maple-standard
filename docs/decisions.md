@@ -14,6 +14,12 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D066 | 2026-10-06 | Gate v2: light landings, batched heavy runs, production unchanged
+Commit: staged lint only. Landing on dev: affected-only fast tier, no Docker; ready worktrees land as one batch via a queue that never steals a live lock. Heavy checks (live RLS, @smoke on a gate-only port, plugin integration suites, Jev audit - amends D059) run batched: before promotion and on a daily local schedule; dev may be red between runs. Prod keeps D060 plus a green heavy run on that sha and zero gate debt. Gate skips only for listed reasons, recorded as debt. One bash gate runner; ps1 is a shim.
+
+## D065 | 2026-10-06 | Hooks v2: plugin-only, one guard process per event
+Hooks live only in the plugin; a project copy fails the fast tier. Removed: eslint-fix, size-warning, build-counter (supersedes D003 project set; lint/size/types run at commit), the three Stop reminders, parallel-session-warn, ask-gate (supersedes the D054 hook). Remaining guards run in one process per event, Bash and PowerShell alike, adding: no --no-verify/hooksPath override, a deploy-guard baseline config cannot empty plus prod-branch pushes, prod Supabase MCP mutations denied, worktrees only under .worktrees.
+
 ## D064 | 2026-10-05 | New dependencies enter at the latest release, enforced at add-time
 Hand-edited dependency versions in package.json are hook-denied (use pnpm add); pinned installs behind the latest major are denied in bash-guard. A diff-scoped ci:fast check fails any added/changed dep not on the latest major unless an exception cites a D###. pnpm minimumReleaseAge keeps latest supply-chain-safe; Dependabot still handles drift of untouched deps.
 
