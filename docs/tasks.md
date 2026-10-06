@@ -15,7 +15,7 @@ A `#T` is for real future work, not a band-aid over rot you could fix now.
 
 ## Inbox
 
-- [ ] **#T15 — Pay D064's skipped live gate.** D064 landed with SKIP_LIVE_GATE=1: the template Supabase stack cannot bind its default ports here (Windows reserves 54207-54906 on this machine); a clean-checkout pnpm 12 install + next build passed instead. Move the template to a free port range (Gate v2, D066), then run the live tier (RLS + @smoke) on main and close this. Seed it as the first gate-debt entry.
+- [ ] **#T15 — Pay the skipped live gates.** D064 and D065 landed with SKIP_LIVE_GATE=1: the template Supabase stack cannot bind its default ports here (Windows reserves 54207-54906 on this machine); the full fast tier passed. Move the template to a free port range (Gate v2, D066), then run the live tier (RLS + @smoke) on main and close this. Seed both as gate-debt entries.
 
 - [ ] **#T14 — Give pi-run.mjs a supervised multi-turn mission loop.** plugin/scripts/jev/pi-run.mjs is single-shot (one prompt, one diff). Port MapleLens tools/jev/supervise.mjs + the fuller worktree.mjs (checkpoint/revert/patch cap) so jev-model-routing's pi executor can handle work that needs back-and-forth, not just well-scoped one-shot tasks.
 

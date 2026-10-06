@@ -14,7 +14,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|PowerShell|Read|Grep|Glob|Write|Edit|MultiEdit|mcp__.*",
+        "matcher": "Bash|PowerShell|Read|Grep|Glob|Write|Edit|MultiEdit|mcp__.*__(apply_migration|execute_sql|deploy_edge_function|merge_branch|reset_branch|rebase_branch|delete_branch|pause_project|restore_project)",
         "hooks": [
           {
             "type": "command",
