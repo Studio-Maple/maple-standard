@@ -6,6 +6,12 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Live scan never sends auth headers to third parties (plugin v0.10.9).** The `replacer.full_list(n)` auth-header rules had no URL scope, so ZAP
+  added every target's headers (e.g. the Cloudflare Access `CF-Access-Client-Id`/`-Secret` service token) to EVERY proxied request, including the
+  third-party fonts, CDNs, Turnstile and analytics the scanned pages load. Each rule now sets `.url` to an anchored regex of its own target's exact
+  scheme + host (+ port); foreign hosts, sibling subdomains, other ports/schemes, `host.evil`/`host@evil` lookalikes never match. Verified against
+  ZAP stable in Docker; regression test generates a multi-target plan and asserts no rule matches a foreign origin. Rotate any service token
+  configured in `liveScan.targets[].headers` that was used by a live scan on <= 0.10.8.
 - **Reap never destroys uncommitted work (plugin v0.10.8).** `maple-reap` removed any `agent/*` worktree whose branch was an ancestor of the target, with
   `git worktree remove --force` falling back to `rm -rf`. A fresh worktree (`-b agent/x origin/<target>`, zero commits) is trivially "merged", so its
   in-progress uncommitted edits were deleted. Reap now keeps, merged or `--force`d: any worktree with `git status --porcelain` output; a branch at the

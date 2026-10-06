@@ -40,6 +40,22 @@ const HEADER_NAME = /^[A-Za-z0-9-]+$/;
 const sq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
 /** Exit code the container script uses when an authenticated target rejects its credentials. */
 export const PREFLIGHT_EXIT = 97;
+const reEscape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const DEFAULT_PORT = { "http:": "80", "https:": "443" };
+
+/**
+ * Pure: the URL regex a target's auth-header replacer rule is scoped to — exactly that
+ * target's scheme + host (+ port), any path. Without it ZAP's replacer adds the header to
+ * EVERY request it proxies, including third-party fonts/CDNs/Turnstile/analytics the pages
+ * reference, which leaks the service token to them. Anchored both ends, so it means the
+ * same under Java's find() or matches(); "https://a.example.evil" and
+ * "https://a.example@evil" do not match. No commas (ZAP -config values are list-split).
+ */
+export function originRegex(url) {
+  const u = new URL(url);
+  const port = u.port ? `:${u.port}` : `(?::${DEFAULT_PORT[u.protocol]})?`;
+  return `^${reEscape(`${u.protocol}//${u.hostname}`)}${port}(?:[/?#].*)?$`;
+}
 
 /**
  * Pure: build the ZAP Automation Framework plan (JSON is valid YAML). The plan holds NO auth
@@ -47,7 +63,8 @@ export const PREFLIGHT_EXIT = 97;
  * the literal "${ZAPSCAN_H0}", so every authenticated target was scanned unauthenticated).
  * Auth headers are injected as ZAP `-config replacer.full_list(n).*` options that the
  * container's shell expands from `docker run -e` variables (containerScript). The plan has
- * no replacer job, because one with deleteAllRules would wipe those rules.
+ * no replacer job, because one with deleteAllRules would wipe those rules. Each rule is
+ * scoped to its own target's origin (originRegex), never global.
  */
 export function buildPlan(ls) {
   const dur = ls.maxDurationMin || 60;
@@ -61,12 +78,12 @@ export function buildPlan(ls) {
     contexts.push({
       name: t.id,
       urls: [t.url],
-      includePaths: [`^${origin.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(/.*)?$`],
+      includePaths: [`^${reEscape(origin)}(/.*)?$`],
       excludePaths: [...callEx, ...(t.excludeRegexes || []), ...(ls.extraExcludes || [])],
     });
     (t.headers || []).forEach((h) => {
       if (!HEADER_NAME.test(h.name)) throw new Error(`liveScan target ${t.id}: invalid header name ${JSON.stringify(h.name)}`);
-      envNames.push({ env: `ZAPSCAN_H${envNames.length}`, ref: h.credentialRef, target: t.id, name: h.name });
+      envNames.push({ env: `ZAPSCAN_H${envNames.length}`, ref: h.credentialRef, target: t.id, name: h.name, urlRegex: originRegex(t.url) });
     });
   });
   jobs.push({ type: "passiveScan-config", parameters: { scanOnlyInScope: true, maxAlertsPerRule: 0 } });
@@ -95,7 +112,7 @@ export function buildPlan(ls) {
  * 1. Preflight: curl each authenticated target's URL with its headers; 401/403, a redirect
  *    to Cloudflare Access, or no response aborts with PREFLIGHT_EXIT before any scanning.
  * 2. exec zap.sh with one `replacer.full_list(n)` rule per header (ZAP's documented way
- *    to add auth headers), then the plan.
+ *    to add auth headers), each limited by `.url` to its own target's origin, then the plan.
  */
 export function containerScript(ls, envNames) {
   const out = ["fail=0"];
@@ -114,6 +131,7 @@ export function containerScript(ls, envNames) {
     cfg.push(
       `-config ${sq(`${k}.description=${e.target}:${e.name}`)}`,
       `-config ${sq(`${k}.enabled=true`)}`,
+      `-config ${sq(`${k}.url=${e.urlRegex}`)}`,
       `-config ${sq(`${k}.matchtype=REQ_HEADER`)}`,
       `-config ${sq(`${k}.matchstr=${e.name}`)}`,
       `-config ${sq(`${k}.regex=false`)}`,

@@ -134,6 +134,43 @@ t("auth headers: -config replacer rules expanded in-container; secrets never in 
   assert.equal(containerScript({ targets: [{ id: "o", url: "https://o.example" }] }, []).includes("-config"), false);
   assert.throws(() => buildPlan({ ...ls(), targets: [{ id: "x", url: "https://x", headers: [{ name: "A: b\"; rm", credentialRef: "r" }] }] }), /invalid header name/);
 });
+// Regression (0.10.9): replacer rules had no URL scope, so ZAP added the Access service-token
+// headers to EVERY proxied request — including third-party fonts/CDNs/Turnstile/analytics the
+// scanned pages load — leaking the token. Each rule is now scoped to its own target's origin.
+t("auth headers: each replacer rule matches only its own target's origin, never a foreign one", () => {
+  const cfg = ls();
+  cfg.targets = [
+    { id: "dash", url: "https://dash.easy-call.co.il/login", headers: [{ name: "CF-Access-Client-Id", credentialRef: "Proj-Dash-Id" }, { name: "CF-Access-Client-Secret", credentialRef: "Proj-Dash-Secret" }] },
+    { id: "admin", url: "https://admin.easy-call.co.il", headers: [{ name: "CF-Access-Client-Id", credentialRef: "Proj-Admin-Id" }] },
+    { id: "api", url: "http://api.example:8443/v1", headers: [{ name: "X-T", credentialRef: "Proj-Api" }] },
+    { id: "pub", url: "https://easy-call.co.il" },
+  ];
+  const { envNames } = buildPlan(cfg);
+  const sh = containerScript(cfg, envNames);
+  // Read the url scope back out of the generated container script, as ZAP will receive it.
+  const scopes = envNames.map((e, i) => {
+    const m = sh.match(new RegExp(`-config 'replacer\\.full_list\\(${i}\\)\\.url=([^']*)'`));
+    assert.ok(m, `rule ${i} (${e.target}:${e.name}) has no url scope — it would be sent to every host`);
+    assert.ok(!m[1].includes(","), "ZAP list-splits -config values on commas");
+    return { ...e, re: new RegExp(m[1]) };
+  });
+  assert.equal(scopes.length, 4);
+  const own = { dash: ["https://dash.easy-call.co.il/", "https://dash.easy-call.co.il", "https://dash.easy-call.co.il/app/x?y=1", "https://dash.easy-call.co.il:443/a", "https://dash.easy-call.co.il?q"],
+    admin: ["https://admin.easy-call.co.il/", "https://admin.easy-call.co.il/users#x"],
+    api: ["http://api.example:8443/v1/x", "http://api.example:8443/"] };
+  const foreign = ["https://fonts.googleapis.com/css2?family=Heebo", "https://fonts.gstatic.com/s/x.woff2", "https://challenges.cloudflare.com/turnstile/v0/api.js",
+    "https://www.googletagmanager.com/gtag/js?id=G-1", "https://cdn.jsdelivr.net/npm/x", "https://easy-call.co.il/", "https://www.easy-call.co.il/",
+    "http://dash.easy-call.co.il/", "https://dash.easy-call.co.il:8443/", "https://dash.easy-call.co.il.evil.example/", "https://dash.easy-call.co.il@evil.example/",
+    "https://evil.example/?u=https://dash.easy-call.co.il/", "https://evil.example/https://admin.easy-call.co.il/", "https://dashXeasy-call.co.il/", "http://api.example/v1", "https://api.example:8443/v1"];
+  const all = [...Object.values(own).flat(), ...foreign];
+  for (const s of scopes) {
+    for (const u of all) {
+      const allowed = (own[s.target] || []).includes(u);
+      assert.equal(s.re.test(u), allowed, `${s.target}:${s.name} ${allowed ? "must" : "must NOT"} be sent to ${u}`);
+    }
+  }
+  assert.ok(!envNames.some((e) => e.target === "pub"), "a target without headers gets no rule");
+});
 t("auth rejection fails loudly: preflight 401/403/Access redirect/no response, or spider 401/403 on the target URL", () => {
   const cfg = ls(); cfg.targets.push({ id: "pub", url: "https://p.example" });
   const { envNames } = buildPlan(cfg);
