@@ -65,7 +65,13 @@ export function matchDeploy(command, patterns, shell = "bash") {
   return null;
 }
 
-const STATE_RE = /maple[\\/]predeploy[\\/]?(stamps|emergency|live-scans|deploys|reports)?|emergency\.json|deploys\.jsonl/i;
+// D066 adds the promotion inputs: heavy-pass stamps, heavy-run reports, the gate-debt ledger, the gate tier's
+// tree-bound pass stamps. All are written only by the gate runner's own processes, never by an agent's tool call.
+const STATE_RE = /maple[\\/]predeploy[\\/]?(stamps|emergency|live-scans|deploys|reports)?|maple[\\/]heavy-(pass|runs)|gate-debt\.jsonl|ci-gate-pass|emergency\.json|deploys\.jsonl/i;
+const STATE_WRITE_RE = /maple[\\/](predeploy|heavy-pass|heavy-runs)|gate-debt\.jsonl|ci-gate-pass/i;
+// `gate-cli stamp|pay` is how a green heavy run records itself; ci-local.sh calls it from inside the heavy tier,
+// which this hook never sees. An agent invoking it directly would mint a stamp without the run.
+const GATE_CLI_WRITE_RE = /gate-cli(\.mjs)?["']?\s+["']?(stamp|pay)\b/i;
 const PURE_READ_VERBS = new Set(["cat", "ls", "dir", "type", "head", "tail", "grep", "egrep", "rg", "get-content", "select-string", "gc", "sls", "wc", "findstr"]);
 
 export function touchesGateState(command, shell = "bash") {
@@ -152,7 +158,7 @@ export async function check(ctx) {
     const file = input.file_path || input.path || "";
     if (!file) return undefined;
     const abs = resolve(ctx.cwd, file);
-    if (STATE_RE.test(abs) && abs.includes(`maple${sep}predeploy`)) return { deny: stateWriteDenied() };
+    if (STATE_RE.test(abs) && STATE_WRITE_RE.test(abs)) return { deny: stateWriteDenied() };
     const rel = relative(root, abs).split(sep).join("/");
     const norm = (v) => String(v).replace(/\\/g, "/");
     if (rel === norm(pd.decisions)) {
@@ -169,7 +175,10 @@ export async function check(ctx) {
 
   if (!isShell || !ctx.command) return undefined;
   if (touchesGateState(ctx.command, ctx.shell)) {
-    return { deny: "BLOCKED (predeploy-guard): this command touches the gate's state directory (maple/predeploy). Stamps, the deploy ledger and the emergency override are written only by the gate runner / the owner's interactive override." };
+    return { deny: "BLOCKED (predeploy-guard): this command touches the gate's state (maple/predeploy, heavy stamps, gate debt, pass stamps). It is written only by the gate runner / the owner's interactive override." };
+  }
+  if (GATE_CLI_WRITE_RE.test(ctx.command)) {
+    return { deny: "BLOCKED (predeploy-guard): heavy stamps and debt payments are recorded only by a green heavy run (`pnpm ci:heavy`), never by calling gate-cli stamp/pay directly." };
   }
 
   const hit = matchDeploy(ctx.command, effectivePatterns(pd.deployGuard?.patterns), ctx.shell) || prodPushHit(ctx, root, cfg, pd);

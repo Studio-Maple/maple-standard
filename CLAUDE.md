@@ -91,9 +91,10 @@ route/page 500 — **decompose, never raise the cap**. `ui/` primitives and test
 ## Testing
 
 Vitest unit + component tests (`pnpm test`) · Playwright E2E in `e2e/`
-(`@smoke` tag = the fast pre-push subset) · live-boundary RLS tests in
-`supabase/tests/` (rule 3). Tiers: `pnpm ci:fast` / `ci:gate` / `ci:core` /
-`ci:full` (Windows: `ci:*:win`).
+(`@smoke` = the quick subset; heavy runs all desktop specs) · live-boundary RLS tests in
+`supabase/tests/` (rule 3). Tiers: `pnpm ci:fast` (complete) / `ci:gate` (affected-only;
+what pushes and `/wt-land` run; no Docker) / `ci:heavy` (live RLS + E2E +
+integration suites + Jev audit; daily and before promotion) (Windows: `ci:*:win`).
 
 ## Secrets handling (zero-trust toward agent logs)
 

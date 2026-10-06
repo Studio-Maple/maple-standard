@@ -34,7 +34,8 @@ All notable changes to this project. Format loosely follows
   **(12) dogfood** - a root `maple.config.json` (ci.tiers fast/gate/heavy, single-branch `main`) so `/wt-land` works in this repo. Tests: `pnpm test:plugin-gate`
   (skip validation, debt record/pay/verify, promotion, heavy stamps, docs-touched, bash finder, ps1 shim), `lock-safety.test.mjs`, `land-queue.integration.test.mjs`
   (FIFO + one gate, conflict return, bisect, live lock never stolen, dead lander dropped, `--no-push`), `heavy-run.integration.test.mjs`, plus the predeploy e2e
-  promotion cases. Consumers: see "Consumer migration (D066)" in `plugin/README.md`.
+  promotion cases. The D065 deploy guard protects the new state too: hand-written heavy stamps, gate-debt edits, forged gate pass
+  stamps and direct `gate-cli stamp|pay` calls are denied, so a promotion stamp exists only if a heavy run produced it. Consumers: see "Consumer migration (D066)" in `plugin/README.md`.
 - **Hooks v2 (plugin v0.12.0, D065).** Hooks live only in the plugin and cost one process per call. Removed: the three Stop reminders
   (dirty-tree-guard, docs-sync-reminder, decision-reminder), parallel-session-warn (the husky pre-commit warning stays), ask-gate (supersedes the D054 hook and
   its nested `claude -p` judge) and the template's project copies and registrations (eslint-fix, size-warning, build-counter: measured 14-22 s per .ts edit and

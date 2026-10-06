@@ -126,8 +126,8 @@ Check for:
 - The project's current branch and, if resolvable, the origin default branch
   (`git symbolic-ref refs/remotes/origin/HEAD`).
 - Whether `package.json` exists and what scripts it defines (informs the
-  `ci.tiers.*` guess in step 2 — look for a `ci:fast`/`ci:gate`/`ci:core`/
-  `ci:full` naming convention specifically, matching this template's own).
+  `ci.tiers.*` guess in step 2 — look for a `ci:fast`/`ci:gate`/`ci:heavy`
+  naming convention specifically, matching this template's own).
 
 ### 2. Write `maple.config.json`
 
@@ -196,10 +196,10 @@ couldn't safely infer or detect unambiguously. Cover at least:
       the file, say it likely needs a `.worktrees` exclusion, and don't
       touch it. Never silently skip a file that clearly globs the tree —
       an unflagged one is worse than an unstamped one.
-- **CI tier commands** (`ci.tiers.fast`/`.gate`/`.core`/`.full`, and
+- **CI tier commands** (`ci.tiers.fast`/`.gate`/`.heavy`, and
   `ci.prePushTier` — which tier `/wt-land` runs by default). Guess from
-  `package.json` scripts if they follow the `ci:fast`/`ci:gate`/`ci:core`/
-  `ci:full` convention; otherwise ask, and accept "none yet" as a valid
+  `package.json` scripts if they follow the `ci:fast`/`ci:gate`/`ci:heavy`
+  convention (D066); otherwise ask, and accept "none yet" as a valid
   answer for any tier — `/wt-land` simply refuses to land with that tier
   until one is configured, per its own design (it never invents a gate
   command).
