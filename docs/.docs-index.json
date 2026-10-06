@@ -37,6 +37,7 @@
       ],
       "anchor_type": "code",
       "anchor_paths": [
+        "supabase/config.toml",
         "plugin/scripts/docker/dstack.ps1",
         "plugin/commands/docker-audit.md",
         "~/.claude/commands/docker-audit.md",
@@ -172,18 +173,25 @@
       "anchor_paths": [
         "scripts/ci-local.sh",
         "scripts/ci-local.ps1",
+        "scripts/run-gate.mjs",
         ".husky/pre-commit",
         ".husky/pre-push",
         "eslint.config.mjs",
         ".dependency-cruiser.cjs",
         "knip.jsonc",
+        "vitest.config.ts",
+        "e2e/playwright.config.ts",
+        "maple.config.json",
         "scripts/check-docs-drift.mjs",
         "scripts/check-types-fresh.mjs",
-        "plugin/scripts/prepush/prepush-lib.sh"
+        "plugin/scripts/prepush/prepush-lib.sh",
+        "plugin/scripts/gate",
+        "plugin/scripts/agent-wt/maple-land.sh",
+        "plugin/scripts/agent-wt/maple-queue.sh",
+        "plugin/scripts/docs/check-docs-touched.mjs"
       ],
       "related": [
-        "../CLAUDE.md",
-        "quality-gate"
+        "../CLAUDE.md"
       ]
     },
     {

@@ -109,8 +109,8 @@ pnpm dev            # http://localhost:3000
 7. **Local env**: `cp .env.example .env.local`, fill in. Never commit it;
    agents are hook-blocked from reading it.
 8. **Sanity check**: `pnpm ci:fast` green → first commit → push (pre-push
-   runs the gate; use `SKIP_LIVE_GATE=1` until Docker/Supabase local is set
-   up) → check `docs/tasks.md` `#T1` off the list.
+   runs the affected-only gate - no Docker needed; the live RLS/E2E tier is
+   `pnpm ci:heavy`, batched, see docs/quality.md) → check `docs/tasks.md` `#T1` off the list.
 
 ## What's enforced, and by what
 
@@ -125,11 +125,12 @@ pnpm dev            # http://localhost:3000
 | vitest | unit + component tests (jsdom + testing-library + MSW) | fast tier, quality.yml |
 | `next build` | the app actually builds | fast tier, quality.yml |
 | docs-drift (`check-docs-drift.mjs`) | no dead `Code:` paths, no broken wikilinks, fresh `.docs-index.json`, no ID collisions, entry length caps | fast tier, quality.yml |
-| types-freshness (`check-types-fresh.mjs`) | `database.types.ts` matches the migration schema | gate tier, supabase-migrations.yml |
-| RLS suite (`supabase/tests/`) | policies tested from the real anon client context against live local Supabase | gate tier |
-| Playwright `@smoke` | the app boots and core flows respond | gate tier |
+| types-freshness (`check-types-fresh.mjs`) | `database.types.ts` matches the migration schema | heavy tier, supabase-migrations.yml |
+| RLS suite (`supabase/tests/`) | policies tested from the real anon client context against live local Supabase | heavy tier |
+| Playwright E2E (`@smoke` + specs) | the app boots and core flows respond, on a gate-only port | heavy tier |
 | migration naming | `YYYYMMDDHHMMSS_description.sql` | pre-commit |
-| pre-push = gate tier | you cannot push red (`SKIP_LIVE_GATE=1` for no-Docker boxes — never `--no-verify`) | husky |
+| pre-push = gate tier | you cannot push red: affected-only fast tier, no Docker (a genuinely impossible step is skipped only via a verified `MAPLE_GATE_SKIP=<reason>`, recorded as gate debt - never `--no-verify`) | husky |
+| heavy tier + promotion | production promotion needs a green heavy run on the exact commit and zero unpaid gate debt | `pnpm ci:heavy`, scheduled `heavy-run.mjs`, predeploy verify |
 
 ### Cloud CI
 

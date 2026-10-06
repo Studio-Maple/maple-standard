@@ -28,9 +28,58 @@ single-package project.
 | `/todo`, `/project-status`, `/session-end`, `/represent`, `/review-aspect` | The **session commands** — open-task list, status board, session close-out (log + tasks + docs gate), a plain-English "where are we" orientation, and a single-aspect code review. All docs-shape-agnostic and allocator-aware; previously machine-local under `~/.claude/commands/`, now bundled so every adopting project gets them. |
 | `/predeploy-gate` | The **enforced pre-deploy gate** (D060): zero-findings checks (local scanners + one remote workflow), expiring allowlist + permanent decision-backed exceptions (D061, essentials only) + dated, shrink-only third-party image debt (D063), sha-bound stamp, `predeploy-guard` hook that blocks deploy commands without a stamp, `doctor`, and the aggressive post-deploy live ZAP scan. See `docs/predeploy-gate.md`. |
 | `plugin/scripts/prepush/prepush-lib.sh` | The **affected-only pre-push gate toolkit** (v0.10.0): source it from a project's `ci-local.sh` to select checks from the push range (`pp_want` / `pp_want_graph` / `pp_list_*`, one "ran / skipped (reason)" line per step), fail closed to FULL (no range, `--full`, gate scripts / lockfiles / shared configs), keep a tree-sha-bound pass stamp under `.git/ci-gate-pass/` so `/wt-land` + the push it makes run the gate once, keep per-checkout caches, and cap concurrent heavy gates machine-wide with a stale-safe slot semaphore (`MAPLE_GATE_SLOTS`, default 2). Selection is builtins-only (a fork costs seconds under load). Companion `install-hooks.mjs` makes the git hooks fail closed in every worktree (absolute `core.hooksPath` into the git common dir; see `docs/quality.md`). Vendor the file into a project (EasyCaller: `scripts/lib/prepush-lib.sh`); `node plugin/scripts/prepush/run-tests.mjs` proves the fail-closed rules. |
+| `plugin/scripts/gate/`, `plugin/scripts/agent-wt/maple-queue.sh` | **Gate v2** (D066, v0.12.0): `heavy-run.mjs` (the scheduled heavy tier in a temporary worktree: stamp on green, failure report otherwise), `gate-cli.mjs` / `gate-state.mjs` (verified `MAPLE_GATE_SKIP` reasons, the gate-debt ledger `gate-debt.jsonl`, heavy stamps `heavy-pass/<sha>.json`, the production-promotion requirement used by `predeploy` verify), `run-suite.mjs` (unit vs `*.integration.test.*` split), `find-bash.mjs` (Git Bash, never WSL); the **landing queue** behind `/wt-land` (FIFO batch, one gate, bisect on red, locks never stolen from a live pid); `plugin/scripts/docs/check-docs-touched.mjs` (non-blocking docs-sync warning at landing). See `docs/quality.md` and "Gate v2 - consumer migration" below. `pnpm test:plugin-gate`, `pnpm test:plugin-integration`. |
 | `plugin/skills/credential-manager` | The **credential skill** — read secrets from the OS credential store (Windows Credential Manager) just-in-time for local commands, instead of reading `.env*` (which `deny-credential-paths.mjs` blocks anyway) or asking the owner to paste a value. Pairs with that hook: the hook closes the wrong path, the skill supplies the right one. |
 | `plugin/hooks/guards/dep-version-guard.mjs`, `plugin/scripts/deps/` | **Dependency freshness** (D064, v0.11.0): agents write versions from memory, so new deps land outdated. A guard (inside the PreToolUse dispatcher) denies hand-writing a dependency (added or re-specced) in any `package.json` — use `pnpm add <pkg>`; the bash guard denies `pnpm/npm/yarn/bun add pkg@<version>` behind the latest major (0.x: minor; registry lookup, fail-open with a warning); `plugin/scripts/deps/check-dep-freshness.mjs` is the diff-scoped **ci:fast** gate (every dep added/changed vs the target branch must be at the latest major; honors pnpm `minimumReleaseAge`; unreachable registry fails). Exceptions: `deps.exceptions[]` in `maple.config.json`, each citing a `D###` that exists in the decisions ledger. Consumers wire the gate into their fast tier via `/adopt-standard` (step 6b). `node plugin/scripts/deps/run-tests.mjs` (`pnpm test:plugin-deps`). |
 | `plugin/hooks/hooks.json` | **Hooks v2 (D065, v0.12.0)** — three registrations, nothing per-turn: ONE PreToolUse dispatcher `plugin/hooks/guard.mjs` (matcher `Bash|PowerShell|Read|Grep|Glob|Write|Edit|MultiEdit` plus only the mutating Supabase MCP tool names, so read-only MCP calls spawn nothing) that lazy-loads only the guard modules a tool needs from `plugin/hooks/guards/` and runs them in-process (first deny wins; the no-op path spawns no child process), `scrub-secrets` (PostToolUse: Bash/PowerShell/Read/Grep), and the `SubagentStop` validator. Guards: **bash-guard** (cwd anchor with `/c/...`, `C:/...`, `C:\...` normalised; foreground push; double-force `git clean`; install freshness), **hook-bypass** (`--no-verify`, `git commit -n`, `core.hooksPath` via `-c` or `git config`, `HUSKY=0`, `--no-gpg-sign`, `commit.gpgsign=false`), **deny-credential-paths** (Read/Grep/Glob paths, plus ANY shell verb naming `.env`, `.env.*`, `.dev.vars`, `.credentials.json`, ssh keys, private `.pem`; `*.example|sample|template` exempt), **deploy-guard** (the D060 stamp gate: a built-in baseline `wrangler deploy|pages deploy`, `supabase db push|functions deploy`, `terraform apply`, `vercel --prod` that config can only ADD to, a `git push` to `repo.prodBranch`, gate-state tampering, fail-closed on its own deadline), **mcp-guard** (mutating Supabase MCP tools only on a listed `supabase.devProjectRefs` project), **worktree-guard** (`git worktree add` only under `<main-root>/.worktrees/` or `.claude/worktrees/`, never nested), **loop-budget-guard** (cheap fs sentinel first), **dep-version-guard** (D064). All of them read Bash and PowerShell through one quote/heredoc-aware tokenizer (`guards/shell.mjs`), so a commit MESSAGE that mentions a flag is not blocked. Removed: dirty-tree-guard, docs-sync-reminder, decision-reminder, parallel-session-warn, ask-gate. Tests: `node plugin/scripts/hooks/run-tests.mjs` (`pnpm test:plugin-hooks`); `plugin/scripts/hooks/check-hook-wiring.mjs` (fast tier) fails a project that registers a copy. |
+
+## Gate v2 - consumer migration (D066, plugin v0.12.0)
+
+D066 moves the expensive checks out of every landing into a batched **heavy** tier, keeps production promotion
+strict, and makes the landing queue safe. A project that adopted the standard (VeHagita, EasyCaller/Caller, MapleLens,
+Nekuda) migrates once; nothing here can be skipped without leaving the production deploy guard red.
+
+**1. Plugin scripts.** Update the plugin (version 0.12.0). The gate scripts live in `plugin/scripts/gate/`
+(`gate-cli.mjs`, `gate-state.mjs`, `heavy-run.mjs`, `run-suite.mjs`, `find-bash.mjs`); the landing queue in
+`plugin/scripts/agent-wt/maple-queue.sh`; `plugin/scripts/docs/check-docs-touched.mjs`.
+
+**2. `ci-local.sh` (every project has a copy of the template's).** Re-copy the template's `scripts/ci-local.sh` and
+re-apply the project's own steps, or port the changes by hand: three tiers `fast | gate | heavy` (drop `core`/`full`);
+`gate` has **no live tier and no Docker**; add the heavy tier (full fast + integration suites + stack-on-demand + live
+RLS/E2E + Jev audit + stamp via `node <plugin>/scripts/gate/gate-cli.mjs stamp`); replace `SKIP_LIVE_GATE` handling with
+`gate_skip <step>` (calls `gate-cli.mjs skip`); move single-tool configs (`knip.json*`, `.dependency-cruiser*`,
+`.gitleaks.toml`) out of `PP_FULL_RE` into their own steps; set `PLUGIN_DIR` (or `MAPLE_PLUGIN_DIR`) so the script finds
+`scripts/gate/`. Print the docs-touched warning at the end of `gate`.
+
+**3. `prepush-lib.sh` (vendored copies, e.g. EasyCaller `scripts/lib/prepush-lib.sh`).** Replace with the plugin's
+canonical file (keep byte-identical): it adds `pp_sleep` (sandbox-safe sleep), the never-rob-a-live-pid lock rule
+(`PP_LOCK_GRACE` replaces `PP_LOCK_TTL`) and per-step timings in `pp_summary`. Vendored copies that still call `sleep`
+crash under the Claude Code Bash sandbox.
+
+**4. `ci-local.ps1`.** Replace with the template's shim (finds Git Bash, execs `ci-local.sh`); delete the PowerShell
+mirror logic. `package.json`: `ci:fast|gate|heavy` -> `node scripts/run-gate.mjs <tier>` (copy `scripts/run-gate.mjs`), `ci:*:win` -> the shim;
+remove `ci:core` / `ci:full`.
+
+**5. `maple.config.json`.** Add `ci.tiers.heavy` (e.g. `"pnpm ci:heavy"`); keep `ci.prePushTier: "gate"`. `quality.jevAudit`
+now runs in the heavy tier, not in `/wt-land`. `worktrees.lock.ttlSeconds` is ignored. Production/dev branch keys unchanged.
+
+**6. Husky.** Re-copy `.husky/pre-commit` (staged-file lint + migration naming, no tsc) and `.husky/pre-push` (messages).
+
+**7. Test suites.** Rename slow suites to `*.integration.test.*` and have their runner use `plugin/scripts/gate/run-suite.mjs`
+(or equivalent): the unit set runs in fast/gate, the integration set only in heavy.
+
+**8. Playwright.** `webServer` on a gate-only port (`E2E_PORT`, default 3100), `reuseExistingServer: false`,
+`E2E_SKIP_BUILD=1` honoured; never kill anything on 3000.
+
+**9. Supabase ports.** If the project's `supabase/config.toml` still uses the CLI's `5432x` defaults and Windows reserves them,
+pin every port to an unreserved block (template: 5632x) and update the references (tests, workflow `--db-url`, `.env.example`).
+
+**10. Vitest.** Optional speed-up: `node` + `jsdom` projects.
+
+**11. Schedule + stamp.** Register `heavy-run.mjs` with Task Scheduler (owner-run, see `docs/quality.md`) and run
+`pnpm ci:heavy` once so the first production promotion has a stamp for HEAD. `predeploy verify` now refuses a deploy without
+a green heavy stamp for HEAD and with unpaid gate debt. Replace any `SKIP_LIVE_GATE=1` habit with
+`MAPLE_GATE_SKIP=docker-unavailable` (verified, recorded, paid by the next green heavy run).
 
 ## How updates propagate
 
@@ -135,7 +184,7 @@ branch falls back to the origin's detected default branch
 | `worktrees.preview.workdir` | `"."` | dir (relative to the worktree) the preview command runs in |
 | `worktrees.preview.command` | `"npm run dev -- --port {port} --host 127.0.0.1"` | `{port}` substituted |
 | `worktrees.preview.logFile` | `".preview-dev.log"` | relative to the preview worktree |
-| `worktrees.lock.ttlSeconds` | `1800` | plugin extension — stale-lock steal threshold |
+| `worktrees.lock.ttlSeconds` | — | **ignored since D066** — a land lock is never stolen from a live pid (stale only when its holder pid is dead); still accepted by the schema |
 | `worktrees.lock.waitSeconds` | `300` | total queue-wait before `/wt-land` gives up — kept well under a typical Bash-call timeout |
 | `worktrees.lock.pollSeconds` | `5` | lock poll interval |
 | `worktrees.reap.staleHours` | `24` | idle threshold for `/wt-reap --force` |
@@ -144,7 +193,7 @@ branch falls back to the origin's detected default branch
 
 | Key | Default | Notes |
 |---|---|---|
-| `ci.tiers.<name>` | **none** | shell command string run as the gate for that tier (conventionally `fast`/`gate`/`core`/`full`) — **required** for any tier you invoke; `/wt-land` refuses to land ungated rather than guess. Replaces the old invented `worktree.gate.tiers.<name>` key. |
+| `ci.tiers.<name>` | **none** | shell command string run as the gate for that tier (conventionally `fast`/`gate`/`heavy`) — **required** for any tier you invoke; `/wt-land` refuses to land ungated rather than guess. Replaces the old invented `worktree.gate.tiers.<name>` key. |
 | `ci.prePushTier` | `"gate"` | which tier `/wt-land` runs with no `--tier`. Replaces the old `worktree.gate.defaultTier`. |
 
 ### `lint.*` / `sizeCaps.*` — reserved, not yet read by any bundled plugin code

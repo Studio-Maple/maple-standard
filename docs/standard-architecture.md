@@ -75,8 +75,7 @@ One file, repo root, written by `/adopt-standard`, read by every plugin command.
     "tiers": {
       "fast": "npm run ci:fast",
       "gate": "npm run ci:gate",
-      "core": "npm run ci:core",
-      "full": "npm run ci:full"
+      "heavy": "npm run ci:heavy"
     },
     "prePushTier": "gate"
   },

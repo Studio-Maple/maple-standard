@@ -3,10 +3,10 @@ type: guide
 title: Docker — local stacks run on demand, never at boot
 description: why local Supabase/Docker stacks were auto-starting on every boot, the one-line fix that also makes idle-time honest, and the 14-day archive-candidate rule enforced via /docker-audit.
 tags: [docker, supabase, local-dev, infra]
-timestamp: 2026-08-30
+timestamp: 2026-10-06
 audience: anyone running local Supabase stacks, or wondering why Docker Desktop is busy at login
 authoritative_for: [the on-demand-only restart policy, the stack last-used definition, and the 14-day archive rule]
-code: [plugin/scripts/docker/dstack.ps1, plugin/commands/docker-audit.md, ~/.claude/commands/docker-audit.md, ~/.claude/docker-stacks.json]
+code: [supabase/config.toml, plugin/scripts/docker/dstack.ps1, plugin/commands/docker-audit.md, ~/.claude/commands/docker-audit.md, ~/.claude/docker-stacks.json]
 ---
 # Docker — local stacks run on demand, never at boot
 
@@ -121,3 +121,41 @@ there's no direct container -> project-directory mapping to read back off
 Docker. An optional registry at `~/.claude/docker-stacks.json` (stack name
 -> project directory) fills that gap for `dstack ls` and `/docker-audit`
 when a stack's config.toml isn't enough to resolve it on its own.
+
+## Template stack ports - the 5632x block (D066)
+
+On Windows, TCP `54207-54906` can be a **dynamic excluded port range** (`netsh interface ipv4 show excludedportrange
+protocol=tcp`), which covers the Supabase CLI's default `5432x` ports - `supabase start` then cannot bind and the live
+gate can never run on that machine (D064 landed with its live tier skipped for exactly this reason; it is recorded as
+gate debt, #T15, and paid by the first green heavy run). Other ranges reserved on this machine: `50000-50359`,
+`50480-50579`, `55320-55331` (VeHagita's administered exclusion), `60142-60241`, `61035-61134`.
+
+The template's `supabase/config.toml` therefore pins **every** port the CLI binds to `56320-56329`:
+
+| Service | Port |
+|---|---|
+| shadow DB (`[db].shadow_port`) | 56320 |
+| API (`[api].port`) | 56321 |
+| DB (`[db].port`) | 56322 |
+| Studio (`[studio].port`) | 56323 |
+| local SMTP (`[local_smtp].port`) | 56324 |
+| analytics (`[analytics].port`, disabled) | 56327 |
+| pooler (`[db.pooler].port`, disabled) | 56329 |
+
+Blocks in use on this machine: template 5632x, VeHagita 5532x, Caller 5832x. A project instantiated from the template
+picks an unused block. References that follow the config: `supabase/tests/local-defaults.mjs` (`SUPABASE_URL`
+default), `.github/workflows/supabase-migrations.yml` (`--db-url`), `.env.example`.
+
+**Owner-run, one time, elevated PowerShell** - make the block an *administered* exclusion so Windows' dynamic range can
+never grow into it (it fails harmlessly if something already holds a port in the block; check first with the `netsh ...
+show excludedportrange` command above):
+
+```powershell
+netsh int ipv4 add excludedportrange protocol=tcp startport=56320 numberofports=10
+```
+
+The heavy tier (`pnpm ci:heavy`, see [[quality]]) is the only thing that starts the template stack: on demand, with the
+restart policies stripped (`docker update --restart=no`), `db reset` for a clean schema, and **stopped again if the run
+started it** (an already-running stack of the same `project_id` is reused and left running). If the ports still cannot
+be bound, the run fails and tells you to use `MAPLE_GATE_SKIP=docker-unavailable` - which is verified (`docker info`
+fails or a port is unbindable), recorded as gate debt, and blocks production promotion until a green heavy run pays it.

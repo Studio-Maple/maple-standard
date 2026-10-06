@@ -5,12 +5,42 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Gate v2: light landings, batched heavy runs, production unchanged (plugin v0.13.0, D066).** Evidence (2026-10-05/06): one green fast tier took 6 attempts over
+  hours - all environment failures, zero code failures (global pnpm mismatch; PowerShell's `bash` was WSL; `ci-local.ps1` and `.sh` disagreed; the Claude Code
+  sandbox denies `/usr/bin/sleep`; 75-153 s gate-slot queues), "fast" ran minutes-long integration suites whenever `plugin/` changed, `maple-land` held one lock
+  across rebase->gate->push and **stole it from a live holder after 900 s** while consumer gates take 11-95 min, and `SKIP_LIVE_GATE` recorded nothing.
+  What changed: **(1) stages** - pre-commit is staged-file lint (`--max-warnings=0 --no-warn-ignored`) + the migration-name check, no `tsc`; `gate` (pre-push and
+  landing) is the affected-only fast tier with no Docker, no live tier and no plugin integration suites; new **`heavy`** tier = fast (complete) + plugin integration
+  suites + types-freshness + live RLS + all desktop E2E + Deno typecheck + Jev audit (moved out of `maple-land`, amending D059) + dep-freshness since the last heavy
+  pass; `core`/`full` are folded into it and removed. Plugin suites split by file name (`*.integration.test.*` = heavy only; shared runner
+  `plugin/scripts/gate/run-suite.mjs`). The summary table now shows per-step seconds and the wall time. **(2) heavy runs** - `plugin/scripts/gate/heavy-run.mjs`
+  fetches the target tip, runs `ci.tiers.heavy` in a detached `.worktrees/_heavy-<sha8>` worktree (removed via `maple_remove_worktree`, D012), writes
+  `<git-common-dir>/maple/heavy-pass/<sha>.json` on green (or a report under `heavy-runs/` on failure); Docker stays on demand (D052: started if needed, restart
+  policies stripped, stopped again if the run started it). The Task Scheduler registration is in `docs/quality.md` (owner-run). **(3) promotion** - `predeploy`
+  verify additionally requires a green heavy stamp for the exact HEAD and zero unpaid gate debt, on top of everything D060 required. **(4) gate debt** -
+  `MAPLE_GATE_SKIP=<reason>` replaces `SKIP_LIVE_GATE` and accepts only `docker-unavailable` (verified: `docker info` fails or a stack port is unbindable) and
+  `registry-unreachable`; each honoured skip appends `{sha, branch, step, reason, at, who}` to `<git-common-dir>/maple/gate-debt.jsonl`, an unlisted reason
+  fails, and a green heavy run on a sha containing the commits pays the debt (a run with any skip writes no stamp). **(5) landing queue** - `maple-land` enqueues;
+  the first lander becomes the queue owner, rebases every queued branch FIFO in a throwaway `.worktrees/_land` worktree (a conflicting branch is returned), runs ONE
+  gate on the combined tip, fast-forward-pushes, and on a red gate bisects to the breaking branch (returned) and lands the rest. **A lock is never taken from a live
+  pid** (stale only when its holder is dead; the corrupted-meta safety stays; `worktrees.lock.ttlSeconds` is now ignored; the per-checkout gate lock follows
+  the same rule). **(6) one runner** - `scripts/ci-local.sh` is canonical; `ci-local.ps1` is a shim that finds Git Bash (never WSL) and execs it; `pnpm ci:*` go
+  through `scripts/run-gate.mjs` for the same reason. **(7) sandbox-safe waits** - `pp_sleep` / `maple_sleep` fall back to `read -t` over a private FIFO when
+  `/usr/bin/sleep` is denied. **(8) E2E** - Playwright serves the gate's own `next start` build on port 3100 (`E2E_PORT`, `reuseExistingServer: false`, build once
+  per heavy run via `E2E_SKIP_BUILD=1`); port 3000 is never touched. **(9) template ports** - `supabase/config.toml` moves every port to the 5632x block (Windows
+  reserves 54207-54906 here); `docs/docker.md` has the owner-run `netsh` administered-exclusion command. **(10) faster fast tier** - vitest `node` + `jsdom`
+  projects; `knip.jsonc`, `.dependency-cruiser.cjs` and `.gitleaks.toml` escalate only their own step instead of the whole gate. **(11) docs-sync at landing** -
+  `plugin/scripts/docs/check-docs-touched.mjs` (frontmatter `code:` ownership) prints a non-blocking warning in the gate summary, replacing the Stop-hook reminder.
+  **(12) dogfood** - a root `maple.config.json` (ci.tiers fast/gate/heavy, single-branch `main`) so `/wt-land` works in this repo. Tests: `pnpm test:plugin-gate`
+  (skip validation, debt record/pay/verify, promotion, heavy stamps, docs-touched, bash finder, ps1 shim), `lock-safety.test.mjs`, `land-queue.integration.test.mjs`
+  (FIFO + one gate, conflict return, bisect, live lock never stolen, dead lander dropped, `--no-push`), `heavy-run.integration.test.mjs`, plus the predeploy e2e
+  promotion cases. Consumers: see "Consumer migration (D066)" in `plugin/README.md`.
 - **Hooks v2 (plugin v0.12.0, D065).** Hooks live only in the plugin and cost one process per call. Removed: the three Stop reminders
   (dirty-tree-guard, docs-sync-reminder, decision-reminder), parallel-session-warn (the husky pre-commit warning stays), ask-gate (supersedes the D054 hook and
   its nested `claude -p` judge) and the template's project copies and registrations (eslint-fix, size-warning, build-counter: measured 14-22 s per .ts edit and
   a 40 s `tsc` every fifth, invisible to the model; lint, size and types run at commit and in the gate tiers). The seven duplicated plugin hooks in
   `.claude/settings.json` are gone (only the SessionStart branch echo remains). `plugin/hooks/guard.mjs` is now the single PreToolUse hook (matcher
-  `Bash|PowerShell|Read|Grep|Glob|Write|Edit|MultiEdit|mcp__.*`): it lazy-loads the guard modules a tool needs from `plugin/hooks/guards/` and runs them in
+  `Bash|PowerShell|Read|Grep|Glob|Write|Edit|MultiEdit` plus the mutating Supabase MCP tool names): it lazy-loads the guard modules a tool needs from `plugin/hooks/guards/` and runs them in
   one process, first deny wins, no child process on the no-op path (loop-budget-guard checks an fs sentinel before any git call). One quote- and heredoc-aware
   shell tokenizer (`guards/shell.mjs`) serves Bash and PowerShell, so a commit message that mentions a flag is data. New: `hook-bypass` (no `--no-verify`/`-n`,
   `core.hooksPath`, `HUSKY=0`, `--no-gpg-sign`, `commit.gpgsign=false`); credential reads from any shell verb plus `.dev.vars`, private `.pem`, example/sample/template
