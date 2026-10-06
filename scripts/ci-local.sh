@@ -251,9 +251,19 @@ ensure_stack() {
   if stack_up; then echo "(local Supabase stack already running - using it)"; return 0; fi
   echo "starting the local Supabase stack (on demand; stopped again when this run ends)..."
   STACK_STARTED=1
-  pnpm exec supabase start || return 1
+  # stdout carries the local keys and URLs (status -o env); a gate log must not. Errors stay on stderr.
+  pnpm exec supabase start >/dev/null || return 1
   strip_restart_policies
-  pnpm exec supabase db reset || return 1
+  # A cold start from an existing volume ("Starting database from backup") can report up before the
+  # database accepts the reset; on a loaded box the first reset then dies with DbSetupError. Wait for
+  # status, then allow exactly one more reset - this is stack setup, not a test, so it is not a retry
+  # of anything the gate judges.
+  if ! pnpm exec supabase db reset >/dev/null; then
+    echo "db reset failed right after start - waiting for the stack, then one more attempt..."
+    local waited=0
+    until stack_up || [ "$waited" -ge 60 ]; do pp_sleep 5; waited=$(( waited + 5 )); done
+    pnpm exec supabase db reset >/dev/null || return 1
+  fi
 }
 
 stop_stack_if_ours() {
