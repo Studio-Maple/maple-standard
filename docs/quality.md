@@ -121,11 +121,24 @@ inside a landing (it is a heavy-tier step; D066 amends D059).
 live tier -> Deno typecheck -> Jev audit (`quality.jevAudit.enabled`, changed functions since the last heavy pass) ->
 `pnpm audit`.
 
-- **Live tier.** Local Docker stays on demand (D052): heavy starts the Supabase stack only if it is not already up,
-  strips the restart policies (`docker update --restart=no`), `db reset`s it, runs types-freshness + the RLS suite, and
-  **stops it again if it started it**. Playwright runs `next start` of the heavy run's own build (built once;
-  `E2E_SKIP_BUILD=1`) on **port 3100** (`E2E_PORT`), `reuseExistingServer: false` - it can never pass against another
-  checkout's dev server, and nothing on port 3000 is touched.
+- **Live tier (isolated stack, D071).** Heavy never touches a dev stack. With `ci.stack` in `maple.config.json`
+  (`{ "portBase": 56420 }`, optional `projectId`, default `<dev project_id>-ci`), `scripts/ci-local.sh` drives
+  `plugin/scripts/gate/ci-stack.mjs up | env | status | down`: a **copy** of `supabase/` in
+  `<git-common-dir>/maple/ci-stack/<id>/` whose `config.toml` has `project_id = "<id>"` and **every** port pinned inside
+  `portBase..portBase+9` (shadow +0, api +1, db +2, studio +3, smtp +4, analytics +7, inspector +8, pooler +9), so
+  containers, network and volumes are separate from the dev stack's (the refusal list: CI id equal to the dev id, any shared
+  port, a dev port still named in the derived file, a CLI argv that is not bound to the copy's `--workdir`/project id, a Docker
+  object whose project label is not exactly the CI id). Order: take the per-repo lock (pid of the gate run; a live owner is never
+  robbed, a dead owner's is reclaimed and its orphans swept) -> sweep orphans -> check Docker and that the block is bindable ->
+  `supabase start` (stdout suppressed, it prints keys) -> strip restart policies (D052) -> `db reset` from the repo's migrations +
+  seed on a **fresh volume** (one retry after the stack is healthy) -> types-freshness against it -> RLS suite -> Playwright. `down`
+  runs from the EXIT trap whatever happened: `supabase stop --no-backup` for the CI id, then label-verified removal of its
+  containers/volumes/networks and the workdir. The tests read `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
+  `SUPABASE_DB_URL`, `E2E_SUPABASE_URL`, `CI_SUPABASE_WORKDIR` from `ci-stack.mjs env` (eval'd by the runner, **secret-bearing: never
+  print or log it**; `scripts/check-types-fresh.mjs` honours `CI_SUPABASE_WORKDIR`). **Without `ci.stack`** heavy keeps the old
+  behaviour (the dev stack, started only if not already up) but prints a loud warning: it can hold unlanded migrations and `db reset`
+  wipes its data. Playwright runs `next start` of the heavy run's own build (built once; `E2E_SKIP_BUILD=1`) on **port 3100**
+  (`E2E_PORT`), `reuseExistingServer: false`; nothing on port 3000 is touched. Setup is in [[docker]].
 - **Stamp.** Green writes `<git-common-dir>/maple/heavy-pass/<sha>.json` and **pays gate debt** for every commit the
   sha contains. A run with any skipped step writes **no stamp** and pays nothing.
 - **Scheduled run** (`heavy-run.mjs`): fetch `<remote>/<target>`, exit if that sha is already stamped, take

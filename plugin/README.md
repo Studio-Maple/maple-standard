@@ -63,6 +63,18 @@ remove `ci:core` / `ci:full`.
 **5. `maple.config.json`.** Add `ci.tiers.heavy` (e.g. `"pnpm ci:heavy"`); keep `ci.prePushTier: "gate"`. `quality.jevAudit`
 now runs in the heavy tier, not in `/wt-land`. `worktrees.lock.ttlSeconds` is ignored. Production/dev branch keys unchanged.
 
+**5b. Isolated CI stack (D071, plugin v0.13.5).** The heavy tier must not run against a dev stack. Add `ci.stack` to `maple.config.json`:
+`"ci": { ..., "stack": { "portBase": <free 10-port block> } }` (optional `projectId`, default `<project_id in supabase/config.toml>-ci`; optional
+`exclude`: containers to skip, default `studio,imgproxy,logflare,vector,mailpit`). Pick a block outside the dev block and outside the reserved
+ranges (`netsh interface ipv4 show excludedportrange protocol=tcp`), then have the owner reserve it (`netsh int ipv4 add excludedportrange
+protocol=tcp startport=<portBase> numberofports=10`, elevated). Re-copy the template's `scripts/ci-local.sh` (live tier: `ensure_ci_stack` /
+`stop_stack_if_ours`, `CI_STACK` = `<plugin>/scripts/gate/ci-stack.mjs`) and `scripts/check-types-fresh.mjs` (honours `CI_SUPABASE_WORKDIR`).
+Point the project's Supabase tests and Playwright at `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_DB_URL` /
+`E2E_SUPABASE_URL` (what `ci-stack.mjs env` exports) instead of hardcoded dev ports. Without `ci.stack` heavy still runs against the dev stack,
+with a warning. VeHagita: `portBase` next to its 5532x block that is free (e.g. 5542x). EasyCaller/Caller: keep `ci.stack.projectId: "ezcall-ci"`,
+`portBase: 58420`, delete `scripts/ci-supabase.mjs` and its lock plumbing in favour of the plugin's `ci-stack.mjs up|env|down` (the plugin's lock owner is
+the gate run: `--owner-pid`). `env` output carries keys: eval it, never print it.
+
 **6. Husky.** Re-copy `.husky/pre-commit` (staged-file lint + migration naming, no tsc) and `.husky/pre-push` (messages).
 
 **7. Test suites.** Rename slow suites to `*.integration.test.*` and have their runner use `plugin/scripts/gate/run-suite.mjs`
@@ -195,6 +207,9 @@ branch falls back to the origin's detected default branch
 |---|---|---|
 | `ci.tiers.<name>` | **none** | shell command string run as the gate for that tier (conventionally `fast`/`gate`/`heavy`) — **required** for any tier you invoke; `/wt-land` refuses to land ungated rather than guess. Replaces the old invented `worktree.gate.tiers.<name>` key. |
 | `ci.prePushTier` | `"gate"` | which tier `/wt-land` runs with no `--tier`. Replaces the old `worktree.gate.defaultTier`. |
+| `ci.stack.portBase` | **none** (stack off) | **enables the isolated heavy-tier Supabase stack (D071)**: the 10-port block `portBase..portBase+9` holds every port of the throwaway stack; must not overlap the dev block or a reserved range |
+| `ci.stack.projectId` | `<supabase/config.toml project_id>-ci` | the throwaway stack's project id (containers `supabase_*_<id>`, volume `supabase_db_<id>`); must differ from the dev id |
+| `ci.stack.exclude` | `["studio","imgproxy","logflare","vector","mailpit"]` | containers `supabase start -x` skips in the CI stack |
 
 ### `lint.*` / `sizeCaps.*` — reserved, not yet read by any bundled plugin code
 

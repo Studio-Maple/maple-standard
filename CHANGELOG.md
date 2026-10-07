@@ -27,6 +27,17 @@ All notable changes to this project. Format loosely follows
   matched; it now imports the plugin's `find-bash.mjs` (this repo's `./plugin`, `$MAPLE_PLUGIN_DIR`, `$CLAUDE_PLUGIN_ROOT`, else the newest installed plugin copy). Tests:
   `plugin/scripts/hooks/scrub-secrets.test.mjs` (positive + near-miss per pattern, docs, matcher covers PowerShell), `plugin/scripts/gate/run-gate.test.mjs`.
 
+- **The heavy tier runs against an isolated throwaway Supabase stack, never a dev stack (plugin v0.13.5, D071).** The heavy tier used the owner's own dev stack: in VeHagita it held
+  migrations of unlanded branches (types-freshness red) and `db reset` would wipe the owner's local data; EasyCaller hit the same risk. New `ci.stack { portBase, projectId?, exclude? }`
+  in `maple.config.json` (schema, `validate-config.mjs`, plugin schema JSON) and `plugin/scripts/gate/ci-stack.mjs up | env | status | down` (+ `ci-stack-config|docker|env|lock.mjs`),
+  generalised from EasyCaller's `ci-supabase.mjs`: a copy of `supabase/` under `<git-common-dir>/maple/ci-stack/<id>/` with `project_id` `<dev id>-ci` and every port in
+  `portBase..portBase+9` (role-stable slots), `--workdir`-bound CLI calls with an argv guard, Docker objects removed only after their project label is verified to equal the CI id,
+  refusals when the id equals the dev id or any port is shared, a pid lock that never robs a live owner (dead owner: reclaimed + orphans swept), fresh volume per run, `down` from the
+  EXIT trap, `env` printed for `eval` only (secret-bearing). `scripts/ci-local.sh heavy` uses it when `ci.stack` is set (template block 56420-56429) and otherwise warns loudly that it
+  uses the dev stack; `scripts/check-types-fresh.mjs` honours `CI_SUPABASE_WORKDIR`; the `docker-unavailable` skip verification checks the CI block; `dockerWorks` waits up to 90 s (a
+  loaded Docker Desktop needs 10-60 s for `docker info`). Unit set `ci-stack.test.mjs`, integration `ci-stack.integration.test.mjs` (really starts and stops the stack and diffs the dev
+  stack's containers/volumes). Docs: [[quality]] heavy tier, [[docker]] (owner-run `netsh` for the block), plugin README step 5b.
+
 - **The pre-deploy gate prunes its run workspaces and refuses to fill the disk (plugin v0.13.2, D068).** Incident 2026-10-07 (EasyCaller): `<git-common-dir>/maple/predeploy/runs`
   grew to 298.5 GB because every gate run left its clean-room copy and scanner artefacts under `runs/<id>` and every live scan `runs/live-<ms>`, never pruned; C: hit 0 bytes
   free, Docker froze, a gate and a `supabase db reset` hung and worktree creation failed. Now (`plugin/scripts/predeploy/runs.mjs`): a run's scan copy and artefacts over 2 MB are deleted in

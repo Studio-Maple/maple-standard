@@ -6,7 +6,7 @@ tags: [docker, supabase, local-dev, infra]
 timestamp: 2026-10-06
 audience: anyone running local Supabase stacks, or wondering why Docker Desktop is busy at login
 authoritative_for: [the on-demand-only restart policy, the stack last-used definition, and the 14-day archive rule]
-code: [supabase/config.toml, plugin/scripts/docker/dstack.ps1, plugin/commands/docker-audit.md, ~/.claude/commands/docker-audit.md, ~/.claude/docker-stacks.json]
+code: [supabase/config.toml, plugin/scripts/gate/ci-stack.mjs, plugin/scripts/docker/dstack.ps1, plugin/commands/docker-audit.md, ~/.claude/commands/docker-audit.md, ~/.claude/docker-stacks.json]
 ---
 # Docker — local stacks run on demand, never at boot
 
@@ -154,8 +154,31 @@ show excludedportrange` command above):
 netsh int ipv4 add excludedportrange protocol=tcp startport=56320 numberofports=10
 ```
 
-The heavy tier (`pnpm ci:heavy`, see [[quality]]) is the only thing that starts the template stack: on demand, with the
-restart policies stripped (`docker update --restart=no`), `db reset` for a clean schema, and **stopped again if the run
-started it** (an already-running stack of the same `project_id` is reused and left running). If the ports still cannot
-be bound, the run fails and tells you to use `MAPLE_GATE_SKIP=docker-unavailable` - which is verified (`docker info`
-fails or a port is unbindable), recorded as gate debt, and blocks production promotion until a green heavy run pays it.
+The heavy tier (`pnpm ci:heavy`, see [[quality]]) no longer uses this dev stack at all (D071): it starts its own throwaway stack
+(next section). The dev stack above is only ever started by hand (`pnpm supabase:start`).
+If a CI port cannot be bound, the run fails and tells you to use `MAPLE_GATE_SKIP=docker-unavailable` - which is verified
+(`docker info` fails or a port of the **CI block** is unbindable), recorded as gate debt, and blocks production promotion until a green
+heavy run pays it.
+
+## The CI stack - isolated and throwaway (D071)
+
+`maple.config.json` `ci.stack: { "portBase": 56420 }` (template) gives the heavy tier a second, disposable Supabase project:
+`project_id` `<dev id>-ci` (`your-project-local-ci`; override with `ci.stack.projectId`), its own containers/network/volumes, and every
+port inside the 10-port block `56420-56429` (shadow 56420, API 56421, DB 56422, Studio 56423, SMTP 56424, analytics 56427, pooler 56429).
+Mechanism: `plugin/scripts/gate/ci-stack.mjs up | env | status | down`, driven by `scripts/ci-local.sh`. It copies `supabase/` into
+`<git-common-dir>/maple/ci-stack/<id>/` (never `.env*`, `.temp`, `.branches`), rewrites the id and ports there, runs the CLI with `--workdir`
+on that copy only and removes only Docker objects whose `com.supabase.cli.project` label equals the CI id. A fresh volume per run;
+`down` always runs; one CI stack per repo (pid lock, never taken from a live pid); a start sweeps orphans of a crashed run. The dev
+stack's data and migrations never matter to heavy, and heavy can never reset them.
+
+Pick a block per project that is outside the dev block and outside every reserved range (`netsh interface ipv4 show excludedportrange
+protocol=tcp`, `Get-NetTCPConnection -State Listen`). In use on this machine: dev 5532x VeHagita, 5632x template, 5832x Caller; CI 5642x
+template, 584xx EasyCaller. **Owner-run, one time, elevated PowerShell** - reserve the template's CI block so Windows' dynamic range never
+grows into it:
+
+```powershell
+netsh int ipv4 add excludedportrange protocol=tcp startport=56420 numberofports=10
+```
+
+By hand: `node plugin/scripts/gate/ci-stack.mjs status` (no keys), `... down` (stuck stack; refuses while another live run owns the lock).
+`env` prints keys: eval it in a shell, never print or log it.
