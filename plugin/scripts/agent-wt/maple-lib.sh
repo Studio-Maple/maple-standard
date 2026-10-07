@@ -446,7 +446,7 @@ _MAPLE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || _M
 # own plugin/ (running from the maple-standard repo), then the NEWEST installed
 # cache version. Evaluated on every call.
 _maple_resolve_link_tools() {
-  local c best="" v
+  local c v
   local cands=()
   [ -n "$_MAPLE_LIB_DIR" ] && cands+=("$_MAPLE_LIB_DIR")
   [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && cands+=("$CLAUDE_PLUGIN_ROOT/scripts/agent-wt")
@@ -505,6 +505,14 @@ maple_remove_worktree() {
   maple_verify_no_links "$wt" || return 1
   rm -rf "$wt" 2>/dev/null     || { $MAPLE_IS_WINDOWS && cmd //c rmdir //s //q "$(cygpath -w "$wt")" >/dev/null 2>&1; } || true
   git worktree prune
+  # Windows cannot delete a directory that is some process's cwd (typically the shell that
+  # started maple-land from inside the worktree). If everything inside is gone and git no longer
+  # tracks it, an EMPTY dir is all that is left - it holds no data and no links, so the removal
+  # succeeded; say so instead of reporting KEPT. maple-reap clears empty leftovers later.
+  if [ -e "$wt" ] && [ -d "$wt" ] && [ -z "$(ls -A "$wt" 2>/dev/null)" ]; then
+    maple_warn "removed $wt; an empty directory is left because a shell is cd'd inside it - maple-reap clears it later"
+    return 0
+  fi
   [ ! -e "$wt" ] || { _maple_err "could not fully remove $wt"; return 1; }
 }
 

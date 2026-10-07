@@ -207,4 +207,24 @@ while IFS= read -r b; do
   fi
 done < <(git for-each-ref --format='%(refname:short)' "refs/heads/${MAPLE_NAME_PREFIX}*${MAPLE_NAME_SUFFIX}")
 
+# ── pass 3: empty leftover dirs (a removal whose dir was some shell's cwd) ────
+# rmdir only: it refuses a non-empty dir and one still in use, so this can never
+# delete data or follow a link. Registered worktrees are skipped.
+if [ -d "$MAPLE_WT_ROOT" ]; then
+  registered="$(git worktree list --porcelain 2>/dev/null)"
+  for d in "$MAPLE_WT_ROOT"/*/; do
+    [ -d "$d" ] || continue
+    d="${d%/}"
+    [ -z "$(ls -A "$d" 2>/dev/null)" ] || continue
+    grep -qiF "worktree $(cd "$d" 2>/dev/null && pwd -W 2>/dev/null || echo "$d")" <<<"$registered" && continue
+    if [ "$DRY" = true ]; then
+      maple_log "[dry] would remove empty leftover dir $d"
+    elif rmdir "$d" 2>/dev/null; then
+      maple_ok "removed empty leftover dir $d"; reaped=$((reaped+1))
+    else
+      maple_log "empty leftover dir $d is still in use (a shell is cd'd inside) - next reap retries"
+    fi
+  done
+fi
+
 maple_ok "reap done — ${reaped} removed, ${kept} kept$([ "$DRY" = true ] && echo ' (dry-run)')"

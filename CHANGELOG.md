@@ -5,6 +5,12 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Landings stop reporting KEPT for an empty leftover (plugin v0.13.8, D069 follow-up).** Windows cannot delete a directory that
+  is a process's cwd - the shell that started `maple-land` from inside the worktree. The fail-closed removal then reported KEPT even
+  though every file and the git registration were gone (8 empty `.worktrees/*` dirs piled up on 2026-10-07). An empty leftover now
+  counts as removed with a warning, and `maple-reap` gains a pass that `rmdir`s empty leftover dirs (refuses non-empty or in-use
+  dirs, so it can never delete data or follow a link).
+
 - **Landings no longer keep their worktrees (plugin v0.13.6, D069 follow-up).** `maple-lib.sh` looked for its link tools via
   `dirname "${BASH_SOURCE[0]}"`, which is relative when a script is started as `bash plugin/scripts/agent-wt/x.sh`; after `maple-land`
   cds to the main root for cleanup, the tools looked missing and the fail-closed removal (correctly) kept every landed worktree and
