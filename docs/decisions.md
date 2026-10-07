@@ -14,14 +14,14 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D071 | 2026-10-07 | Heavy tier runs against an isolated throwaway Supabase stack, never a dev stack
+Incident 2026-10-07: heavy used the owner's dev stack (VeHagita types-freshness red from unlanded migrations; EasyCaller data-loss risk on reset). maple.config.json ci.stack {projectId?, portBase} makes plugin/scripts/gate/ci-stack.mjs copy supabase/ to <git-common-dir>/maple/ci-stack, rename project_id to <id>-ci, pin every port into portBase..+9, start fresh, db reset, always tear down (pid lock, orphan sweep). Without ci.stack heavy warns. See [[quality]], [[docker]].
+
 ## D070 | 2026-10-07 | scrub-secrets scans docs/ and carries every EasyCaller pattern
 D065 dropped EasyCaller's project scrubber, which was a superset of the plugin's. The plugin hook now ports all of it (sb_secret_, ASIA, labeled AWS secret/session, Cloudflare token/global key) and no longer skips docs/ reads: a secret pasted into a doc is exactly what must not reach the model, and the skip only protected pattern examples (docs use obviously-fake values). Plugin 0.13.4.
 
 ## D069 | 2026-10-07 | Worktree removal fails closed; plugin cache never deletes a version in use
 maple_remove_worktree now resolves node tools (strip-links.mjs + verify-no-links.mjs, lstat-only, no PowerShell) at call time and refuses, deleting nothing, if they are missing, fail, or any link survives an independent re-scan; every caller treats that as kept. sync-plugin-cache keeps superseded versions 24h and while a live .in_use pid exists. Incident 2026-10-07: cache update deleted the running lib's dir, the strip no-oped (D012). Supersedes the .ps1 strip.
-
-## D071 | 2026-10-07 | Heavy tier runs against an isolated throwaway Supabase stack, never a dev stack
-Incident 2026-10-07: heavy used the owner's dev stack (VeHagita types-freshness red from unlanded migrations; EasyCaller data-loss risk on reset). maple.config.json ci.stack {projectId?, portBase} makes plugin/scripts/gate/ci-stack.mjs copy supabase/ to <git-common-dir>/maple/ci-stack, rename project_id to <id>-ci, pin every port into portBase..+9, start fresh, db reset, always tear down (pid lock, orphan sweep). Without ci.stack heavy warns. See [[quality]], [[docker]].
 
 ## D068 | 2026-10-07 | Gate run workspaces are disposable: pruned at run end, capped, and a free-space floor guards starts
 Incident 2026-10-07: unpruned runs/ filled C: with 298 GB. Every gate/live run deletes its scan copy in a finally, keeping run.json and small reports; startup prune + predeploy.runs {keep 5, maxGB 10}; pid-locked dirs of live runs are never touched; links are unlinked, never followed (D012); minFreeGB 20 refuses starts. Agents may run run.mjs prune/doctor. See [[predeploy-gate]].
