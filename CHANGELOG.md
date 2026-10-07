@@ -5,6 +5,12 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Landings no longer keep their worktrees (plugin v0.13.6, D069 follow-up).** `maple-lib.sh` looked for its link tools via
+  `dirname "${BASH_SOURCE[0]}"`, which is relative when a script is started as `bash plugin/scripts/agent-wt/x.sh`; after `maple-land`
+  cds to the main root for cleanup, the tools looked missing and the fail-closed removal (correctly) kept every landed worktree and
+  `_land`. The lib dir is now captured as an absolute path at source time (existence still checked per call). Regression test
+  `agent-wt/lib-dir-abs.test.mjs`.
+
 - **Worktree removal fails closed; the plugin cache never deletes a version in use (plugin v0.13.5, D069).** Incident 2026-10-07 (EasyCaller): a plugin auto-update made
   `sync-plugin-cache` delete 0.13.0 while a 0.13.0 `maple-reap` was mid-run; the lib's captured `strip-reparse-points.ps1` path vanished, the error was swallowed and the junction
   strip silently did nothing (D012 - only the agent's own check saved the main `node_modules`). Now `maple_remove_worktree` resolves `strip-links.mjs` / `verify-no-links.mjs`

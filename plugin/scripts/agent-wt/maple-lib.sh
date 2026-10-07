@@ -433,6 +433,14 @@ _maple_mark_in_use() {
 }
 _maple_mark_in_use 2>/dev/null || true
 
+# This lib's own dir, ABSOLUTE, captured once at source time. ${BASH_SOURCE[0]} is
+# relative when a script is started as `bash plugin/scripts/agent-wt/x.sh`, so it
+# stops resolving as soon as the caller cds elsewhere (maple-land cds to the main
+# root before cleanup) - the tools then looked "missing" and every landing kept its
+# worktree. Existence is still checked on every call, so a cache version deleted
+# mid-run falls through to the other candidates (D069).
+_MAPLE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || _MAPLE_LIB_DIR=""
+
 # Print the dir holding strip-links.mjs + verify-no-links.mjs, or nothing.
 # Order: this lib's own dir (if it still exists), $CLAUDE_PLUGIN_ROOT, the repo's
 # own plugin/ (running from the maple-standard repo), then the NEWEST installed
@@ -440,7 +448,7 @@ _maple_mark_in_use 2>/dev/null || true
 _maple_resolve_link_tools() {
   local c best="" v
   local cands=()
-  cands+=("$(dirname "${BASH_SOURCE[0]}")")
+  [ -n "$_MAPLE_LIB_DIR" ] && cands+=("$_MAPLE_LIB_DIR")
   [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && cands+=("$CLAUDE_PLUGIN_ROOT/scripts/agent-wt")
   cands+=("${MAPLE_MAIN_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || true)}/plugin/scripts/agent-wt")
   for c in "${cands[@]}"; do
