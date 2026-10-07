@@ -44,28 +44,22 @@
 //   GitHub fine-grained   github_pat_<50+>
 //   AWS access key        AKIA<16>
 //   Vercel-context token   <24 alnum> near the word "vercel"
+//   Supabase secret key   sb_secret_<20+>          (new key format; sb_publishable_ is NOT a secret and is left alone)
+//   AWS temporary key     ASIA<16>                 (STS access key id)
+//   AWS secret key        40 chars, only when labeled aws_secret_access_key / SecretAccessKey
+//   AWS session token     100+ base64 chars, only when labeled aws_session_token / SessionToken
+//   Cloudflare API token  40 chars, only when labeled CLOUDFLARE_API_TOKEN / CF_API_TOKEN
+//   Cloudflare global key 37 hex, only when labeled CLOUDFLARE_API_KEY / X-Auth-Key
+// The AWS/Cloudflare values are context-bound (lookbehind on the label) because bare 40-char strings
+// false-positive constantly: git SHAs are 40 hex chars and show up in every deploy log.
 //
-// False positive policy: docs explaining these formats may contain literal
-// examples. We bypass scrubbing for outputs whose `file_path` (Read tool)
-// is under the project's docs folder (maple.config.json `docs.root`,
-// default "docs") — those are intentionally for human consumption.
+// docs/ IS scrubbed like everything else. It used to be exempt so pattern EXAMPLES stayed readable, which also
+// meant a real secret pasted into a doc reached model context unredacted (EasyCaller audit 12 L5, restored here
+// after D065 removed the project copies that had fixed it). An example that matches a pattern is redacted too;
+// that costs nothing, and docs should use values that are obviously fake and do not match.
 //
-// PROJECT ROOT: resolved from the hook payload's own `cwd` field (falling
-// back to $CLAUDE_PROJECT_DIR, then process.cwd()) — NOT from this script's
-// own location. A plugin hook script lives under the plugin's install
-// directory, not the adopting project, so `import.meta.url`-relative paths
-// would resolve to the wrong place.
-
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-
-function loadMapleConfig(root) {
-  try {
-    return JSON.parse(readFileSync(join(root, 'maple.config.json'), 'utf8'));
-  } catch {
-    return {};
-  }
-}
+// This hook ports EVERY pattern of EasyCaller's former project copy; there is no second copy to keep in sync.
+//
 
 const PATTERNS = [
   { name: 'sb_pat',          re: /sbp_(?!oauth_)[a-zA-Z0-9]{30,}/g },
@@ -76,6 +70,21 @@ const PATTERNS = [
   { name: 'gh_pat',          re: /ghp_[a-zA-Z0-9]{30,}/g },
   { name: 'gh_fgpat',        re: /github_pat_[a-zA-Z0-9_]{50,}/g },
   { name: 'aws_key',         re: /AKIA[A-Z0-9]{16}/g },
+  { name: 'sb_secret_key',   re: /sb_secret_[a-zA-Z0-9_-]{20,}/g },
+  // Boundaries so ordinary words ("ASIAPACIFICREGION...") do not match; STS ids are exactly ASIA + 16.
+  { name: 'aws_temp_key',    re: /(?<![A-Z0-9])ASIA[A-Z0-9]{16}(?![A-Z0-9])/g },
+  { name: 'aws_secret',
+    re: /(?<=(?:aws_secret_access_key|SecretAccessKey)["'\s:=]{0,5})[A-Za-z0-9/+]{40}(?![A-Za-z0-9/+])/gi,
+    requireSubstring: ['secret_access_key', 'secretaccesskey'] },
+  { name: 'aws_session',
+    re: /(?<=(?:aws_session_token|SessionToken)["'\s:=]{0,5})[A-Za-z0-9/+][A-Za-z0-9/+=]{99,}/gi,
+    requireSubstring: ['session_token', 'sessiontoken'] },
+  { name: 'cf_api_token',
+    re: /(?<=(?:CLOUDFLARE_API_TOKEN|CF_API_TOKEN)["'\s:=]{0,5})[A-Za-z0-9_-]{40}(?![A-Za-z0-9_-])/gi,
+    requireSubstring: 'api_token' },
+  { name: 'cf_global_key',
+    re: /(?<=(?:CLOUDFLARE_API_KEY|X-Auth-Key)["'\s:=]{0,5})[a-f0-9]{37}(?![a-f0-9])/gi,
+    requireSubstring: ['cloudflare_api_key', 'x-auth-key'] },
   // ReDoS fix: the old `(?=.*vercel)` lookahead re-scans from EVERY 24-char
   // candidate to the end of the current line (`.` doesn't cross newlines
   // even without the `s` flag) — on one long line (a minified blob, a huge
@@ -97,20 +106,12 @@ function scrub(text) {
   for (const { name, re, requireSubstring } of PATTERNS) {
     if (requireSubstring) {
       lower ??= out.toLowerCase();
-      if (!lower.includes(requireSubstring)) continue;
+      const needles = Array.isArray(requireSubstring) ? requireSubstring : [requireSubstring];
+      if (!needles.some((n) => lower.includes(n))) continue;
     }
     out = out.replace(re, `[REDACTED:${name}]`);
   }
   return out;
-}
-
-function isDocsRead(payload, docsRoot) {
-  const filePath = payload?.tool_input?.file_path
-    ?? payload?.input?.file_path
-    ?? '';
-  if (typeof filePath !== 'string' || !filePath) return false;
-  const escaped = docsRoot.replace(/[/\\]+$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`(^|[/\\\\])${escaped}[/\\\\]`).test(filePath);
 }
 
 // Flatten whatever shape the tool result arrived in into ONE string —
@@ -164,14 +165,6 @@ process.stdin.on('end', () => {
     // stdout ("allow", per the PostToolUse contract) rather than echoing
     // unparsed raw text back as if it were valid hook JSON output.
     process.exit(0);
-  }
-
-  const root = payload?.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
-  const cfg = loadMapleConfig(root);
-  const docsRoot = cfg?.docs?.root || 'docs';
-
-  if (isDocsRead(payload, docsRoot)) {
-    process.exit(0); // intentionally human-facing docs example — leave as-is
   }
 
   const text = extractToolOutputText(payload);
