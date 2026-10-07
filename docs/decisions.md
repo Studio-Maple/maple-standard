@@ -14,6 +14,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D067 | 2026-10-07 | Supabase MCP listings are answered with refs, not run
+The connector token lists only its default org (VeHagita), yet get_project reaches other orgs by ref (EZcall bibodwvvvjvfnkcnxfgg). Sessions read the partial list as "only VeHagita exists". mcp-guard answers list_projects/list_organizations with this repo refs (maple.config.json supabase.*ProjectRefs, supabase/.temp/project-ref) and says to call tools by ref.
+
 ## D066 | 2026-10-06 | Gate v2: light landings, batched heavy runs, production unchanged
 Commit: staged lint only. Landing on dev: affected-only fast tier, no Docker; ready worktrees land as one batch via a queue that never steals a live lock. Heavy checks (live RLS, @smoke on a gate-only port, plugin integration suites, Jev audit - amends D059) run batched: before promotion and on a daily local schedule; dev may be red between runs. Prod keeps D060 plus a green heavy run on that sha and zero gate debt. Gate skips only for listed reasons, recorded as debt. One bash gate runner; ps1 is a shim.
 

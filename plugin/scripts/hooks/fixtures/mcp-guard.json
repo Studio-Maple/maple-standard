@@ -23,9 +23,14 @@
       { "name": "supabase-named server without a project_id", "tool": "mcp__supabase__apply_migration", "input": { "name": "m", "query": "x" }, "expect": "deny", "match": "unspecified" },
       { "name": "read-only list_tables", "tool": "mcp__x__list_tables", "input": { "project_id": "unknownref" }, "expect": "allow" },
       { "name": "read-only get_logs / query_logs", "tool": "mcp__x__query_logs", "input": { "project_id": "unknownref", "sql": "select 1" }, "expect": "allow" },
-      { "name": "list_projects", "tool": "mcp__x__list_projects", "input": {}, "expect": "allow" },
+      { "name": "list_projects", "tool": "mcp__x__list_projects", "input": {}, "expect": "deny", "match": "get_project" },
       { "name": "same tool name on a non-Supabase server (no project_id)", "tool": "mcp__neon__merge_branch", "input": { "branch": "x" }, "expect": "allow" },
-      { "name": "unrelated MCP tool", "tool": "mcp__github__create_issue", "input": { "title": "x" }, "expect": "allow" }
+      { "name": "unrelated MCP tool", "tool": "mcp__github__create_issue", "input": { "title": "x" }, "expect": "allow" },
+      { "name": "D067: list_projects is answered with this repo refs", "tool": "mcp__abd1b7ee-3102-417a-a87e-ddfddae2d9aa__list_projects", "input": {}, "expect": "deny", "match": "prodref000000000000 .production." },
+      { "name": "D067: list_organizations explains the partial listing", "tool": "mcp__abd1b7ee-3102-417a-a87e-ddfddae2d9aa__list_organizations", "input": {}, "expect": "deny", "match": "get_project" },
+      { "name": "D067: a supabase-named server list_projects too", "tool": "mcp__supabase__list_projects", "input": {}, "expect": "deny", "match": "devref0000000000000 .development." },
+      { "name": "D067: another platform list_projects (team-scoped) passes", "tool": "mcp__vercel__list_projects", "input": { "teamId": "team_x" }, "expect": "allow" },
+      { "name": "D067: get_project is never touched", "tool": "mcp__abd1b7ee-3102-417a-a87e-ddfddae2d9aa__get_project", "input": { "id": "bibodwvvvjvfnkcnxfgg" }, "expect": "allow" }
     ]
   },
   {

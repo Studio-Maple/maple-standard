@@ -5,6 +5,12 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Supabase MCP listings are answered with refs (plugin v0.13.1, D067).** The Supabase connector token lists only its default
+  organization, while `get_project` and the other tools reach projects in the owner's other organizations by ref - sessions kept concluding
+  "the connection only has VeHagita". `mcp-guard` now answers `list_projects` / `list_organizations` (Supabase-shaped calls only; a
+  team-scoped `list_projects` of another platform passes) with the repo's refs (`supabase.prodProjectRefs`/`devProjectRefs`,
+  `supabase/.temp/project-ref`) and tells the session to call tools by ref.
+
 - **Gate v2: light landings, batched heavy runs, production unchanged (plugin v0.13.0, D066).** Evidence (2026-10-05/06): one green fast tier took 6 attempts over
   hours - all environment failures, zero code failures (global pnpm mismatch; PowerShell's `bash` was WSL; `ci-local.ps1` and `.sh` disagreed; the Claude Code
   sandbox denies `/usr/bin/sleep`; 75-153 s gate-slot queues), "fast" ran minutes-long integration suites whenever `plugin/` changed, `maple-land` held one lock
