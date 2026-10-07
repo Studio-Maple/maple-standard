@@ -81,8 +81,7 @@ export function removeWorktree(root, wt) {
   if (existsSync(wt)) {
     const rm = bashCall(root, `. "$1"; maple_remove_worktree "$2"`, [toPosix(MAPLE_LIB), toPosix(wt)]);
     // D069: removal is fail-closed (nothing deleted when links can't be proven stripped) - say so, never pretend.
-    if (rm.status !== 0) console.error(`heavy-run: KEPT temporary worktree ${wt} - removal refused (${String(rm.stderr || "").trim().split("
-").slice(-1)[0] || "see above"}). Delete it by hand.`);
+    if (rm.status !== 0) console.error(`heavy-run: KEPT temporary worktree ${wt} - removal refused (${String(rm.stderr || "").trim().split("\n").slice(-1)[0] || "see above"}). Delete it by hand.`);
   }
   spawnSync("git", ["worktree", "prune"], { cwd: root });
 }
