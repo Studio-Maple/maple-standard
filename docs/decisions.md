@@ -14,6 +14,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D070 | 2026-10-07 | scrub-secrets scans docs/ and carries every EasyCaller pattern
+D065 dropped EasyCaller's project scrubber, which was a superset of the plugin's. The plugin hook now ports all of it (sb_secret_, ASIA, labeled AWS secret/session, Cloudflare token/global key) and no longer skips docs/ reads: a secret pasted into a doc is exactly what must not reach the model, and the skip only protected pattern examples (docs use obviously-fake values). Plugin 0.13.4.
+
 ## D068 | 2026-10-07 | Gate run workspaces are disposable: pruned at run end, capped, and a free-space floor guards starts
 Incident 2026-10-07: unpruned runs/ filled C: with 298 GB. Every gate/live run deletes its scan copy in a finally, keeping run.json and small reports; startup prune + predeploy.runs {keep 5, maxGB 10}; pid-locked dirs of live runs are never touched; links are unlinked, never followed (D012); minFreeGB 20 refuses starts. Agents may run run.mjs prune/doctor. See [[predeploy-gate]].
 

@@ -5,6 +5,14 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Secret scrubber regression fixed; `run-gate.mjs` Git Bash path fixed (plugin v0.13.4, D070).** D065 removed EasyCaller's project copy of `scrub-secrets`, which caught more than the
+  plugin's. The plugin hook now ports every missing pattern: Supabase `sb_secret_` keys (`sb_publishable_` is public and left alone), AWS temporary `ASIA` ids (word-bounded),
+  labeled AWS secret access keys and session tokens (`aws_secret_access_key`, `AWS_SECRET_ACCESS_KEY`, `SecretAccessKey`, `aws_session_token`, `SessionToken`; any case), labeled Cloudflare API
+  tokens and global keys (`CLOUDFLARE_API_TOKEN`, `CF_API_TOKEN`, `CLOUDFLARE_API_KEY`, `X-Auth-Key`). Labeled values are context-bound so 40-char git SHAs are not redacted. `docs/` reads are
+  now scrubbed too (the skip is gone). `scripts/run-gate.mjs` had `"C:\Program Files\Git\bin\bash.exe"` in a normal JS string (backslashes eaten, `\b` a backspace), so its fallback never
+  matched; it now imports the plugin's `find-bash.mjs` (this repo's `./plugin`, `$MAPLE_PLUGIN_DIR`, `$CLAUDE_PLUGIN_ROOT`, else the newest installed plugin copy). Tests:
+  `plugin/scripts/hooks/scrub-secrets.test.mjs` (positive + near-miss per pattern, docs, matcher covers PowerShell), `plugin/scripts/gate/run-gate.test.mjs`.
+
 - **The pre-deploy gate prunes its run workspaces and refuses to fill the disk (plugin v0.13.2, D068).** Incident 2026-10-07 (EasyCaller): `<git-common-dir>/maple/predeploy/runs`
   grew to 298.5 GB because every gate run left its clean-room copy and scanner artefacts under `runs/<id>` and every live scan `runs/live-<ms>`, never pruned; C: hit 0 bytes
   free, Docker froze, a gate and a `supabase db reset` hung and worktree creation failed. Now (`plugin/scripts/predeploy/runs.mjs`): a run's scan copy and artefacts over 2 MB are deleted in
