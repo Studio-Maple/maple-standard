@@ -50,6 +50,14 @@ done
 # string-building, no eval, no quoting to get wrong.
 do_or_echo() { if $DRY; then printf '\033[35m[dry] %s\033[0m\n' "$*" >&2; else "$@"; fi; }
 
+# D069: maple_remove_worktree is fail-closed; non-zero means NOTHING was deleted. Count it kept
+# and return non-zero so the caller never deletes the branch either.
+remove_or_keep() {
+  if do_or_echo maple_remove_worktree "$1"; then return 0; fi
+  maple_warn "KEPT $1 - removal refused (links could not be proven stripped); branch left in place"
+  kept=$((kept+1)); return 1
+}
+
 maple_log "fetching $MAPLE_REMOTE/$MAPLE_TARGET (to decide what's merged)…"
 git fetch "$MAPLE_REMOTE" "$MAPLE_TARGET" --quiet 2>/dev/null || maple_warn "fetch failed — merged-detection may be stale"
 git worktree prune
