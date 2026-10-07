@@ -141,7 +141,8 @@ maple_q_integ_new() { # <base sha>
 
 maple_q_integ_drop() {
   if [ -n "$MAPLE_Q_INTEG" ] && [ -e "$MAPLE_Q_INTEG" ]; then
-    ( cd "$MAPLE_MAIN_ROOT" && maple_remove_worktree "$MAPLE_Q_INTEG" ) || true
+    ( cd "$MAPLE_MAIN_ROOT" && maple_remove_worktree "$MAPLE_Q_INTEG" ) \
+      || maple_warn "KEPT integration worktree $MAPLE_Q_INTEG - removal refused (D069); the next land retries it or remove it by hand"
   fi
   MAPLE_Q_INTEG=""
 }
