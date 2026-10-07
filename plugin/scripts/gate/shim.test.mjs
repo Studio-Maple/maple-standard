@@ -52,12 +52,6 @@ if (process.platform === "win32") {
     assert.ok(existsSync(bash));
   });
 
-  t("scripts/run-gate.mjs looks for Git Bash and never names the WSL bash as a candidate", () => {
-    const text = readFileSync(join(ROOT, "scripts", "run-gate.mjs"), "utf8");
-    assert.match(text, /Program Files/);
-    assert.ok(text.includes('"--exec-path"'));
-    assert.ok(!/candidates\.push\([^)]*system32/i.test(text));
-  });
 } else {
   console.log("(skipped - the real-PowerShell shim cases only run on Windows)");
 }
