@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { main as runGate } from "./run.mjs";
+import { GB, runsDir } from "./runs.mjs";
 import { appendLedger, readLedger, liveScanDebt, reportPath, stampPath } from "./state.mjs";
 import { headSha, stateDir } from "./lib.mjs";
 import { normalize } from "./config.mjs";
@@ -56,6 +57,38 @@ await t("clean gate issues a stamp bound to sha; deploy then allowed and ledgere
   assert.ok(existsSync(stampPath(repo, sha)));
   assert.equal(hook("bash deploy.sh").status, 0);
   assert.equal(readLedger(repo).length, 1);
+});
+
+await t("D068: a gate run prunes its own workspace (also on failure), keeps the evidence, and the stamp still verifies", async () => {
+  const sha = headSha(repo);
+  const dir = join(runsDir(repo), sha.slice(0, 12));
+  assert.ok(existsSync(join(dir, "run.json")), "finished run keeps run.json");
+  assert.ok(!existsSync(join(dir, "tree")), "the clean-room scan copy is gone");
+  assert.ok(!existsSync(join(dir, ".run.lock")), "the lock is released");
+  assert.ok(existsSync(reportPath(repo, sha)) && existsSync(stampPath(repo, sha)));
+  commit(cfgOf([{ id: "boom", command: 'node -e "process.exit(1)"' }]), { "fail.txt": "1" });
+  assert.equal(await gate(), 1);
+  const f = join(runsDir(repo), headSha(repo).slice(0, 12));
+  assert.ok(existsSync(join(f, "run.json")) && !existsSync(join(f, "tree")), "a failed gate prunes too");
+  commit(cfgOf([OK]), { "fail.txt": "2" });
+  assert.equal(await gate(), 0);
+});
+
+await t("D068: a gate start prunes orphaned runs, spares a live one, and refuses below the free-space floor", async () => {
+  const orphan = join(runsDir(repo), "orphanorphan");
+  mkdirSync(join(orphan, "tree"), { recursive: true }); writeFileSync(join(orphan, "tree", "f"), "x");
+  writeFileSync(join(orphan, ".run.lock"), JSON.stringify({ pid: 2 ** 22 + 12345, startedAt: new Date().toISOString() }));
+  const live = join(runsDir(repo), "liveliveliv");
+  mkdirSync(join(live, "tree"), { recursive: true }); writeFileSync(join(live, "tree", "f"), "x");
+  writeFileSync(join(live, ".run.lock"), JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
+  assert.equal(await gate(), 0);
+  assert.ok(!existsSync(orphan), "orphan pruned at startup");
+  assert.ok(existsSync(join(live, "tree", "f")), "a run with a live owner is never pruned");
+  const err = console.error; let msg = ""; console.error = (m) => { msg += m; };
+  try { assert.equal(await quiet(() => runGate(["--root", repo], { free: () => 1 * GB })), 2); } finally { console.error = err; }
+  assert.match(msg, /refusing to start: only 1.0 GB free/);
+  assert.match(msg, /prune --all/);
+  rmSync(live, { recursive: true, force: true });
 });
 
 await t("a new commit invalidates the stamp", () => {

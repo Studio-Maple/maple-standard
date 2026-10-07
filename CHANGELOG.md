@@ -5,6 +5,15 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **The pre-deploy gate prunes its run workspaces and refuses to fill the disk (plugin v0.13.2, D068).** Incident 2026-10-07 (EasyCaller): `<git-common-dir>/maple/predeploy/runs`
+  grew to 298.5 GB because every gate run left its clean-room copy and scanner artefacts under `runs/<id>` and every live scan `runs/live-<ms>`, never pruned; C: hit 0 bytes
+  free, Docker froze, a gate and a `supabase db reset` hung and worktree creation failed. Now (`plugin/scripts/predeploy/runs.mjs`): a run's scan copy and artefacts over 2 MB are deleted in
+  a `finally` (kept: `run.json` + small reports; live scans keep the ZAP log tail in `live-scans/`); every gate/live start prunes first (dead-owner dirs, then `predeploy.runs`
+  `{keep: 5, maxGB: 10}`, oldest first, stricter wins) and never touches a dir whose pid lock is alive; a start is refused when the repo drive has less than `predeploy.minFreeGB` (default 20)
+  free, with the free space, `runs/` size and the prune command in the message; `run.mjs prune [--all]` and `doctor` (now also runs/ size and count, tf-plugin-cache size, free space).
+  Deletion never follows junctions/symlinks (D012, tested with a junction into a sentinel dir). The deploy guard lets an agent run `run.mjs prune|doctor`; `rm -rf runs` and every other write under
+  `maple/predeploy` stay denied. stamps, reports, `deploys.jsonl`, `live-scans/`, `emergency.*` and `tf-plugin-cache` are never pruned; the new keys are outside the config hash, so no stamp is invalidated.
+
 - **Supabase MCP listings are answered with refs (plugin v0.13.1, D067).** The Supabase connector token lists only its default
   organization, while `get_project` and the other tools reach projects in the owner's other organizations by ref - sessions kept concluding
   "the connection only has VeHagita". `mcp-guard` now answers `list_projects` / `list_organizations` (Supabase-shaped calls only; a

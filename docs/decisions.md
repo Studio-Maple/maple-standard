@@ -14,6 +14,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D068 | 2026-10-07 | Gate run workspaces are disposable: pruned at run end, capped, and a free-space floor guards starts
+Incident 2026-10-07: unpruned runs/ filled C: with 298 GB. Every gate/live run deletes its scan copy in a finally, keeping run.json and small reports; startup prune + predeploy.runs {keep 5, maxGB 10}; pid-locked dirs of live runs are never touched; links are unlinked, never followed (D012); minFreeGB 20 refuses starts. Agents may run run.mjs prune/doctor. See [[predeploy-gate]].
+
 ## D067 | 2026-10-07 | Supabase MCP listings are answered with refs, not run
 The connector token lists only its default org (VeHagita), yet get_project reaches other orgs by ref (EZcall bibodwvvvjvfnkcnxfgg). Sessions read the partial list as "only VeHagita exists". mcp-guard answers list_projects/list_organizations with this repo refs (maple.config.json supabase.*ProjectRefs, supabase/.temp/project-ref) and says to call tools by ref.
 

@@ -56,6 +56,18 @@
       { "name": "D066: running the heavy tier is allowed", "input": { "command": "cd \"C:/x\" && pnpm ci:heavy" }, "expect": "allow" },
       { "name": "shell write to the gate state is denied", "input": { "command": "echo {} > .git/maple/predeploy/stamps/x.json" }, "expect": "deny" },
       { "name": "reading the ledger is fine", "input": { "command": "cat .git/maple/predeploy/deploys.jsonl" }, "expect": "allow" },
+      { "name": "D068: run.mjs prune is allowed", "input": { "command": "node plugin/scripts/predeploy/run.mjs prune" }, "expect": "allow" },
+      { "name": "D068: run.mjs prune --all with a quoted plugin path is allowed", "input": { "command": "node \"C:/Users/x/.claude/plugins/cache/maple-standard/maple-standard/0.13.2/scripts/predeploy/run.mjs\" prune --all" }, "expect": "allow" },
+      { "name": "D068: prune naming the state dir as --root is allowed (it only locates the project)", "input": { "command": "node plugin/scripts/predeploy/run.mjs prune --all --root C:/x/.git/maple/predeploy" }, "expect": "allow" },
+      { "name": "D068: run.mjs doctor is allowed", "input": { "command": "node plugin/scripts/predeploy/run.mjs doctor --json" }, "expect": "allow" },
+      { "name": "D068: prune in PowerShell is allowed", "tool": "PowerShell", "input": { "command": "node plugin\\scripts\\predeploy\\run.mjs prune --all" }, "expect": "allow" },
+      { "name": "D068: rm -rf of the runs directory is still denied (prune goes through the command)", "input": { "command": "rm -rf .git/maple/predeploy/runs" }, "expect": "deny", "match": "gate" },
+      { "name": "D068: Remove-Item of the runs directory is still denied", "tool": "PowerShell", "input": { "command": "Remove-Item -Recurse -Force C:\\x\\.git\\maple\\predeploy\\runs" }, "expect": "deny", "match": "gate" },
+      { "name": "D068: writing a stamp stays denied next to a prune", "input": { "command": "node plugin/scripts/predeploy/run.mjs prune && echo {} > .git/maple/predeploy/stamps/x.json" }, "expect": "deny", "match": "gate" },
+      { "name": "D068: a prune with a redirect into the state is denied", "input": { "command": "node plugin/scripts/predeploy/run.mjs prune > .git/maple/predeploy/stamps/x.json" }, "expect": "deny", "match": "gate" },
+      { "name": "D068: prune with an unknown flag naming the state is denied", "input": { "command": "node plugin/scripts/predeploy/run.mjs prune --out .git/maple/predeploy/stamps" }, "expect": "deny", "match": "gate" },
+      { "name": "D068: another run.mjs subcommand naming the state is denied", "input": { "command": "node plugin/scripts/predeploy/run.mjs --root .git/maple/predeploy/stamps" }, "expect": "deny", "match": "gate" },
+      { "name": "D068: a different script named prune is denied when it touches the state", "input": { "command": "node evil.mjs prune .git/maple/predeploy/stamps" }, "expect": "deny", "match": "gate" },
       { "name": "editing the config asks the owner", "tool": "Edit", "input": { "file_path": "{ROOT}/maple.config.json" }, "expect": "ask" }
     ]
   },

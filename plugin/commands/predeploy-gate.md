@@ -12,7 +12,8 @@ without that stamp. Full rules: `docs/predeploy-gate.md` (D060).
 
 `$ARGUMENTS`:
 - *(none)* — run the full gate. Needs a clean tree and the candidate branch pushed (the remote workflow runs on GitHub).
-- `doctor` — list missing tools/images/credentials with install commands (`doctor --pull` fetches Docker images).
+- `doctor` — list missing tools/images/credentials with install commands, plus `runs/` size, tf cache size and free space (`doctor --pull` fetches Docker images).
+- `prune [--all]` — delete the disposable run workspaces under `maple/predeploy/runs` (D068; a live run is never touched; stamps/reports/ledger are never touched). The gate also prunes at run end and at start, and refuses to start below `predeploy.minFreeGB` free.
 - `--live` — AFTER a deploy: aggressive full active ZAP scan of the configured live targets; blocks the next deploy until clean.
 - `--check <id>` — run one check (no stamp). `--list` — list checks.
 - `--rebaseline-image-debt [--owner X --plan "..." --due YYYY-MM-DD]` — re-scan the `trivy-image` checks and rewrite the dated third-party image debt snapshot (D063); review and commit the diff. No stamp.

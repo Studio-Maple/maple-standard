@@ -3,7 +3,7 @@ type: guide
 title: Pre-deploy gate
 description: the enforced zero-findings gate in front of every deploy: checks, allowlist, stamp, guard hook, live ZAP policy, emergency override.
 tags: [quality, gates, security, deploy]
-timestamp: 2026-10-06
+timestamp: 2026-10-07
 audience: anyone about to deploy, configuring the gate for a project, or blocked by the deploy guard
 authoritative_for: [the pre-deploy gate's rules, stamp model, live-scan policy, allowlist format and enforcement]
 code: [plugin/scripts/predeploy/, plugin/hooks/guards/deploy-guard.mjs, plugin/commands/predeploy-gate.md, plugin/templates/predeploy-remote.yml]
@@ -30,6 +30,8 @@ one thing that must run on GitHub.
 | `deployGuard.patterns[]` | `{ id, regex }` ADDITIONAL deploy commands the guard blocks; the built-in baseline (wrangler deploy/pages deploy, supabase db push/functions deploy, terraform apply, vercel --prod) and `git push` to `repo.prodBranch` always apply; an explicitly empty list is an error (D065) |
 | `emergency` | `{ enabled: false, maxMinutes: 60 }` owner-only override |
 | `liveScan` | the aggressive post-deploy ZAP scan (below) |
+| `runs` | `{ keep: 5, maxGB: 10 }` retention of the disposable run workspaces (D068, below) |
+| `minFreeGB` | free GB the repo drive must have before a gate or live scan starts, default 20 (D068) |
 
 Validation (`validate-config.mjs`) rejects any check command that hides its
 own failure (`|| true`, `--exit-zero`, `--no-exit-code`, `--max-warnings=N`,
@@ -185,6 +187,31 @@ of findings that do not reach zero by the next deploy. This is **not** an allowl
   flags are only for new entries; `due` must be within `maxDays`) and prints `+added/-removed` per image. It issues
   no stamp; review the diff and commit it.
 
+## Run workspaces and disk hygiene (D068)
+
+Incident 2026-10-07 (EasyCaller): every gate run left its clean-room copy and scanner artefacts under
+`<git-common-dir>/maple/predeploy/runs/<id>` and every live scan left `runs/live-<ms>`, forever; 298.5 GB later C: had 0 bytes
+free, Docker froze and agents could not create worktrees. A run dir is now a **disposable workspace** (`plugin/scripts/predeploy/runs.mjs`):
+
+- **Prune at run end** (a `finally`, so pass, fail and exception alike): the `tree/` scan copy, every link and every artefact larger than
+  2 MB (image tars, ZAP reports) are deleted. Kept per run: `runs/<id>/run.json` (sha, exit code, times) and small scanner reports in
+  `out/`, for debugging a failed run. A live scan keeps its container log's tail as `live-scans/<id>.zap.log` and its ZAP report as
+  `live-scans/<ts>-zap-report.json` (as before).
+- **Prune at start** of every gate / live scan (covers killed runs): dirs whose pid lock is dead are deleted; then the retention cap keeps the
+  newest `predeploy.runs.keep` finished dirs (default 5) and at most `predeploy.runs.maxGB` GB (default 10) under `runs/`, oldest first, whichever is stricter.
+- **Never a live run**: each run holds `runs/<id>/.run.lock` (pid + start time). A dir whose owner pid is alive (a concurrent gate in the same repo) is never
+  deleted, not even by `prune --all`; a second gate on the same sha while the first runs gets a `<sha>-<pid>` dir instead of clobbering it. A lock older than 24 h
+  counts as stale (pid reuse).
+- **Free-space floor**: a gate or live scan refuses to start when the repo drive has less than `predeploy.minFreeGB` (default 20) free, checked **after** the start
+  prune; the message names the free space, the `runs/` size and count, and the prune command.
+- **Links are never followed** (D012): a run dir can hold `node_modules` junctions into the real checkout. Deletion uses `lstat`, unlinks every
+  symlink/junction as a link and recurses only into real directories.
+- **Never pruned**: `stamps/`, `reports/`, `deploys.jsonl`, `live-scans/`, `emergency.*` and `tf-plugin-cache/` (a reusable cache; `doctor` reports its size). `runs` and
+  `minFreeGB` are not part of the config hash, so retuning them never invalidates a stamp.
+- **Commands**: `run.mjs prune [--all]` (`--all` clears every finished dir) and `run.mjs doctor` / `doctor.mjs` (adds runs/ size and count, tf cache size, free space; a breach of the
+  floor is a gap). The deploy guard lets an agent run exactly those two (`node <plugin>/scripts/predeploy/run.mjs prune|doctor` with `--all --json --dry-run --pull --root DIR`);
+  `rm -rf` of `runs/` or any other write under `maple/predeploy` stays denied.
+
 ## Stamp and enforcement
 
 `/predeploy-gate` (`plugin/scripts/predeploy/run.mjs`) runs every check on a
@@ -256,6 +283,7 @@ node plugin/scripts/predeploy/run.mjs [--check ID] [--list] [--json] [--pull]
 node plugin/scripts/predeploy/run.mjs --live [--pull]     # after a deploy
 node plugin/scripts/predeploy/livescan.mjs --dry-run      # write + print the ZAP plan, send nothing
 node plugin/scripts/predeploy/verify.mjs                  # exit 0/1
-node plugin/scripts/predeploy/doctor.mjs [--pull]         # missing tools / credentials by name
+node plugin/scripts/predeploy/doctor.mjs [--pull]         # missing tools / credentials by name, runs/ size, free space
+node plugin/scripts/predeploy/run.mjs prune [--all]       # delete disposable run workspaces (agents may run this)
 node plugin/scripts/predeploy/record-deploy.mjs --outcome failed
 ```

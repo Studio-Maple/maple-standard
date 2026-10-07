@@ -295,6 +295,15 @@
             "maxDays": { "type": "integer", "minimum": 1, "maximum": 90, "description": "Max days from `baselined` to `due`. Default 30." }
           }
         },
+        "runs": {
+          "type": "object", "additionalProperties": false,
+          "description": "Retention of the gate's disposable run workspaces under <git-common-dir>/maple/predeploy/runs (D068). Pruned at run end, at every gate/live start, and by `run.mjs prune`.",
+          "properties": {
+            "keep": { "type": "integer", "minimum": 0, "maximum": 100, "description": "Finished run workspaces kept (small reports only). Default 5." },
+            "maxGB": { "type": "number", "exclusiveMinimum": 0, "maximum": 1000, "description": "Cap on the size of runs/ in GB, oldest first. Default 10." }
+          }
+        },
+        "minFreeGB": { "type": "number", "minimum": 1, "maximum": 1000, "description": "A gate or live scan refuses to start when the repo drive has less free space (after the pre-start prune). Default 20." },
         "stampTtlHours": { "type": "integer", "minimum": 1 },
         "minSeverity": { "enum": ["info", "low", "medium", "high", "critical"] },
         "concurrency": { "type": "integer", "minimum": 1 },

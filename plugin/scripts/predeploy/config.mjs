@@ -12,6 +12,7 @@ import { canonicalJson, sha256, SEVERITIES } from "./lib.mjs";
 import { PARSER_KINDS } from "./parsers.mjs";
 import { PRESET_NAMES } from "./catalog.mjs";
 import { IMAGE_DEBT_DEFAULT_PATH, IMAGE_DEBT_MAX_DAYS_DEFAULT } from "./imagedebt.mjs";
+import { MIN_FREE_GB_DEFAULT, RUNS_DEFAULTS } from "./runs.mjs";
 
 export const DEFAULTS = {
   enabled: true,
@@ -47,6 +48,8 @@ export function normalize(cfg) {
     docker: { ...DEFAULTS.docker, ...(p.docker || {}) },
     imageDebt: isObj(p.imageDebt) ? { file: IMAGE_DEBT_DEFAULT_PATH, maxDays: IMAGE_DEBT_MAX_DAYS_DEFAULT, ownImages: [], ...p.imageDebt } : undefined,
     emergency: { ...DEFAULTS.emergency, ...(p.emergency || {}) },
+    runs: { ...RUNS_DEFAULTS, ...(isObj(p.runs) ? p.runs : {}) },
+    minFreeGB: p.minFreeGB ?? MIN_FREE_GB_DEFAULT,
     checks: p.checks || [],
     deployGuard: { enabled: true, patterns: [], ...(p.deployGuard || {}) },
   };
@@ -54,7 +57,10 @@ export function normalize(cfg) {
 
 /** Hash of everything about the gate that a stamp must be bound to. */
 export function configHash(pd) {
-  return sha256(canonicalJson(pd));
+  // `runs` and `minFreeGB` only govern disk hygiene of the run workspaces; they change nothing a stamp certifies, so
+  // retuning them must not invalidate stamps.
+  const { runs: _runs, minFreeGB: _minFreeGB, ...certified } = pd;
+  return sha256(canonicalJson(certified));
 }
 
 export function validatePredeploy(cfg) {
@@ -62,7 +68,7 @@ export function validatePredeploy(cfg) {
   const p = cfg?.predeploy;
   if (p === undefined) return e;
   if (!isObj(p)) return ["predeploy: must be an object"];
-  const known = ["enabled", "policyRef", "allowlist", "allowlistMaxDays", "decisions", "decisionsMaxAgeDays", "stampTtlHours", "minSeverity", "concurrency", "allowlistUnused", "docker", "checks", "remote", "deployGuard", "emergency", "liveScan", "imageDebt"];
+  const known = ["enabled", "policyRef", "allowlist", "allowlistMaxDays", "decisions", "decisionsMaxAgeDays", "stampTtlHours", "minSeverity", "concurrency", "allowlistUnused", "docker", "checks", "remote", "deployGuard", "emergency", "liveScan", "imageDebt", "runs", "minFreeGB"];
   for (const k of Object.keys(p)) if (!known.includes(k)) e.push(`predeploy.${k}: unknown key`);
   if (p.enabled !== undefined && typeof p.enabled !== "boolean") e.push("predeploy.enabled: must be a boolean");
   if (p.policyRef !== undefined && !isStr(p.policyRef)) e.push("predeploy.policyRef: must be a non-empty string (e.g. a decision id)");
@@ -73,6 +79,17 @@ export function validatePredeploy(cfg) {
   for (const k of ["allowlistMaxDays", "stampTtlHours", "concurrency"]) if (p[k] !== undefined && !(Number.isInteger(p[k]) && p[k] >= 1)) e.push(`predeploy.${k}: must be a positive integer`);
   if (p.allowlistUnused !== undefined && !["fail", "warn"].includes(p.allowlistUnused)) e.push("predeploy.allowlistUnused: fail | warn (default fail; warn only while a baseline allowlist is being burned down)");
   if (p.minSeverity !== undefined && !SEVERITIES.includes(p.minSeverity)) e.push(`predeploy.minSeverity: one of ${SEVERITIES.join("|")}`);
+
+  if (p.minFreeGB !== undefined && !(typeof p.minFreeGB === "number" && p.minFreeGB >= 1 && p.minFreeGB <= 1000)) e.push("predeploy.minFreeGB: number 1..1000 (free GB the repo drive must have before a gate or live scan starts; default 20)");
+  const rn = p.runs;
+  if (rn !== undefined) {
+    if (!isObj(rn)) e.push("predeploy.runs: must be an object { keep?, maxGB? }");
+    else {
+      for (const k of Object.keys(rn)) if (!["keep", "maxGB"].includes(k)) e.push(`predeploy.runs.${k}: unknown key`);
+      if (rn.keep !== undefined && !(Number.isInteger(rn.keep) && rn.keep >= 0 && rn.keep <= 100)) e.push("predeploy.runs.keep: integer 0..100 (finished run workspaces kept under runs/; default 5)");
+      if (rn.maxGB !== undefined && !(typeof rn.maxGB === "number" && rn.maxGB > 0 && rn.maxGB <= 1000)) e.push("predeploy.runs.maxGB: number > 0 and <= 1000 (cap on runs/ in GB; default 10)");
+    }
+  }
 
   const idb = p.imageDebt;
   if (idb !== undefined) {

@@ -23,7 +23,8 @@
  */
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync, copyFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { applyAllowlist, allowlistCommitted, loadAllowlist, validateEntries } from "./allowlist.mjs";
 import { applyDecisions, decisionsCommitted, ledgerDecisionIds, loadDecisions, validateDecisions } from "./decisions.mjs";
 import { normalize, validatePredeploy } from "./config.mjs";
@@ -31,6 +32,7 @@ import { credentialExists, getCredential } from "./credentials.mjs";
 import { findProjectRoot, headSha, loadMapleConfig, nowIso, sevRank, sha256, canonicalJson, stateDir } from "./lib.mjs";
 import { parseOutput } from "./parsers.mjs";
 import { liveScans, readLedger } from "./state.mjs";
+import { beginRun, finishRun, fmtGB, preflight } from "./runs.mjs";
 import { dockerPull, dockerImagePresent, dockerUsable, nativePath } from "./tools.mjs";
 
 const stripCaret = (re) => re.replace(/^\^/, "");
@@ -194,11 +196,27 @@ export async function main(argv) {
   const ls = pd?.liveScan;
   if (!ls || ls.enabled === false) { console.error("predeploy.liveScan is not configured/enabled"); return 2; }
 
-  const runDir = join(stateDir(root), "runs", "live-" + Date.now());
-  mkdirSync(runDir, { recursive: true });
+  if (!args.dryRun) {
+    const pre = preflight(root, pd, { pruneCmd: `node "${join(dirname(fileURLToPath(import.meta.url)), "run.mjs")}" prune --all`, log: (m) => console.log(m) });
+    if (!pre.ok) { console.error(pre.message); return 2; }
+  }
+  const run = beginRun(root, "live-" + Date.now());
+  let code = 2;
+  try {
+    code = await scan({ args, root, pd, ls, runDir: run.dir, runName: run.name });
+    return code;
+  } finally {
+    const done = finishRun(run, { kind: "live", exit: code });
+    console.log(`run workspace pruned (${fmtGB(done.freedBytes)} freed): ${run.dir}`);
+    for (const e of done.errors.slice(0, 5)) console.error(`could not remove: ${e}`);
+  }
+}
+
+async function scan({ args, root, pd, ls, runDir, runName }) {
+  const logFile = join(stateDir(root), "live-scans", `${runName}.zap.log`);
   const { plan, envNames } = buildPlan(ls);
   writeFileSync(join(runDir, "plan.yaml"), JSON.stringify(plan, null, 2));
-  if (args.dryRun) { console.log(JSON.stringify(plan, null, 2)); console.log("\n# container script (secrets only as $ZAPSCAN_Hn, expanded inside the container):\n" + containerScript(ls, envNames)); console.log(`\n(dry run — plan written to ${join(runDir, "plan.yaml")}; no request was sent)`); return 0; }
+  if (args.dryRun) { console.log(JSON.stringify(plan, null, 2)); console.log("\n# container script (secrets only as $ZAPSCAN_Hn, expanded inside the container):\n" + containerScript(ls, envNames)); console.log(`\n(dry run — plan printed above; no request was sent)`); return 0; }
 
   const missing = envNames.filter((e) => !credentialExists(e.ref));
   if (missing.length) { console.error("missing credential(s): " + missing.map((m) => m.ref).join(", ") + " — store them via the credential-manager skill"); return 2; }
@@ -215,14 +233,16 @@ export async function main(argv) {
   const timeoutMs = (ls.targets.length * (ls.maxDurationMin || 60) + 90) * 60000;
   const r = spawnSync("docker", dargs, { env, encoding: "utf8", timeout: timeoutMs, maxBuffer: 512 * 1024 * 1024 });
   const log = (r.stdout || "") + (r.stderr || "");
-  writeFileSync(join(runDir, "zap.log"), log);
+  // The container log is the evidence for a failed scan; keep its tail with the live-scan records (the run workspace is deleted).
+  mkdirSync(dirname(logFile), { recursive: true });
+  writeFileSync(logFile, log.length > 262144 ? "[... truncated ...]" + String.fromCharCode(10) + log.slice(-262144) : log);
   const reportFile = join(runDir, "zap-report.json");
   const findings = authRejections(log, ls, envNames);
   if (findings.length) console.error(`\nLIVE SCAN AUTH FAILURE — ${findings.length} authenticated target(s) were NOT authenticated:\n` + findings.map((f) => `  ${f.id}: ${f.message}`).join("\n") + "\n");
   const preflightAborted = r.status === PREFLIGHT_EXIT;
-  if (preflightAborted && !findings.length) findings.push({ check: "live-scan", id: "auth-preflight-failed", severity: "high", message: `auth preflight aborted the scan (see ${join(runDir, "zap.log")})`, location: "" });
+  if (preflightAborted && !findings.length) findings.push({ check: "live-scan", id: "auth-preflight-failed", severity: "high", message: `auth preflight aborted the scan (see ${logFile})`, location: "" });
   let reportText = existsSync(reportFile) ? readFileSync(reportFile, "utf8") : null;
-  if (r.status !== 0 && !preflightAborted && !reportText) findings.push({ check: "live-scan", id: "zap-failed", severity: "high", message: `ZAP exited ${r.status} without a report (see ${join(runDir, "zap.log")})`, location: "" });
+  if (r.status !== 0 && !preflightAborted && !reportText) findings.push({ check: "live-scan", id: "zap-failed", severity: "high", message: `ZAP exited ${r.status} without a report (see ${logFile})`, location: "" });
   if (reportText) {
     findings.push(...parseOutput("zap-json", { reports: ["r"], readReport: () => reportText }).map((f) => ({ ...f, check: "live-scan" })));
     const sites = (JSON.parse(reportText).site || []).map((s) => s["@name"]);

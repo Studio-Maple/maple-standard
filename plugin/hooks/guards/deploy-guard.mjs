@@ -74,9 +74,31 @@ const STATE_WRITE_RE = /maple[\\/](predeploy|heavy-pass|heavy-runs)|gate-debt\.j
 const GATE_CLI_WRITE_RE = /gate-cli(\.mjs)?["']?\s+["']?(stamp|pay)\b/i;
 const PURE_READ_VERBS = new Set(["cat", "ls", "dir", "type", "head", "tail", "grep", "egrep", "rg", "get-content", "select-string", "gc", "sls", "wc", "findstr"]);
 
+/**
+ * `node <plugin>/scripts/predeploy/run.mjs prune|doctor [--all] [--json] [--dry-run] [--pull] [--root DIR]` (D068): the one sanctioned
+ * way for an agent to touch maple/predeploy. prune deletes only the disposable run workspaces (runs/) and doctor only reads, and
+ * neither can reach stamps/, reports/, live-scans/, deploys.jsonl or emergency.* (run.mjs resolves the paths itself; --root only
+ * locates the project). A redirect, an unknown flag or a chained second command is not exempt: each segment is judged on its own.
+ */
+const MAINTENANCE_FLAGS = new Set(["--all", "--json", "--dry-run", "--pull"]);
+export function isRunWorkspaceMaintenance(seg) {
+  if (!/^node(js)?(\.exe)?$/i.test(seg.verb) || seg.words.some((w) => w.redir || w.sub)) return false;
+  const a = seg.args.map((w) => w.text);
+  const script = a.findIndex((t) => !t.startsWith("-"));
+  if (script < 0 || !/(^|[\\/])scripts[\\/]predeploy[\\/]run\.mjs$/i.test(a[script])) return false;
+  const [sub, ...rest] = a.slice(script + 1);
+  if (sub !== "prune" && sub !== "doctor") return false;
+  for (let n = 0; n < rest.length; n++) {
+    if (rest[n] === "--root" && n + 1 < rest.length) { n++; continue; }
+    if (!MAINTENANCE_FLAGS.has(rest[n])) return false;
+  }
+  return true;
+}
+
 export function touchesGateState(command, shell = "bash") {
   // A reader is exempt only when it neither redirects (`>`), edits in place, nor pipes into a writer.
   return parseShell(command, shell).some((seg) => {
+    if (isRunWorkspaceMaintenance(seg)) return false;
     const words = inspectableArgs(seg, { includeRedir: true });
     if (!words.some((w) => STATE_RE.test(w.text)) && !STATE_RE.test(seg.verb)) return false;
     const g = gitInfo(seg);

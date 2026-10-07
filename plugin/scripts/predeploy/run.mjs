@@ -5,6 +5,8 @@
  *   node run.mjs [--root DIR] [--check ID ...] [--allow-dirty] [--pull] [--json] [--list]
  *                [--live]   (delegates to the live active scan, see livescan.mjs)
  *                [--rebaseline-image-debt [--owner X --plan "..." --due YYYY-MM-DD]]   (see imagedebt.mjs)
+ *   node run.mjs prune [--all] [--root DIR] [--json]   delete disposable run workspaces (see runs.mjs)
+ *   node run.mjs doctor [--pull] [--json]               tools, credentials, runs/ size, free space
  *
  * Runs EVERY configured check against the exact HEAD commit, applies the
  * expiring allowlist, writes <state>/reports/<sha>.json, and — only when
@@ -12,8 +14,9 @@
  * <state>/stamps/<sha>.json bound to the sha, the config hash and the
  * allowlist hash. Exit 0 = stamp issued; 1 = findings; 2 = could not run.
  */
-import { mkdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { PRESETS, ToolMissing } from "./catalog.mjs";
 import { configHash, normalize, validatePredeploy } from "./config.mjs";
@@ -25,6 +28,9 @@ import { parseOutput } from "./parsers.mjs";
 import { GATE_VERSION, findProjectRoot, git, headSha, loadMapleConfig, nowIso, runShell, sevRank, stateDir, trackedDirty } from "./lib.mjs";
 import { liveScanDebt, reportPath, stampPath, writeJson } from "./state.mjs";
 import { runRemote } from "./remote.mjs";
+import { beginRun, fmtGB, finishRun, preflight, pruneCli } from "./runs.mjs";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 function parseArgs(argv) {
   const a = { checks: [], root: null, json: false, pull: false, allowDirty: false, list: false, live: false, rebaseline: false, owner: null, plan: null, due: null };
@@ -173,6 +179,14 @@ function rebaseline(root, pd, idl, findings, { pins, ranImages, today, args }) {
 
 export async function main(argv, opts = {}) {
   const today = opts.today || new Date();
+  if (argv[0] === "doctor") return spawnSync(process.execPath, [join(HERE, "doctor.mjs"), ...argv.slice(1)], { stdio: "inherit" }).status ?? 2;
+  if (argv[0] === "prune") {
+    const i = argv.indexOf("--root");
+    const r = findProjectRoot(i >= 0 ? argv[i + 1] : process.env.CLAUDE_PROJECT_DIR || process.cwd());
+    if (!r) { console.error("no maple.config.json found"); return 2; }
+    const rest = argv.slice(1).filter((a, k, all) => a !== "--root" && all[k - 1] !== "--root");
+    return pruneCli(rest, r, normalize(loadMapleConfig(r)), { pruneCmd: `node "${join(HERE, "run.mjs")}" prune --all` });
+  }
   const args = parseArgs(argv);
   const root = args.root ? findProjectRoot(args.root) : findProjectRoot(process.env.CLAUDE_PROJECT_DIR || process.cwd());
   if (!root) { console.error("no maple.config.json found"); return 2; }
@@ -203,9 +217,22 @@ export async function main(argv, opts = {}) {
   const dCommitted = decisionsCommitted(root, dl);
   const idl = pd.imageDebt ? loadImageDebt(root, pd.imageDebt.file) : null;
 
-  const runDir = join(stateDir(root), "runs", sha.slice(0, 12));
+  const pre = preflight(root, pd, { pruneCmd: `node "${join(HERE, "run.mjs")}" prune --all`, log: (m) => console.log(m), free: opts.free });
+  if (!pre.ok) { console.error(pre.message); return 2; }
+  const run = beginRun(root, sha.slice(0, 12));
+  let code = 2;
+  try {
+    code = await gateBody({ args, today, root, pd, subset, dirty, sha, al, committed, dl, dCommitted, idl, runDir: run.dir });
+    return code;
+  } finally {
+    const done = finishRun(run, { sha, exit: code });
+    if (!args.json) console.log(`run workspace pruned (${fmtGB(done.freedBytes)} freed): ${run.dir}`);
+    for (const e of done.errors.slice(0, 5)) console.error(`could not remove: ${e}`);
+  }
+}
+
+async function gateBody({ args, today, root, pd, subset, dirty, sha, al, committed, dl, dCommitted, idl, runDir }) {
   const outDir = join(runDir, "out");
-  rmSync(runDir, { recursive: true, force: true });
   mkdirSync(outDir, { recursive: true });
   const scanRoot = join(runDir, "tree");
   exportTree(root, sha, scanRoot);

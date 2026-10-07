@@ -12,6 +12,7 @@ import { credentialExists } from "./credentials.mjs";
 import { PRESETS } from "./catalog.mjs";
 import { normalize, validatePredeploy } from "./config.mjs";
 import { findProjectRoot, loadMapleConfig, which } from "./lib.mjs";
+import { GB, diskLines, diskReport, lowSpaceMessage } from "./runs.mjs";
 import { TOOLS, dockerUsable, installHints, resolveTool } from "./tools.mjs";
 
 const argv = process.argv.slice(2);
@@ -41,8 +42,10 @@ for (const [name, users] of need) {
   rows.push({ tool: name, mode: r.mode, detail: r.version || r.image || r.reason, users, install: r.mode === "missing" ? installHints(name) : "", note: TOOLS[name].note });
 }
 const credRows = [...creds].map((c) => ({ credential: c, present: credentialExists(c) }));
-const gaps = rows.filter((r) => r.mode === "missing" || r.mode === "unknown").length + credRows.filter((c) => !c.present).length + problems.length;
-if (json) console.log(JSON.stringify({ problems, rows, credRows, docker: dockerUsable(), gaps }, null, 2));
+const disk = root ? diskReport(root, pd) : null;
+const lowSpace = disk ? lowSpaceMessage(disk, "node <plugin>/scripts/predeploy/run.mjs prune --all") : null;
+const gaps = rows.filter((r) => r.mode === "missing" || r.mode === "unknown").length + credRows.filter((c) => !c.present).length + problems.length + (lowSpace ? 1 : 0);
+if (json) console.log(JSON.stringify({ problems, rows, credRows, docker: dockerUsable(), disk: disk && { ...disk, runsGB: disk.runsBytes / GB, tfCacheGB: disk.tfCacheBytes / GB, freeGB: disk.freeBytes === null ? null : disk.freeBytes / GB }, gaps }, null, 2));
 else {
   console.log(`predeploy doctor — docker: ${dockerUsable().ok ? "running " + dockerUsable().detail : "NOT RUNNING"}  git: ${which("git") ? "ok" : "MISSING"}`);
   for (const p of problems) console.log(`  CONFIG  ${p}`);
@@ -52,6 +55,8 @@ else {
     if (r.note && r.mode !== "native") console.log(`            note: ${r.note}`);
   }
   for (const c of credRows) console.log(`  ${c.present ? "ok     " : "MISSING"} credential ${c.credential}${c.present ? "" : "  (store via the credential-manager skill; name only, never paste the value)"}`);
+  if (disk) for (const l of diskLines(disk)) console.log(`  ${l}`);
+  if (lowSpace) console.log(`  LOW SPACE ${lowSpace}`);
   console.log(gaps ? `\n${gaps} gap(s). The gate fails (tool-missing) rather than skipping a scanner.` : "\nall tooling present.");
 }
 process.exit(gaps ? 1 : 0);
