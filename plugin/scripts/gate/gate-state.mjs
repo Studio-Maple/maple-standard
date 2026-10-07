@@ -17,6 +17,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeF
 import net from "node:net";
 import os from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+import { readCiStackConfig } from "./ci-stack-config.mjs";
 
 /** Listed skip reasons: the only values MAPLE_GATE_SKIP accepts, with the step each may skip. */
 export const SKIP_REASONS = {
@@ -77,13 +78,17 @@ export function validateSkip({ reason, step }) {
 }
 
 /** Can a Docker daemon be used? (`docker info` exits 0.) Injectable for tests. */
-export function dockerWorks(run = (cmd, args) => spawnSync(cmd, args, { stdio: "ignore", timeout: 20000 })) {
+export function dockerWorks(run = (cmd, args) => spawnSync(cmd, args, { stdio: "ignore", timeout: 90000 })) {
   const r = run("docker", ["info"]);
   return r.status === 0 && !r.error;
 }
 
-/** Ports the supabase config binds on 127.0.0.1 */
+/** Ports the live tier binds on 127.0.0.1: the isolated CI stack's block (ci.stack, D071) when configured, else the dev config's own. */
 export function stackPorts(root) {
+  try {
+    const ci = readCiStackConfig(root);
+    if (ci) return Array.from({ length: 10 }, (_, i) => ci.portBase + i);
+  } catch { /* a malformed ci.stack is reported by validate-config / ci-stack itself */ }
   const f = join(root, "supabase", "config.toml");
   if (!existsSync(f)) return [];
   const ports = new Set();

@@ -98,7 +98,18 @@
           "type": "object",
           "additionalProperties": { "type": "string", "minLength": 1 }
         },
-        "prePushTier": { "type": "string", "minLength": 1 }
+        "prePushTier": { "type": "string", "minLength": 1 },
+        "stack": {
+          "type": "object",
+          "description": "Isolated throwaway Supabase stack for the heavy tier (D071). portBase enables it: ports portBase..portBase+9 are the stack's own block.",
+          "additionalProperties": false,
+          "required": ["portBase"],
+          "properties": {
+            "projectId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$", "description": "default: <supabase/config.toml project_id>-ci" },
+            "portBase": { "type": "integer", "minimum": 1024, "maximum": 65526 },
+            "exclude": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "supabase start -x containers; default studio,imgproxy,logflare,vector,mailpit" }
+          }
+        }
       }
     },
 

@@ -91,6 +91,18 @@ function isNullableString(v) {
   return v === null || typeof v === "string";
 }
 
+/** ci.stack (D071): the isolated heavy-tier Supabase stack. portBase is required - it is what enables it. */
+function validateCiStack(stack, errors) {
+  if (stack === undefined) return;
+  if (!isPlainObject(stack)) { errors.push("ci.stack: must be an object"); return; }
+  checkNoExtraKeys(stack, ["projectId", "portBase", "exclude"], "ci.stack", errors);
+  if (!isIntMin(stack.portBase, 1024) || stack.portBase > 65526) errors.push("ci.stack.portBase: required integer 1024-65526 (the block portBase..portBase+9)");
+  if (stack.projectId !== undefined && !(typeof stack.projectId === "string" && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}$/.test(stack.projectId))) {
+    errors.push("ci.stack.projectId: must match [A-Za-z0-9][A-Za-z0-9_.-]{0,39}");
+  }
+  if (stack.exclude !== undefined && !(isStringArray(stack.exclude) && stack.exclude.every((x) => x.length > 0))) errors.push("ci.stack.exclude: must be an array of container names");
+}
+
 /** Fail loud on any key not in `allowed` — "one key set, no aliases" (#T11). */
 function checkNoExtraKeys(obj, allowed, blockPath, errors) {
   for (const key of Object.keys(obj)) {
@@ -250,7 +262,8 @@ export function validateConfig(config) {
     if (!isPlainObject(config.ci)) {
       errors.push("ci: must be an object");
     } else {
-      checkNoExtraKeys(config.ci, ["tiers", "prePushTier"], "ci", errors);
+      checkNoExtraKeys(config.ci, ["tiers", "prePushTier", "stack"], "ci", errors);
+      validateCiStack(config.ci.stack, errors);
       if (config.ci.tiers !== undefined) {
         if (!isPlainObject(config.ci.tiers)) errors.push("ci.tiers: must be an object");
         else {
