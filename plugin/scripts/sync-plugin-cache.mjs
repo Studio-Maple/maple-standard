@@ -151,6 +151,101 @@ function sameName(a, b) {
   return path.basename(path.resolve(a)).toLowerCase() === path.basename(path.resolve(b)).toLowerCase();
 }
 
+const GRACE_MS = (() => {
+  const h = Number(process.env.MAPLE_SYNC_GRACE_HOURS);
+  return (Number.isFinite(h) && h >= 0 ? h : 24) * 3600 * 1000;
+})();
+const SUPERSEDED_MARK = '.superseded-at';
+
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e.code === 'EPERM'; // exists, just not ours
+  }
+}
+
+/**
+ * True if any process may still be using this version dir. `.in_use/<pid>` markers
+ * (written by maple-lib.sh at source time) with a live pid block deletion; markers of
+ * dead pids are removed. Non-pid-named legacy entries block until 24h old.
+ */
+function versionInUse(dir) {
+  const inUse = path.join(dir, '.in_use');
+  let names;
+  try {
+    names = fs.readdirSync(inUse);
+  } catch {
+    return false;
+  }
+  let busy = false;
+  for (const name of names) {
+    const file = path.join(inUse, name);
+    const m = /^(\d+)(\..*)?$/.exec(name);
+    let alive;
+    if (m) {
+      alive = pidAlive(Number(m[1]));
+    } else {
+      try {
+        alive = Date.now() - fs.statSync(file).mtimeMs < 24 * 3600 * 1000;
+      } catch {
+        alive = false;
+      }
+    }
+    if (alive) busy = true;
+    else fs.rmSync(file, { recursive: true, force: true });
+  }
+  return busy;
+}
+
+/**
+ * Remove superseded version dirs of THIS plugin only - never one a live process may be using
+ * (the 2026-10-07 incident: 0.13.0 deleted under a running maple-reap). A dir survives while
+ * it has a live .in_use pid, and for GRACE_MS (default 24h, MAPLE_SYNC_GRACE_HOURS) after it
+ * was first seen superseded.
+ */
+function cleanStaleVersions(marketplaceCacheDir, currentVersion) {
+  if (CHECK) return;
+  try {
+    if (!fs.existsSync(marketplaceCacheDir)) return;
+    for (const name of fs.readdirSync(marketplaceCacheDir)) {
+      if (name === currentVersion) continue;
+      const staleDir = path.join(marketplaceCacheDir, name);
+      let stat;
+      try {
+        stat = fs.lstatSync(staleDir);
+      } catch {
+        continue;
+      }
+      if (!stat.isDirectory()) continue;
+      if (versionInUse(staleDir)) {
+        log(`leaving superseded version ${name} in place - a live process is using it`);
+        continue;
+      }
+      const markPath = path.join(staleDir, SUPERSEDED_MARK);
+      let since;
+      try {
+        since = Number(fs.readFileSync(markPath, 'utf8'));
+      } catch {
+        since = NaN;
+      }
+      if (!Number.isFinite(since)) {
+        since = Date.now();
+        try {
+          fs.writeFileSync(markPath, String(since));
+        } catch {
+          continue; // cannot record it - keep, retry next run
+        }
+      }
+      if (Date.now() - since < GRACE_MS) continue;
+      fs.rmSync(staleDir, { recursive: true, force: true });
+    }
+  } catch (e) {
+    log(`non-fatal: failed cleaning stale versions: ${e.message}`);
+  }
+}
+
 function main() {
   const __filename = fileURLToPath(import.meta.url);
   const scriptDir = path.dirname(__filename); // .../plugin/scripts
@@ -246,6 +341,10 @@ function main() {
     return 1;
   }
 
+  // Superseded versions are reclaimed on every run (not only on a sync): a dir is
+  // deleted only after a grace period AND with no live in-use pid (D069).
+  cleanStaleVersions(marketplaceCacheDir, pluginVersion);
+
   if (!outOfSync && !pathDrift) {
     // Nothing to do — the common case on every session start.
     return 0;
@@ -301,31 +400,6 @@ function main() {
       if (sha) entry.gitCommitSha = sha;
     }
     writeJsonAtomic(installedPluginsPath, fresh);
-
-    // Remove stale older version dirs for THIS plugin only.
-    try {
-      if (fs.existsSync(marketplaceCacheDir)) {
-        for (const name of fs.readdirSync(marketplaceCacheDir)) {
-          if (name === pluginVersion) continue;
-          const staleDir = path.join(marketplaceCacheDir, name);
-          let stat;
-          try {
-            stat = fs.statSync(staleDir);
-          } catch {
-            continue;
-          }
-          if (!stat.isDirectory()) continue;
-          const staleInUse = path.join(staleDir, '.in_use');
-          if (fs.existsSync(staleInUse) && fs.readdirSync(staleInUse).length > 0) {
-            log(`leaving stale version ${name} in place — .in_use is non-empty`);
-            continue;
-          }
-          fs.rmSync(staleDir, { recursive: true, force: true });
-        }
-      }
-    } catch (e) {
-      log(`non-fatal: failed cleaning stale versions: ${e.message}`);
-    }
 
     log(`synced ${pluginKey} -> ${versionDir} (version ${pluginVersion})`);
   }

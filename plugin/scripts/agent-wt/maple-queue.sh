@@ -127,7 +127,7 @@ maple_q_integ_new() { # <base sha>
   MAPLE_Q_INTEG="$MAPLE_WT_ROOT/_land"
   maple_ensure_gitignored '.worktrees/' >/dev/null 2>&1 || true
   if [ -e "$MAPLE_Q_INTEG" ] || git worktree list --porcelain | grep -q "^worktree .*/_land\$"; then
-    maple_remove_worktree "$MAPLE_Q_INTEG"
+    maple_remove_worktree "$MAPLE_Q_INTEG"       || maple_die "could not safely remove the stale integration worktree $MAPLE_Q_INTEG (links not proven stripped, D069). Nothing was deleted; clear it by hand."
   fi
   mkdir -p "$MAPLE_WT_ROOT"
   git worktree add --detach "$MAPLE_Q_INTEG" "$1" >&2

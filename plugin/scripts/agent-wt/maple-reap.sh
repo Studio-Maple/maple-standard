@@ -140,7 +140,7 @@ flush() {
     head="$(git -C "$cur_path" rev-parse HEAD 2>/dev/null || true)"
     if [ -n "$head" ] && ! wt_dirty "$cur_path" && is_merged "$head"; then
       maple_warn "detached worktree, clean and merged: $cur_path -> removing"
-      do_or_echo maple_remove_worktree "$cur_path"; reaped=$((reaped+1))
+      remove_or_keep "$cur_path" && reaped=$((reaped+1))
     else
       maple_log "keeping detached worktree — dirty or unmerged commits, needs a human ($cur_path)"; kept=$((kept+1))
     fi
@@ -162,13 +162,14 @@ flush() {
       fi
     fi
     maple_ok "merged: $cur_branch -> removing worktree + branch"
-    do_or_echo maple_remove_worktree "$cur_path"
-    do_or_echo git branch -D "$cur_branch"; reaped=$((reaped+1))
+    if remove_or_keep "$cur_path"; then
+      do_or_echo git branch -D "$cur_branch"; reaped=$((reaped+1))
+    fi
   else
     local idle; idle="$(branch_idle_hours "$cur_branch")"
     if [ "$idle" -ge "$STALE_HOURS" ] && $FORCE; then
       maple_warn "unmerged but idle ${idle}h: $cur_branch -> --force removing worktree (KEEPING branch)"
-      do_or_echo maple_remove_worktree "$cur_path"; reaped=$((reaped+1))
+      remove_or_keep "$cur_path" && reaped=$((reaped+1))
     else
       maple_log "keeping unmerged $cur_branch (idle ${idle}h, $cur_path)"; kept=$((kept+1))
     fi

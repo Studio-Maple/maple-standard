@@ -410,39 +410,94 @@ maple_ensure_loop_state_gitignored() {
   maple_ensure_gitignored '.loop-state/'
 }
 
-# Strip EVERY reparse point (junction/symlink) inside a worktree — the links
-# themselves, never their targets. maple_unlink_node_modules removes the one
-# junction WE made, but build output contains links we didn't: Next.js/
-# Turbopack writes junctions under .next/node_modules/ that TARGET the main
-# checkout's real .pnpm dirs (require-in-the-middle / import-in-the-middle,
-# the Sentry require-hook externals). `git worktree remove --force` — our
-# own first teardown step — FOLLOWS junctions in its recursive delete
-# (verified by sandbox repro: it empties the target and leaves the dir;
-# current MSYS `rm -rf` and `cmd rmdir /s` unlink junctions safely), which
-# gutted the main tree's packages three times (2026-07-28..30, maple-pole).
-# POSIX rm never follows symlinks — Windows only. Delegated to
-# strip-reparse-points.ps1 (a walk that does NOT descend through links —
-# PS 5.1's -Recurse follows junctions).
-maple_strip_reparse_points() {
-  local wt="$1"
-  $MAPLE_IS_WINDOWS || return 0
-  powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass \
-    -File "$(cygpath -w "$(dirname "${BASH_SOURCE[0]}")/strip-reparse-points.ps1")" \
-    -Root "$(cygpath -w "$wt")" >/dev/null 2>&1 || true
+# ── link strip + verify (D012, D069) ─────────────────────────────────────────
+# `git worktree remove --force` FOLLOWS NTFS junctions in its recursive delete
+# (empties the target, leaves the dir) - it gutted the main checkout's
+# node_modules three times (2026-07-28..30) and nearly again 2026-10-07, when
+# the plugin cache updated mid-reap, the lib's captured script path vanished,
+# and the strip silently did nothing. So the strip is FAIL-CLOSED: the tools
+# (strip-links.mjs / verify-no-links.mjs, lstat-only node, no PowerShell) are
+# resolved when maple_remove_worktree RUNS, not when this file was sourced;
+# if they can't be found, can't run, or a link survives, nothing is deleted.
+
+# Write a pid marker under this plugin version's .in_use/ so sync-plugin-cache
+# never deletes the version dir a live script is sourced from (D069). Source
+# time is the only moment the path is certain to exist.
+_maple_mark_in_use() {
+  local root pid="$$"
+  root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd)" || return 0
+  [ -f "$root/.claude-plugin/plugin.json" ] || return 0
+  case "$root" in */plugins/cache/*) ;; *) return 0 ;; esac   # only installed copies; never dirty a repo checkout
+  [ -r "/proc/$$/winpid" ] && pid="$(cat "/proc/$$/winpid" 2>/dev/null || echo "$$")"
+  mkdir -p "$root/.in_use" 2>/dev/null && : > "$root/.in_use/$pid" 2>/dev/null || true
+}
+_maple_mark_in_use 2>/dev/null || true
+
+# Print the dir holding strip-links.mjs + verify-no-links.mjs, or nothing.
+# Order: this lib's own dir (if it still exists), $CLAUDE_PLUGIN_ROOT, the repo's
+# own plugin/ (running from the maple-standard repo), then the NEWEST installed
+# cache version. Evaluated on every call.
+_maple_resolve_link_tools() {
+  local c best="" v
+  local cands=()
+  cands+=("$(dirname "${BASH_SOURCE[0]}")")
+  [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && cands+=("$CLAUDE_PLUGIN_ROOT/scripts/agent-wt")
+  cands+=("${MAPLE_MAIN_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || true)}/plugin/scripts/agent-wt")
+  for c in "${cands[@]}"; do
+    if [ -f "$c/strip-links.mjs" ] && [ -f "$c/verify-no-links.mjs" ] && [ -f "$c/link-walk.mjs" ]; then
+      printf '%s' "$c"; return 0
+    fi
+  done
+  for v in $(ls -d "${HOME:-/nonexistent}"/.claude/plugins/cache/*/maple-standard/*/ 2>/dev/null | sort -V -r); do
+    c="${v%/}/scripts/agent-wt"
+    if [ -f "$c/strip-links.mjs" ] && [ -f "$c/verify-no-links.mjs" ] && [ -f "$c/link-walk.mjs" ]; then
+      printf '%s' "$c"; return 0
+    fi
+  done
+  return 1
 }
 
-# Safely remove a worktree dir: unlink node_modules junctions, strip every
-# remaining reparse point (see above — .next contains junctions into the main
-# tree), then let git remove it; fall back to a manual (now link-free, so
-# safe) rm + prune.
+_maple_err() { printf '[31m[maple] â %s[0m
+' "$*" >&2; }
+
+# Strip every link inside a worktree, then PROVE none remain. Returns non-zero
+# (loudly) on any failure; the caller must then delete nothing.
+maple_strip_reparse_points() {
+  local wt="$1" dir tool_wt strip_wt
+  [ -e "$wt" ] || return 0
+  command -v node >/dev/null 2>&1 || { _maple_err "node not found - cannot strip links, NOT removing $wt"; return 1; }
+  dir="$(_maple_resolve_link_tools)" || { _maple_err "link-strip tools not found (plugin updated or moved mid-run?) - NOT removing $wt"; return 1; }
+  strip_wt="$wt"; tool_wt="$dir"
+  if $MAPLE_IS_WINDOWS; then strip_wt="$(cygpath -w "$wt")"; tool_wt="$(cygpath -w "$dir")"; fi
+  node "$tool_wt/strip-links.mjs" "$strip_wt" >&2 || { _maple_err "link strip failed in $wt - NOT removing it"; return 1; }
+  maple_verify_no_links "$wt"
+}
+
+# Independent re-scan (separate script from the strip). Non-zero = links remain / unscannable.
+maple_verify_no_links() {
+  local wt="$1" dir v_wt tool_wt
+  [ -e "$wt" ] || return 0
+  command -v node >/dev/null 2>&1 || { _maple_err "node not found - cannot verify $wt is link-free"; return 1; }
+  dir="$(_maple_resolve_link_tools)" || { _maple_err "link-verify tool not found - NOT removing $wt"; return 1; }
+  v_wt="$wt"; tool_wt="$dir"
+  if $MAPLE_IS_WINDOWS; then v_wt="$(cygpath -w "$wt")"; tool_wt="$(cygpath -w "$dir")"; fi
+  node "$tool_wt/verify-no-links.mjs" "$v_wt" >&2 || { _maple_err "links remain in (or could not scan) $wt - NOT removing it"; return 1; }
+}
+
+# Safely remove a worktree dir. FAIL-CLOSED (D069): returns non-zero without
+# deleting anything if the strip or the post-strip scan fails. Callers must
+# treat non-zero as "kept". Order: unlink node_modules junctions, strip all
+# links, verify clean, git remove; rm fallback only after a fresh clean scan.
 maple_remove_worktree() {
   local wt="$1"
+  if [ ! -e "$wt" ]; then git worktree prune; return 0; fi
   maple_unlink_node_modules "$wt"
-  maple_strip_reparse_points "$wt"
+  maple_strip_reparse_points "$wt" || return 1
   if git worktree remove --force "$wt" 2>/dev/null; then return 0; fi
-  rm -rf "$wt" 2>/dev/null \
-    || { $MAPLE_IS_WINDOWS && cmd //c rmdir //s //q "$(cygpath -w "$wt")" >/dev/null 2>&1; } || true
+  maple_verify_no_links "$wt" || return 1
+  rm -rf "$wt" 2>/dev/null     || { $MAPLE_IS_WINDOWS && cmd //c rmdir //s //q "$(cygpath -w "$wt")" >/dev/null 2>&1; } || true
   git worktree prune
+  [ ! -e "$wt" ] || { _maple_err "could not fully remove $wt"; return 1; }
 }
 
 # ── cross-platform port kill ─────────────────────────────────────────────────

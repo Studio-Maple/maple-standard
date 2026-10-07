@@ -134,13 +134,16 @@ fi
 if $PUSH && ! $KEEP; then
   maple_log "pruning worktree + branch"
   cd "$MAPLE_MAIN_ROOT"   # can't remove the worktree we're standing in
-  maple_remove_worktree "$WT_DIR" \
-    || maple_warn "couldn't fully remove worktree $WT_DIR (a shell may still be cd'd inside it — maple-reap will finish it)"
-  git branch -D "$BRANCH" 2>/dev/null || true
-  git ls-remote --exit-code --heads "$MAPLE_REMOTE" "$BRANCH" >/dev/null 2>&1 \
-    && git push "$MAPLE_REMOTE" --delete "$BRANCH" 2>/dev/null || true
-  maple_ok "cleaned up $SLUG"
-  maple_warn "your shell is still inside the removed worktree — cd to $MAPLE_MAIN_ROOT"
+  if maple_remove_worktree "$WT_DIR"; then
+    git branch -D "$BRANCH" 2>/dev/null || true
+    git ls-remote --exit-code --heads "$MAPLE_REMOTE" "$BRANCH" >/dev/null 2>&1 \
+      && git push "$MAPLE_REMOTE" --delete "$BRANCH" 2>/dev/null || true
+    maple_ok "cleaned up $SLUG"
+    maple_warn "your shell is still inside the removed worktree — cd to $MAPLE_MAIN_ROOT"
+  else
+    # D069: removal is fail-closed - nothing was deleted; keep the branch too so the work stays reachable.
+    maple_warn "KEPT worktree $WT_DIR and branch $BRANCH - removal refused (see error above: a shell may be cd'd inside, or links could not be proven stripped). Already integrated; maple-reap will retry."
+  fi
 else
   maple_log "left worktree in place (--keep or --no-push): $WT_DIR"
 fi

@@ -13,16 +13,20 @@
  * must strip every reparse point inside the worktree (the links themselves,
  * never their targets) before any deleter runs.
  *
- * Shape: main/pkg holds real files; a git worktree carries
- * `.next/node_modules/<link>` targeting main/pkg (junction on Windows,
- * symlink on POSIX); maple_remove_worktree runs; main/pkg files must
- * SURVIVE and the worktree must be gone. On POSIX every deleter unlinks
- * symlinks safely, so the test passes trivially there — the regression it
- * pins down is Windows-specific, and runs for real on Windows dev machines.
+ * D069 (2026-10-07, EasyCaller): the removal is also FAIL-CLOSED. A plugin
+ * cache update deleted the lib's own dir mid-reap, the strip silently
+ * no-oped, and only luck saved the main node_modules. Scenarios:
+ *   (a) strip tool missing  -> refuse loudly, delete nothing
+ *   (b) strip "succeeds" but a link remains -> the independent re-scan refuses
+ *   (c) normal path -> link stripped, worktree gone, sentinel survives
+ * On POSIX every deleter unlinks symlinks safely, so (c) passes trivially
+ * there; the Windows-specific regression runs for real on Windows machines.
  */
 import { spawnSync } from "node:child_process";
 import {
+  copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -55,15 +59,12 @@ const check = (name, ok, detail = "") => {
   if (!ok) failed++;
 };
 
-const sb = mkdtempSync(join(tmpdir(), "maple-junction-"));
-try {
-  // The "main checkout" stand-in: a real package dir with real files.
+/** Sandbox: main/pkg sentinel + a repo + a worktree holding a link to the sentinel. */
+function scenario(sb) {
   const mainPkg = join(sb, "main", "pkg");
   mkdirSync(mainPkg, { recursive: true });
   writeFileSync(join(mainPkg, "a.js"), "real file A\n");
   writeFileSync(join(mainPkg, "b.js"), "real file B\n");
-
-  // A tiny repo + one agent worktree.
   const repo = join(sb, "repo");
   mkdirSync(repo);
   sh("git", ["init", "-q", "-b", "main"], { cwd: repo });
@@ -78,7 +79,6 @@ try {
     console.log(`SKIP: git worktree add failed in the sandbox — ${String(add.stderr).trim()}`);
     process.exit(0);
   }
-
   // The hazard: a link inside build output whose target is OUTSIDE the
   // worktree — exactly what Turbopack leaves in .next/node_modules/.
   const linkParent = join(wt, ".next", "node_modules");
@@ -93,27 +93,99 @@ try {
   } else {
     sh("ln", ["-s", mainPkg, link]);
   }
+  return { mainPkg, repo, wt, link };
+}
 
-  // Run the real maple_remove_worktree from the real lib.
-  const lib = posixish(join(HERE, "maple-lib.sh"));
-  const script = 'set -euo pipefail; cd "$1"; . "$2"; maple_remove_worktree "$3"';
-  const r = sh("bash", ["-c", script, "bash", posixish(repo), lib, posixish(wt)]);
+const sentinelOk = (mainPkg) => existsSync(mainPkg) && readdirSync(mainPkg).length === 2;
+const linkExists = (p) => {
+  try {
+    lstatSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** Copy the agent-wt dir so a scenario can break/replace one tool without touching the real one. */
+function copyLibDir(sb) {
+  const dir = join(sb, "libcopy");
+  mkdirSync(dir);
+  for (const f of readdirSync(HERE)) {
+    if (/\.(mjs|sh)$/.test(f) && !/\.test\./.test(f)) copyFileSync(join(HERE, f), join(dir, f));
+  }
+  return dir;
+}
+
+const REMOVE = 'set -euo pipefail; cd "$1"; . "$2"; maple_remove_worktree "$3"';
+
+/** Run maple_remove_worktree from libDir with no plugin root / cache / repo plugin/ to fall back on. */
+function removeIsolated(libDir, { repo, wt }, sb) {
+  const home = join(sb, "home");
+  mkdirSync(home, { recursive: true });
+  const env = { ...process.env, HOME: home, USERPROFILE: home };
+  delete env.CLAUDE_PLUGIN_ROOT;
+  delete env.MAPLE_MAIN_ROOT;
+  return sh(
+    "bash",
+    ["-c", REMOVE, "bash", posixish(repo), posixish(join(libDir, "maple-lib.sh")), posixish(wt)],
+    { env },
+  );
+}
+
+function inSandbox(fn) {
+  const sb = mkdtempSync(join(tmpdir(), "maple-junction-"));
+  try {
+    fn(sb, scenario(sb));
+  } finally {
+    rmSync(sb, { recursive: true, force: true });
+  }
+}
+
+// (c) normal path: the real lib.
+inSandbox((sb, sc) => {
+  const r = sh("bash", [
+    "-c",
+    REMOVE,
+    "bash",
+    posixish(sc.repo),
+    posixish(join(HERE, "maple-lib.sh")),
+    posixish(sc.wt),
+  ]);
   check(
-    "maple_remove_worktree completed",
+    "(c) maple_remove_worktree completed",
     r.status === 0,
     r.status === 0 ? "" : String(r.stderr).trim().split("\n").slice(-2).join(" | "),
   );
-
-  const survivors = existsSync(mainPkg) ? readdirSync(mainPkg) : null;
+  const survivors = existsSync(sc.mainPkg) ? readdirSync(sc.mainPkg) : null;
   check(
-    "link TARGET's real files survive the teardown",
+    "(c) link TARGET's real files survive the teardown",
     survivors !== null && survivors.length === 2,
     `main/pkg = ${survivors === null ? "DIR GONE" : survivors.join(",") || "EMPTY (gutted!)"}`,
   );
-  check("worktree dir is gone", !existsSync(wt));
-} finally {
-  rmSync(sb, { recursive: true, force: true });
-}
+  check("(c) worktree dir is gone", !existsSync(sc.wt));
+});
+
+// (a) strip tool missing (plugin cache updated mid-run): refuse loudly, delete NOTHING.
+inSandbox((sb, sc) => {
+  const libDir = copyLibDir(sb);
+  rmSync(join(libDir, "strip-links.mjs"));
+  const r = removeIsolated(libDir, sc, sb);
+  check("(a) missing strip tool -> non-zero exit", r.status !== 0, `status ${r.status}`);
+  check("(a) loud error printed", /NOT removing/.test(String(r.stderr)), String(r.stderr).trim().slice(-160));
+  check("(a) worktree and link untouched", existsSync(sc.wt) && linkExists(sc.link));
+  check("(a) sentinel behind the link survives", sentinelOk(sc.mainPkg));
+});
+
+// (b) a strip that exits 0 but leaves the link: the independent re-scan must refuse.
+inSandbox((sb, sc) => {
+  const libDir = copyLibDir(sb);
+  writeFileSync(join(libDir, "strip-links.mjs"), "process.exit(0);\n");
+  const r = removeIsolated(libDir, sc, sb);
+  check("(b) link survives a no-op strip -> non-zero exit", r.status !== 0, `status ${r.status}`);
+  check("(b) loud error printed", /links remain/.test(String(r.stderr)), String(r.stderr).trim().slice(-160));
+  check("(b) worktree and link untouched", existsSync(sc.wt) && linkExists(sc.link));
+  check("(b) sentinel behind the link survives", sentinelOk(sc.mainPkg));
+});
 
 if (failed > 0) {
   console.error(`${failed} assertion(s) FAILED`);

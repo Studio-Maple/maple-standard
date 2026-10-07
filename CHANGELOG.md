@@ -5,6 +5,14 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Worktree removal fails closed; the plugin cache never deletes a version in use (plugin v0.13.5, D069).** Incident 2026-10-07 (EasyCaller): a plugin auto-update made
+  `sync-plugin-cache` delete 0.13.0 while a 0.13.0 `maple-reap` was mid-run; the lib's captured `strip-reparse-points.ps1` path vanished, the error was swallowed and the junction
+  strip silently did nothing (D012 - only the agent's own check saved the main `node_modules`). Now `maple_remove_worktree` resolves `strip-links.mjs` / `verify-no-links.mjs`
+  (lstat-only node, never follows a link; replaces the PowerShell script) at call time (own dir, `CLAUDE_PLUGIN_ROOT`, the repo's `plugin/`, newest cache version), strips, then
+  re-scans with the separate verify script; a missing tool, node, a failed strip or any remaining link prints an error, returns non-zero and deletes nothing (the `rm` fallback re-scans too).
+  `maple-reap` (counts it kept, keeps the branch), `maple-land` (keeps worktree and branch), the land-queue integration worktree (dies loudly) and `heavy-run` (reports) treat it as kept.
+  `sync-plugin-cache` now reclaims superseded versions on every run, only after a 24h grace (`MAPLE_SYNC_GRACE_HOURS`) and never while a live pid is in the version's `.in_use/`
+  (written by `maple-lib.sh` at source time; dead pids are cleaned). Tests: `junction-safety` (missing tool, no-op strip, normal path) and `sync-cache-inuse`.
 - **Secret scrubber regression fixed; `run-gate.mjs` Git Bash path fixed (plugin v0.13.4, D070).** D065 removed EasyCaller's project copy of `scrub-secrets`, which caught more than the
   plugin's. The plugin hook now ports every missing pattern: Supabase `sb_secret_` keys (`sb_publishable_` is public and left alone), AWS temporary `ASIA` ids (word-bounded),
   labeled AWS secret access keys and session tokens (`aws_secret_access_key`, `AWS_SECRET_ACCESS_KEY`, `SecretAccessKey`, `aws_session_token`, `SessionToken`; any case), labeled Cloudflare API
