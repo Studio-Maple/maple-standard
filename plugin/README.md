@@ -63,7 +63,7 @@ remove `ci:core` / `ci:full`.
 **5. `maple.config.json`.** Add `ci.tiers.heavy` (e.g. `"pnpm ci:heavy"`); keep `ci.prePushTier: "gate"`. `quality.jevAudit`
 now runs in the heavy tier, not in `/wt-land`. `worktrees.lock.ttlSeconds` is ignored. Production/dev branch keys unchanged.
 
-**5b. Isolated CI stack (D071, plugin v0.13.6).** The heavy tier must not run against a dev stack. Add `ci.stack` to `maple.config.json`:
+**5b. Isolated CI stack (D071, plugin v0.13.7).** The heavy tier must not run against a dev stack. Add `ci.stack` to `maple.config.json`:
 `"ci": { ..., "stack": { "portBase": <free 10-port block> } }` (optional `projectId`, default `<project_id in supabase/config.toml>-ci`; optional
 `exclude`: containers to skip, default `studio,imgproxy,logflare,vector,mailpit`). Pick a block outside the dev block and outside the reserved
 ranges (`netsh interface ipv4 show excludedportrange protocol=tcp`), then have the owner reserve it (`netsh int ipv4 add excludedportrange
