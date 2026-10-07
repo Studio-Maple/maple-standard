@@ -1,5 +1,5 @@
 {
-  "generated": "2026-10-06",
+  "generated": "2026-10-07",
   "generator": "plugin/scripts/docs/generate-docs-index.mjs",
   "description": "Machine-readable map of docs/**/*.md preambles (OKF v0.1 frontmatter or legacy prose — docs/decisions.md D010). Regenerate after any preamble/description change: run this script (or check-docs-drift.mjs --fix).",
   "files": [
@@ -16,9 +16,10 @@
         "node scripts/next-task-id.mjs --add --decision --title \"...\" --body \"...\""
       ],
       "related": [
+        "quality",
+        "docker",
         "predeploy-gate",
         "quality-gate",
-        "docker",
         "standard-architecture",
         "rollout",
         "loop-pack",
@@ -38,6 +39,7 @@
       "anchor_type": "code",
       "anchor_paths": [
         "supabase/config.toml",
+        "plugin/scripts/gate/ci-stack.mjs",
         "plugin/scripts/docker/dstack.ps1",
         "plugin/commands/docker-audit.md",
         "~/.claude/commands/docker-audit.md",
@@ -193,7 +195,8 @@
         "plugin/scripts/docs/check-docs-touched.mjs"
       ],
       "related": [
-        "../CLAUDE.md"
+        "../CLAUDE.md",
+        "docker"
       ]
     },
     {

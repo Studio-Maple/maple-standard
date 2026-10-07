@@ -27,7 +27,7 @@ All notable changes to this project. Format loosely follows
   matched; it now imports the plugin's `find-bash.mjs` (this repo's `./plugin`, `$MAPLE_PLUGIN_DIR`, `$CLAUDE_PLUGIN_ROOT`, else the newest installed plugin copy). Tests:
   `plugin/scripts/hooks/scrub-secrets.test.mjs` (positive + near-miss per pattern, docs, matcher covers PowerShell), `plugin/scripts/gate/run-gate.test.mjs`.
 
-- **The heavy tier runs against an isolated throwaway Supabase stack, never a dev stack (plugin v0.13.5, D071).** The heavy tier used the owner's own dev stack: in VeHagita it held
+- **The heavy tier runs against an isolated throwaway Supabase stack, never a dev stack (plugin v0.13.6, D071).** The heavy tier used the owner's own dev stack: in VeHagita it held
   migrations of unlanded branches (types-freshness red) and `db reset` would wipe the owner's local data; EasyCaller hit the same risk. New `ci.stack { portBase, projectId?, exclude? }`
   in `maple.config.json` (schema, `validate-config.mjs`, plugin schema JSON) and `plugin/scripts/gate/ci-stack.mjs up | env | status | down` (+ `ci-stack-config|docker|env|lock.mjs`),
   generalised from EasyCaller's `ci-supabase.mjs`: a copy of `supabase/` under `<git-common-dir>/maple/ci-stack/<id>/` with `project_id` `<dev id>-ci` and every port in
