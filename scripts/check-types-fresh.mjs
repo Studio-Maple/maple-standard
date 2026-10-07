@@ -22,9 +22,15 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(fileURLToPath(import.meta.url), "..", "..");
 const TYPES_PATH = join(ROOT, "src", "types", "database.types.ts");
 
+// D071: the heavy tier runs against the isolated CI stack; its workdir (a copy of supabase/ under project_id <id>-ci) is
+// exported as CI_SUPABASE_WORKDIR by ci-stack.mjs env, and every CLI call below is pointed at it - never at the dev stack.
+const WORKDIR = process.env.CI_SUPABASE_WORKDIR;
+// (spawned with a shell on Windows below, so the path is quoted there)
+const WORKDIR_ARGS = WORKDIR ? ["--workdir", process.platform === "win32" ? `"${WORKDIR}"` : WORKDIR] : [];
+
 function stackUp() {
   // pnpm exec: the project's own CLI, not whatever global one is on PATH (shell: pnpm is a .cmd shim on Windows)
-  const probe = spawnSync("pnpm", ["exec", "supabase", "status", "-o", "env"], { cwd: ROOT, encoding: "utf8", shell: process.platform === "win32" });
+  const probe = spawnSync("pnpm", ["exec", "supabase", "status", "-o", "env", ...WORKDIR_ARGS], { cwd: ROOT, encoding: "utf8", shell: process.platform === "win32" });
   return probe.status === 0;
 }
 
@@ -54,7 +60,7 @@ function main() {
     process.exit(0);
   }
 
-  const gen = spawnSync("pnpm", ["exec", "supabase", "gen", "types", "typescript", "--local"], {
+  const gen = spawnSync("pnpm", ["exec", "supabase", "gen", "types", "typescript", "--local", ...WORKDIR_ARGS], {
     cwd: ROOT,
     encoding: "utf8",
     shell: process.platform === "win32",

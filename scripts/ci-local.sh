@@ -14,8 +14,8 @@
 #            suites: a landing is light (target < 3 min typical). A docs-sync WARNING is printed
 #            in the summary (non-blocking).
 #   heavy  - the expensive half, batched: fast (complete) + plugin INTEGRATION suites + live RLS +
-#            all desktop E2E on a gate-only port (stack started on demand, stopped afterwards if we
-#            started it) + types-freshness + Jev audit + dep-freshness since the last heavy pass +
+#            all desktop E2E on a gate-only port (an ISOLATED throwaway Supabase stack, D071: ci.stack in
+#            maple.config.json; torn down always. Without ci.stack: the dev stack, with a warning) + types-freshness + Jev audit + dep-freshness since the last heavy pass +
 #            audit. A green run writes <git-common-dir>/maple/heavy-pass/<sha>.json and pays gate
 #            debt; production promotion (predeploy verify) requires that stamp for HEAD.
 #            Scheduled daily by plugin/scripts/gate/heavy-run.mjs, or run by hand: pnpm ci:heavy.
@@ -246,8 +246,37 @@ strip_restart_policies() {
   if [ "${#ids[@]}" -gt 0 ]; then docker update --restart=no "${ids[@]}" >/dev/null 2>&1 || true; fi
 }
 
+# D071: with maple.config.json ci.stack the live tier runs against an ISOLATED throwaway stack (plugin ci-stack.mjs: copy of
+# supabase/ under project_id <id>-ci, its own port block, fresh volume, always torn down). The dev stack is never read, reset or
+# stopped. Without ci.stack the old behaviour (the dev stack) stays, with a loud warning.
+CI_STACK="${PLUGIN_DIR:+$PLUGIN_DIR/scripts/gate/ci-stack.mjs}"
+STACK_MODE=dev
+ci_stack_configured() {
+  [ -f "$CI_STACK" ] && node -e 'try{const s=JSON.parse(require("fs").readFileSync("maple.config.json","utf8"))?.ci?.stack;process.exit(s&&Number.isInteger(s.portBase)?0:1)}catch{process.exit(1)}'
+}
+# The lock owner is THIS run (its Windows pid under Git Bash, where node cannot see msys pids), not the short-lived ci-stack process.
+ci_owner_pid() { local w=""; [ -r "/proc/$$/winpid" ] && read -r w <"/proc/$$/winpid" || true; echo "${w:-$$}"; }
+
 # Local Docker stacks stay on demand (D052): start only when not already up, stop afterwards only what we started.
+ensure_ci_stack() {
+  local owner envtext v
+  owner="$(ci_owner_pid)"
+  STACK_MODE=ci
+  STACK_STARTED=1   # down always runs (EXIT trap), even when up fails half way
+  echo "starting the isolated CI Supabase stack (ci.stack, D071) - the dev stack is not touched..."
+  node "$CI_STACK" up --owner-pid "$owner" || return 1
+  # Nothing inherited from the owner's shell may point the tests at another stack.
+  for v in $(compgen -e | grep -E '^(SUPABASE_|E2E_SUPABASE_|CI_SUPABASE_|NEXT_PUBLIC_SUPABASE_)' || true); do unset "$v"; done
+  # Secret-bearing (keys): captured, eval-ed, never echoed. No xtrace here, ever.
+  envtext="$(node "$CI_STACK" env --owner-pid "$owner")" || return 1
+  eval "$envtext"
+  envtext=""
+}
+
 ensure_stack() {
+  if ci_stack_configured; then ensure_ci_stack; return $?; fi
+  echo "!! WARNING: maple.config.json has no ci.stack - the live tier uses the DEV Supabase stack (project_id in supabase/config.toml)." >&2
+  echo "!! It can hold unlanded migrations (types-freshness red) and db reset WIPES its data. Add ci.stack {portBase} (docs/quality.md, D071)." >&2
   if stack_up; then echo "(local Supabase stack already running - using it)"; return 0; fi
   echo "starting the local Supabase stack (on demand; stopped again when this run ends)..."
   STACK_STARTED=1
@@ -269,8 +298,13 @@ ensure_stack() {
 stop_stack_if_ours() {
   if [ "$STACK_STARTED" -eq 1 ]; then
     STACK_STARTED=0
-    echo "stopping the Supabase stack this run started..."
-    pnpm exec supabase stop >/dev/null 2>&1 || true
+    if [ "$STACK_MODE" = "ci" ]; then
+      echo "tearing down the isolated CI Supabase stack..."
+      node "$CI_STACK" down --owner-pid "$(ci_owner_pid)" || echo "warning: ci-stack down reported leftovers (run: node $CI_STACK down)" >&2
+    else
+      echo "stopping the Supabase stack this run started..."
+      pnpm exec supabase stop >/dev/null 2>&1 || true
+    fi
   fi
 }
 
@@ -282,7 +316,7 @@ check_types_fresh() {
 # Live tier: RLS suite + all desktop E2E on a gate-only port (playwright.config.ts: E2E_PORT, default 3100,
 # never reusing a server; the build from fast 7/7 is reused via E2E_SKIP_BUILD=1).
 run_live() {
-  ensure_stack || die "could not start the local Supabase stack (Docker down, or its ports cannot be bound?). On a box that genuinely cannot run it: MAPLE_GATE_SKIP=docker-unavailable (recorded as gate debt)"
+  ensure_stack || die "could not start the Supabase stack for the live tier (Docker down, or its ports cannot be bound?). On a box that genuinely cannot run it: MAPLE_GATE_SKIP=docker-unavailable (recorded as gate debt)"
   check_types_fresh
 
   step "heavy: Supabase RLS + trigger suite"
