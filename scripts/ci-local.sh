@@ -44,7 +44,10 @@ set -euo pipefail
 # -> repo root. One subshell, no dirname fork (forks are seconds on a loaded box).
 _self="${BASH_SOURCE[0]}"
 _self="${_self//\\//}"   # a Windows caller (the .ps1 shim, run-gate.mjs) may pass backslashes
-case "$_self" in */*) _self_dir="${_self%/*}" ;; *) _self_dir="." ;; esac
+case "$_self" in
+  */*) _self_dir="${_self%/*}" ;;
+  *) _self_dir="." ;;
+esac
 cd "$_self_dir/.."
 TIER="${1:-gate}"
 ROOT_DIR="$(pwd)"
@@ -374,7 +377,7 @@ run_heavy() {
   base="$(node "$GATE_CLI" base 2>/dev/null || true)"
   if [ -n "$base" ]; then baseargs=(--base "$base"); fi
   if ! gate_skip dep-freshness; then
-    pp_ran "dep-freshness (heavy)" "all dependency changes since ${base:-<merge-base>}"
+    pp_ran "dep-freshness (heavy)" "all dependency changes since ${base:-the merge-base}"
     node scripts/check-dep-freshness.mjs "${baseargs[@]}"
   fi
 
@@ -399,7 +402,10 @@ pp_prepare() {
     while IFS= read -r line || [ -n "$line" ]; do refs="$refs$line"$'\n'; done
     exec </dev/null
   fi
-  case "$1" in gate) ;; *) export PP_FORCE_FULL=1 ;; esac
+  case "$1" in
+    gate) ;;
+    *) export PP_FORCE_FULL=1 ;;
+  esac
   pp_init "$ROOT_DIR" "$refs"
 }
 # On exit: a gate that passed re-checks that the target branch did not move
@@ -416,7 +422,10 @@ ci_cleanup() {
 }
 trap ci_cleanup EXIT
 
-case "$TIER" in fast|gate|heavy) ;; *) die "Unknown tier '$TIER'. Use: fast | gate | heavy" ;; esac
+case "$TIER" in
+  fast|gate|heavy) ;;
+  *) die "Unknown tier '$TIER'. Use: fast | gate | heavy" ;;
+esac
 
 # An unlisted MAPLE_GATE_SKIP fails before any work.
 if [ -n "${MAPLE_GATE_SKIP:-}" ] || [ "${SKIP_LIVE_GATE:-}" = "1" ]; then

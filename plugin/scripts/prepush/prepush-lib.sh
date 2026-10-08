@@ -47,6 +47,7 @@ PP_KEY=""              # per-checkout key
 PP_STAMP=""
 
 _pp_zero_re='^0+$'
+_PP_NL=$'\n'
 
 # Sandbox-safe sleep (D066). The Claude Code Bash sandbox denies /usr/bin/sleep
 # ("Permission denied"), which crashed every wait loop (gate slot, locks). Try the
@@ -59,7 +60,9 @@ pp_sleep() {
   if command sleep "$secs" 2>/dev/null; then return 0; fi
   if [ -z "$_PP_SLEEP_FD" ]; then
     f="$(mktemp -u 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/pp-sleep.$$")"
-    if mkfifo "$f" 2>/dev/null && exec {_PP_SLEEP_FD}<>"$f" 2>/dev/null; then
+    # Read-write open, so the FIFO open never blocks. Spelled through eval: semgrep's
+    # bash parser has no `<>`, and an unparseable file is a gate finding.
+    if mkfifo "$f" 2>/dev/null && eval 'exec {_PP_SLEEP_FD}<>"$f"' 2>/dev/null; then
       rm -f "$f" 2>/dev/null || true
     else
       _PP_SLEEP_FD="none"
@@ -74,6 +77,12 @@ pp_sleep() {
   return 0
 }
 
+_pp_dec() { # _pp_dec <var> <digits>: the decimal value of <digits> (leading zeros are not octal)
+  local v="${2:-0}"
+  while [ "${#v}" -gt 1 ] && [ "${v#0}" != "$v" ]; do v="${v#0}"; done
+  printf -v "$1" '%s' "${v:-0}"
+}
+
 _pp_now() { # _pp_now <var>
   printf -v "$1" '%(%s)T' -1 2>/dev/null || printf -v "$1" '%s' "$(date +%s)"
 }
@@ -81,18 +90,20 @@ _pp_now() { # _pp_now <var>
 # ---------------------------------------------------------------------------
 # Range + changed set.
 # ---------------------------------------------------------------------------
-_pp_seen=$'\n'
+_pp_seen="$_PP_NL"
 _pp_add_files() { # add the paths of `git diff --name-status` lines in $1, once each
   local st f
   while IFS=$'\t' read -r st f; do
     [ -n "$f" ] || continue
-    case "$st" in A*|D*) PP_ADDDEL+=("$f") ;; esac
-    case "$_pp_seen" in *$'\n'"$f"$'\n'*) continue ;; esac
-    _pp_seen="$_pp_seen$f"$'\n'
+    case "$st" in
+      A*|D*) PP_ADDDEL+=("$f") ;;
+    esac
+    case "$_pp_seen" in
+      *"$_PP_NL$f$_PP_NL"*) continue ;;
+    esac
+    _pp_seen="$_pp_seen$f$_PP_NL"
     PP_FILES+=("$f")
-  done <<EOF
-$1
-EOF
+  done < <(printf '%s\n' "$1")
 }
 
 # Per-checkout key from the path (no hashing fork): the path with every
@@ -112,7 +123,7 @@ pp_init() {
   local refs="${2:-}"
   PP_FILES=(); PP_ADDDEL=(); PP_SUMMARY=(); PP_TS=(); PP_TE=(); PP_RAN=(); PP_FULL=0; PP_FULL_REASON=""; PP_BASE=""
   PP_REFS_TEXT="$refs"
-  _pp_seen=$'\n'
+  _pp_seen="$_PP_NL"
 
   _pp_key_for "$PP_ROOT"
 
@@ -132,7 +143,9 @@ EOF
   # first existing default remote ref (one call)
   out="$(git -C "$PP_ROOT" for-each-ref --format='%(refname:short)' refs/remotes/origin/development refs/remotes/origin/main refs/remotes/origin/master 2>/dev/null || true)"
   for cand in origin/development origin/main origin/master; do
-    case $'\n'"$out"$'\n' in *$'\n'"$cand"$'\n'*) remote_base="$cand"; break ;; esac
+    case "$_PP_NL$out$_PP_NL" in
+      *"$_PP_NL$cand$_PP_NL"*) remote_base="$cand"; break ;;
+    esac
   done
 
   if [ -n "$refs" ]; then
@@ -181,7 +194,7 @@ EOF
 
   if [ "$resolved" -eq 0 ]; then
     PP_FULL=1
-    PP_FULL_REASON="${PP_FULL_REASON:-no push range resolvable (no upstream, no origin/<default>)}"
+    PP_FULL_REASON="${PP_FULL_REASON:-no push range resolvable - no upstream and no default remote ref}"
   fi
 
   # Shared inputs: a change here can alter the verdict of every check.
@@ -240,9 +253,7 @@ _pp_graph_changed_raw() {
       '+++'*|'---'*) continue ;;
       '+'*|'-'*) if [[ "$line" =~ (import|export|require|from[[:space:]]) ]]; then return 0; fi ;;
     esac
-  done <<EOF
-$d
-EOF
+  done < <(printf '%s\n' "$d")
   return 1
 }
 
@@ -319,7 +330,7 @@ pp_summary() {
   local line full="" i n="${#PP_SUMMARY[@]}" next dur
   if pp_is_full; then full=" -- FULL ($PP_FULL_REASON)"; fi
   echo ""
-  echo "=== gate summary: ${#PP_FILES[@]} changed path(s) vs ${PP_BASE:-<no base>}$full ==="
+  echo "=== gate summary: ${#PP_FILES[@]} changed path(s) vs ${PP_BASE:-no base}$full ==="
   for ((i = 0; i < n; i++)); do
     line="${PP_SUMMARY[$i]}"
     if [ "${PP_RAN[$i]:-0}" = "1" ]; then
@@ -463,8 +474,9 @@ _pp_slot_reap() { # remove stale slots + tickets
   done
   for t in "$root"/queue/*; do
     [ -f "$t" ] || continue
-    name="${t##*/}"; epoch="${name%%-*}"; pid="${name##*-}"; pid=$((10#${pid:-0}))
-    if ! _pp_pid_alive "$pid" || [ $((now - 10#${epoch:-$now})) -gt 14400 ]; then rm -f "$t" 2>/dev/null; fi
+    name="${t##*/}"; epoch="${name%%-*}"; pid="${name##*-}"
+    _pp_dec pid "$pid"; _pp_dec epoch "${epoch:-$now}"
+    if ! _pp_pid_alive "$pid" || [ $((now - epoch)) -gt 14400 ]; then rm -f "$t" 2>/dev/null; fi
   done
   return 0
 }
@@ -572,11 +584,16 @@ pp_stamp_covers() {
   [ -f "$PP_STAMP" ] || return 1
   _pp_tree_clean || return 1
   IFS= read -r -d '' content <"$PP_STAMP" || true
-  content=$'\n'"$content"
-  case "$content" in *$'\n'"mode full"$'\n'*) return 0 ;; esac
+  content="$_PP_NL$content"
+  case "$content" in
+    *"${_PP_NL}mode full$_PP_NL"*) return 0 ;;
+  esac
   pp_is_full && return 1   # a full run is only satisfied by a full pass
   for f in "${PP_FILES[@]}"; do
-    case "$content" in *$'\n'"file $f"$'\n'*) ;; *) return 1 ;; esac
+    case "$content" in
+      *"${_PP_NL}file $f$_PP_NL"*) ;;
+      *) return 1 ;;
+    esac
   done
   return 0
 }
@@ -652,7 +669,9 @@ pp_find_push_owner() {
     local p="$PPID" comm
     while [ -n "$p" ] && [ "$p" -gt 1 ] 2>/dev/null; do
       comm="$(ps -o comm= -p "$p" 2>/dev/null || true)"
-      case "$comm" in git|*/git) PP_OWNER_KIND="msys"; PP_OWNER_PID="$p"; return 0 ;; esac
+      case "$comm" in
+        git|*/git) PP_OWNER_KIND="msys"; PP_OWNER_PID="$p"; return 0 ;;
+      esac
       p="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ' || true)"
     done
   fi
@@ -683,7 +702,14 @@ pp_land_fresh_check() {
 _pp_holder_line() { # print a holder file's description: "<who> since <time> (pushing <sha>)"
   local f="$1/holder" k v who="" since="" sha="" branch="" wt="" pid="" sess="" epoch=""
   while IFS='=' read -r k v; do
-    case "$k" in session) sess="$v" ;; branch) branch="$v" ;; worktree) wt="$v" ;; pid) pid="$v" ;; epoch) epoch="$v" ;; sha) sha="$v" ;; esac
+    case "$k" in
+      session) sess="$v" ;;
+      branch) branch="$v" ;;
+      worktree) wt="$v" ;;
+      pid) pid="$v" ;;
+      epoch) epoch="$v" ;;
+      sha) sha="$v" ;;
+    esac
   done <"$f" 2>/dev/null || true
   if [ -n "$epoch" ]; then printf -v since '%(%H:%M:%S)T' "$epoch" 2>/dev/null || since="$epoch"; fi
   who="${sess:-unknown} [branch ${branch:-?}, worktree ${wt:-?}, pid ${pid:-?}]"
@@ -718,7 +744,12 @@ pp_land_acquire() {
     # held: by us (re-entrant), by a dead owner (reclaim), or by someone alive (wait)
     local h_id="" h_kind="" h_pid="" h_epoch="" k v
     while IFS='=' read -r k v; do
-      case "$k" in id) h_id="$v" ;; kind) h_kind="$v" ;; pid) h_pid="$v" ;; epoch) h_epoch="$v" ;; esac
+      case "$k" in
+        id) h_id="$v" ;;
+        kind) h_kind="$v" ;;
+        pid) h_pid="$v" ;;
+        epoch) h_epoch="$v" ;;
+      esac
     done <"$lock/holder" 2>/dev/null || true
     if [ -n "${PP_LAND_HOLDER_ID:-}" ] && [ "$h_id" = "$PP_LAND_HOLDER_ID" ]; then return 0; fi
     _pp_now now
@@ -754,7 +785,8 @@ pp_land_release_all() {
 # take the lock, check again. Exits the caller's shell (return 1) on staleness.
 # Needs the refs text given to pp_init and PP_ROOT; <remote> defaults to origin.
 pp_land_hook_begin() {
-  local remote="${1:-${MAPLE_LAND_REMOTE:-origin}}" re="${MAPLE_LAND_REFS_RE:-^refs/heads/(development|production|main|master)$}" lsha rref rsha
+  local remote="${1:-${MAPLE_LAND_REMOTE:-origin}}" re="${MAPLE_LAND_REFS_RE:-}" lsha rref rsha
+  if [ -z "$re" ]; then re='^refs/heads/(development|production|main|master)$'; fi
   [ -n "$PP_REFS_TEXT" ] || return 0
   PP_LAND_TARGETS=()
   while IFS=' ' read -r _ lsha rref rsha; do

@@ -5,6 +5,17 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Adopted shell files parse under semgrep (plugin v0.13.10).** semgrep's bash grammar rejects several valid constructs, and an adopter's predeploy
+  gate counts an unparseable file as a `semgrep-error` finding. EasyCaller hand-fixed its vendored `prepush-lib.sh` (d920357a, e1c9be4c, 8de69d36) and every
+  re-sync of the canonical file reverted it. The canonical `plugin/scripts/prepush/prepush-lib.sh` and the template `scripts/ci-local.sh` now use the parseable
+  forms, behaviour unchanged: multi-line `case..esac`; `$_PP_NL` instead of `$'
+'` in patterns; `_pp_dec` instead of `10#`; heredocs before `}` replaced by
+  process substitution; no `<...>` inside `${v:-}`; `pp_sleep`'s read-write FIFO open goes through `eval` (semgrep has no `<>`; no fork-free non-eval spelling exists).
+  The only visible text changes: the "no push range" FULL reason and the `<no base>` summary label lose their angle brackets. **Adopters can re-sync**: copy the plugin's
+  `prepush-lib.sh` over `scripts/lib/prepush-lib.sh` (keep byte-identical) and re-copy the template `ci-local.sh` (or port its two `case` blocks and the `<merge-base>` text).
+  Regression tests in `plugin/scripts/prepush/`: `semgrep-parse.test.mjs` (fast static guard for the known-bad forms) and `semgrep-parse.integration.test.mjs`
+  (heavy tier: the real semgrep, native or Docker, must parse both files; fails closed if semgrep is unavailable).
+
 - **The live scan refuses to scan a down target (plugin v0.13.9).** 2026-10-08 (EasyCaller): the VM was parked outside its schedule, Cloudflare answered with its own error pages
   (530 tunnel down, 522 origin timeout) and ZAP reported HSTS-missing findings about those pages instead of saying the target was down. `livescan.mjs` now probes every target
   before Docker/ZAP starts (new `targetcheck.mjs`): connection failures, Cloudflare 52x/530 and Cloudflare-rendered 502-504 error pages, and a Cloudflare Access-only wall on a target with
