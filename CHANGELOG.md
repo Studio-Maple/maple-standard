@@ -5,6 +5,14 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **The live scan refuses to scan a down target (plugin v0.13.9).** 2026-10-08 (EasyCaller): the VM was parked outside its schedule, Cloudflare answered with its own error pages
+  (530 tunnel down, 522 origin timeout) and ZAP reported HSTS-missing findings about those pages instead of saying the target was down. `livescan.mjs` now probes every target
+  before Docker/ZAP starts (new `targetcheck.mjs`): connection failures, Cloudflare 52x/530 and Cloudflare-rendered 502-504 error pages, and a Cloudflare Access-only wall on a target with
+  no auth headers are classified as not scannable. Any such target aborts the run with a blocking `target-down:<id>` finding ("scan not meaningful", exit 1), recorded as a failed live
+  scan with `outcome: "target-down"` (the deploy debt stays, with its own reason) - never a pass, never header findings. Optional `schedule { days, from, to, tz }` on
+  `predeploy.liveScan` or per target adds a note ("outside its declared schedule - probably parked on purpose" / "unexpected outage"); config-validated, informational only. Tests:
+  `predeploy/targetcheck.test.mjs` (fixture 530/522/502 pages, Access redirect, healthy and origin-502 responses, real local server probe, schedule, config, record + debt).
+
 - **Landings stop reporting KEPT for an empty leftover (plugin v0.13.8, D069 follow-up).** Windows cannot delete a directory that
   is a process's cwd - the shell that started `maple-land` from inside the worktree. The fail-closed removal then reported KEPT even
   though every file and the git registration were gone (8 empty `.worktrees/*` dirs piled up on 2026-10-07). An empty leftover now

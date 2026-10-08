@@ -101,6 +101,7 @@ export function liveScanDebt(root, pd, { stampSha, stampIssuedAt } = {}) {
   const scans = liveScans(root);
   if (!scans.length) return { ok: false, reason: "no live scan has ever been recorded — run `predeploy-gate --live` once against the current deployment before the first stamp" };
   const latest = scans[scans.length - 1];
+  if (latest.status !== "pass" && latest.outcome === "target-down") return { ok: false, reason: `latest live scan (${latest.ts}) did not run: a target was down (scan not meaningful) - bring it up and re-run predeploy-gate --live` };
   if (latest.status !== "pass") return { ok: false, reason: `latest live scan (${latest.ts}) failed with ${latest.blocking} blocking finding(s) — fix, redeploy if needed, and re-run \`predeploy-gate --live\`` };
   const covered = latest.coversSeq ?? 0;
   const pending = effectiveDeploys(root).filter((d) => d.status !== "failed" && d.seq > covered && !(stampSha && d.sha === stampSha && stampIssuedAt && d.ts >= stampIssuedAt));

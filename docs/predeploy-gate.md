@@ -276,6 +276,13 @@ debt against their own stamp. Deploy scripts mark failed deploys with
 target that produced no traffic fails (`target-no-coverage`); an empty report
 is not a clean report.
 
+**Reachability preflight.** Before Docker/ZAP starts, every target is probed once (`targetcheck.mjs`). A target that is
+down - connection failure, Cloudflare 52x/530 or Cloudflare-rendered 502-504 error page - or, if it has no auth headers, answers
+only with a Cloudflare Access login, makes the run stop with a blocking `target-down:<id>` finding ("scan not meaningful"). The
+record is a failed live scan with `outcome: "target-down"` (deploy debt stays); no ZAP findings are produced about an error page.
+Optional `schedule: { days, from, to, tz }` (on `liveScan` or a target) only adds a note saying whether the target was expected
+to be up (a parked VM outside its window is the usual cause). Re-run the live scan inside the window.
+
 ## Commands
 
 ```

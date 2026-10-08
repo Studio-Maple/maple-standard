@@ -180,8 +180,9 @@ export function validatePredeploy(cfg) {
   if (ls !== undefined) {
     if (!isObj(ls)) e.push("predeploy.liveScan: must be an object");
     else {
-      const lk = ["enabled", "image", "targets", "callOriginationExcludes", "noCallOriginationRoutes", "extraExcludes", "guards", "requireAfterDeploy", "maxDurationMin", "threads", "userAgent", "minSeverity"];
+      const lk = ["enabled", "image", "targets", "callOriginationExcludes", "noCallOriginationRoutes", "extraExcludes", "guards", "requireAfterDeploy", "maxDurationMin", "threads", "userAgent", "minSeverity", "schedule"];
       for (const k of Object.keys(ls)) if (!lk.includes(k)) e.push(`predeploy.liveScan.${k}: unknown key`);
+      if (ls.schedule !== undefined) e.push(...validateSchedule(ls.schedule, "predeploy.liveScan.schedule"));
       if (ls.enabled !== false) {
         if (!Array.isArray(ls.targets) || !ls.targets.length) e.push("predeploy.liveScan.targets: required non-empty array");
         else {
@@ -189,9 +190,10 @@ export function validatePredeploy(cfg) {
           ls.targets.forEach((t, i) => {
             const at = `predeploy.liveScan.targets[${i}]`;
             if (!isObj(t)) return e.push(`${at}: object`);
-            for (const k of Object.keys(t)) if (!["id", "url", "openapi", "excludeRegexes", "headers"].includes(k)) e.push(`${at}.${k}: unknown key`);
+            for (const k of Object.keys(t)) if (!["id", "url", "openapi", "excludeRegexes", "headers", "schedule"].includes(k)) e.push(`${at}.${k}: unknown key`);
             if (!isStr(t.id) || !/^[a-z0-9][a-z0-9-]*$/.test(t.id)) e.push(`${at}.id: kebab-case`); else if (tids.has(t.id)) e.push(`${at}.id: duplicate`); else tids.add(t.id);
             if (!/^https?:\/\/[^\s/]+/.test(String(t.url))) e.push(`${at}.url: http(s) URL`);
+            if (t.schedule !== undefined) e.push(...validateSchedule(t.schedule, `${at}.schedule`));
             for (const rx of t.excludeRegexes || []) try { new RegExp(rx); } catch (x) { e.push(`${at}.excludeRegexes: ${x.message}`); }
             (t.headers || []).forEach((h, j) => {
               if (!isObj(h) || !isStr(h.name) || !isStr(h.credentialRef) || Object.keys(h).length !== 2) e.push(`${at}.headers[${j}]: only { name, credentialRef } — secrets are never inlined`);
@@ -208,5 +210,17 @@ export function validatePredeploy(cfg) {
       }
     }
   }
+  return e;
+}
+
+/** A declared uptime window (informational: only adds a note to a target-down result). */
+function validateSchedule(sch, at) {
+  const e = [];
+  if (!isObj(sch)) return [`${at}: object { days?, from, to, tz? }`];
+  for (const k of Object.keys(sch)) if (!["days", "from", "to", "tz"].includes(k)) e.push(`${at}.${k}: unknown key`);
+  const days = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+  if (sch.days !== undefined && (!Array.isArray(sch.days) || !sch.days.length || sch.days.some((d) => !days.includes(String(d).toLowerCase().slice(0, 3))))) e.push(`${at}.days: array of sun..sat`);
+  for (const k of ["from", "to"]) if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(sch[k]))) e.push(`${at}.${k}: "HH:MM" 24h`);
+  if (sch.tz !== undefined) try { new Intl.DateTimeFormat("en-US", { timeZone: sch.tz }); } catch { e.push(`${at}.tz: unknown IANA time zone`); }
   return e;
 }

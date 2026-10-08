@@ -19,6 +19,10 @@
  * deploy ("deploy debt", state.mjs). Never run by the unattended gate, never
  * run against anything not listed in config.
  *
+ * REACHABILITY: every target is probed before Docker/ZAP starts (targetcheck.mjs). A parked/down target
+ * (connection failure, Cloudflare 52x/530 error page, Access-only wall on an unauthenticated target) aborts
+ * the scan with a blocking `target-down:<id>` record - never a pass, never findings about an error page.
+ *
  * Needs Docker (ZAP does not start natively on this Windows host).
  */
 import { spawnSync } from "node:child_process";
@@ -33,6 +37,7 @@ import { findProjectRoot, headSha, loadMapleConfig, nowIso, sevRank, sha256, can
 import { parseOutput } from "./parsers.mjs";
 import { liveScans, readLedger } from "./state.mjs";
 import { beginRun, finishRun, fmtGB, preflight } from "./runs.mjs";
+import { checkTargets } from "./targetcheck.mjs";
 import { dockerPull, dockerImagePresent, dockerUsable, nativePath } from "./tools.mjs";
 
 const stripCaret = (re) => re.replace(/^\^/, "");
@@ -184,6 +189,7 @@ export async function main(argv) {
     if (argv[i] === "--root") args.root = argv[++i];
     else if (argv[i] === "--pull") args.pull = true;
     else if (argv[i] === "--json") args.json = true;
+    else if (argv[i] === "--no-reach-check") { console.error("--no-reach-check does not exist: a scan of an unreachable target is never meaningful"); return 2; }
     else if (argv[i] === "--dry-run") args.dryRun = true; // writes the plan, prints it, scans nothing
     else { console.error("unknown argument " + argv[i]); return 2; }
   }
@@ -217,6 +223,10 @@ async function scan({ args, root, pd, ls, runDir, runName }) {
   const { plan, envNames } = buildPlan(ls);
   writeFileSync(join(runDir, "plan.yaml"), JSON.stringify(plan, null, 2));
   if (args.dryRun) { console.log(JSON.stringify(plan, null, 2)); console.log("\n# container script (secrets only as $ZAPSCAN_Hn, expanded inside the container):\n" + containerScript(ls, envNames)); console.log(`\n(dry run — plan printed above; no request was sent)`); return 0; }
+
+  const reach = await checkTargets(ls, args.probe ? { probe: args.probe } : {});
+  for (const r of reach.results) console.log(`  target ${r.id}: ${r.state === "up" ? "up" : r.state.toUpperCase()} (${r.reason})`);
+  if (reach.findings.length) return recordTargetDown({ args, root, sha: headSha(root), coversSeq: readLedger(root).reduce((m, e) => Math.max(m, e.seq || 0), 0), ls, findings: reach.findings });
 
   const missing = envNames.filter((e) => !credentialExists(e.ref));
   if (missing.length) { console.error("missing credential(s): " + missing.map((m) => m.ref).join(", ") + " — store them via the credential-manager skill"); return 2; }
@@ -281,6 +291,25 @@ async function scan({ args, root, pd, ls, runDir, runName }) {
     console.log(`\nLIVE SCAN ${record.status.toUpperCase()}: ${all.length} blocking, ${allowed.length} allowlisted, ${decided.backed.length} DECISION-BACKED (permanent; essentials only). Record: ${join(dir, stamp + ".json")}`);
   }
   return all.length ? 1 : 0;
+}
+
+/** Record + report a scan that never ran because a target is down: status fail (debt stays), outcome target-down, no ZAP findings. */
+export function recordTargetDown({ args, root, sha, coversSeq, ls, findings }) {
+  const ts = nowIso();
+  const record = {
+    ts, sha, coversSeq, status: "fail", outcome: "target-down", blocking: findings.length, allowlisted: 0, decisionBacked: 0,
+    targets: ls.targets.map((t) => t.id), targetsHash: sha256(canonicalJson(ls)), image: ls.image || "", findings,
+  };
+  const dir = join(stateDir(root), "live-scans");
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, `${ts.replace(/[:.]/g, "-")}.json`);
+  writeFileSync(file, JSON.stringify(record, null, 2));
+  if (args.json) console.log(JSON.stringify(record, null, 2));
+  else {
+    console.error("\nLIVE SCAN BLOCKED - TARGET DOWN, SCAN NOT MEANINGFUL (no ZAP scan was run):\n" + findings.map((f) => `  ${f.id}: ${f.message}`).join("\n"));
+    console.error(`\nThis is not a pass and not an app finding. Bring the target up, then re-run the live scan. Record: ${file}`);
+  }
+  return 1;
 }
 
 export { liveScans };
