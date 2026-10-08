@@ -26,7 +26,7 @@ single-package project.
 | `/adopt-standard` | Bootstrap: validates + stamps `maple.config.json`, scaffolds canonical `docs/` files + `CLAUDE.md` if missing, generates the docs index, checks no project hook duplicates the plugin's, verifies the docs gate + a CI tier before declaring done. |
 | `/sweep-errors`, `/burn-backlog`, `/sweep-quality`, `/detect-drift`, `/dev-burner` | The **loop pack** — budget-bounded autonomous loops orchestrated by `/dev-burner` under `/loop`, working in an isolated standing `dev-burner` worktree that never self-merges. See "The loop pack" below. |
 | `/todo`, `/project-status`, `/session-end`, `/represent`, `/review-aspect` | The **session commands** — open-task list, status board, session close-out (log + tasks + docs gate), a plain-English "where are we" orientation, and a single-aspect code review. All docs-shape-agnostic and allocator-aware; previously machine-local under `~/.claude/commands/`, now bundled so every adopting project gets them. |
-| `/predeploy-gate` | The **enforced pre-deploy gate** (D060): zero-findings checks (local scanners + one remote workflow), expiring allowlist + permanent decision-backed exceptions (D061, essentials only) + dated, shrink-only third-party image debt (D063), sha-bound stamp, `predeploy-guard` hook that blocks deploy commands without a stamp, `doctor`, run-workspace pruning (`run.mjs prune`, `predeploy.runs`, `predeploy.minFreeGB`, D068), and the aggressive post-deploy live ZAP scan. See `docs/predeploy-gate.md`. |
+| `/predeploy-gate` | The **enforced pre-deploy gate** (D060): zero-findings checks (local scanners + one remote workflow), expiring allowlist + permanent decision-backed exceptions (D061, essentials only) + dated, shrink-only third-party image debt (D063), sha-bound stamp, `predeploy-guard` hook that blocks deploy commands without a stamp, `doctor`, run-workspace pruning (`run.mjs prune`, `predeploy.runs`, `predeploy.minFreeGB`, D068), the aggressive post-deploy live ZAP scan, and the stack-exposure standard (D072, v0.14.0: `stack-exposure` preset + anonymous live probes, required unless opted out by a decision). See `docs/predeploy-gate.md`, `docs/stack-exposure.md`. |
 | `plugin/scripts/prepush/prepush-lib.sh` | The **affected-only pre-push gate toolkit** (v0.10.0): source it from a project's `ci-local.sh` to select checks from the push range (`pp_want` / `pp_want_graph` / `pp_list_*`, one "ran / skipped (reason)" line per step), fail closed to FULL (no range, `--full`, gate scripts / lockfiles / shared configs), keep a tree-sha-bound pass stamp under `.git/ci-gate-pass/` so `/wt-land` + the push it makes run the gate once, keep per-checkout caches, and cap concurrent heavy gates machine-wide with a stale-safe slot semaphore (`MAPLE_GATE_SLOTS`, default 2). Selection is builtins-only (a fork costs seconds under load). Companion `install-hooks.mjs` makes the git hooks fail closed in every worktree (absolute `core.hooksPath` into the git common dir; see `docs/quality.md`). Vendor the file into a project (EasyCaller: `scripts/lib/prepush-lib.sh`); `node plugin/scripts/prepush/run-tests.mjs` proves the fail-closed rules. |
 | `plugin/scripts/gate/`, `plugin/scripts/agent-wt/maple-queue.sh` | **Gate v2** (D066, v0.12.0): `heavy-run.mjs` (the scheduled heavy tier in a temporary worktree: stamp on green, failure report otherwise), `gate-cli.mjs` / `gate-state.mjs` (verified `MAPLE_GATE_SKIP` reasons, the gate-debt ledger `gate-debt.jsonl`, heavy stamps `heavy-pass/<sha>.json`, the production-promotion requirement used by `predeploy` verify), `run-suite.mjs` (unit vs `*.integration.test.*` split), `find-bash.mjs` (Git Bash, never WSL); the **landing queue** behind `/wt-land` (FIFO batch, one gate, bisect on red, locks never stolen from a live pid); `plugin/scripts/docs/check-docs-touched.mjs` (non-blocking docs-sync warning at landing). See `docs/quality.md` and "Gate v2 - consumer migration" below. `pnpm test:plugin-gate`, `pnpm test:plugin-integration`. |
 | `plugin/skills/credential-manager` | The **credential skill** — read secrets from the OS credential store (Windows Credential Manager) just-in-time for local commands, instead of reading `.env*` (which `deny-credential-paths.mjs` blocks anyway) or asking the owner to paste a value. Pairs with that hook: the hook closes the wrong path, the skill supplies the right one. |
@@ -416,6 +416,32 @@ The deploy guard always applies a built-in baseline (wrangler deploy / pages dep
 ### `predeploy.runs` / `predeploy.minFreeGB` (D068)
 
 `predeploy.runs: { keep, maxGB }` (defaults 5 / 10) caps the disposable gate run workspaces under `<git-common-dir>/maple/predeploy/runs`, pruned at run end, at every gate/live start and by `node <plugin>/scripts/predeploy/run.mjs prune [--all]`. `predeploy.minFreeGB` (default 20) is the free space the repo drive needs before a gate or live scan may start. Neither is part of the stamp's config hash. `run.mjs doctor` reports runs/ size and count, tf-plugin-cache size and free space.
+
+### `predeploy.exposure` + the `stack-exposure` preset (D072, plugin v0.14.0)
+
+The stack-exposure standard (docs/stack-exposure.md): an anonymous visitor learns nothing about the stack that it does not need,
+and the login page is the smallest, most fingerprint-free surface of all. It is **on by default** for every project with a
+`predeploy` block. Adopters must do one of these, or the gate fails with `exposure-standard:exposure-unconfigured`:
+
+```json
+"checks": [
+  { "id": "exposure", "preset": "stack-exposure", "options": {
+      "surfaces": [ { "name": "app", "dir": "app/dist", "build": "npm run build -w app", "exclude": ["_worker.js", "_routes.json", "_headers", "_redirects"],
+                      "hashOnly": { "dir": "assets" }, "loginEntry": "login/index.html", "loginBudget": { "maxFiles": 20, "maxBytes": 200000 } } ],
+      "devRoutes": ["/dev-softphone-harness"], "forbidden": ["dash.example.com"], "appMarkers": ["softphone"] } }
+],
+"exposure": { "live": { "loginGraph": { "target": "app", "path": "/login", "maxFiles": 20, "allowCode": false } } }
+```
+
+or, for a project with no web build (a pure API, a CLI), `"exposure": { "optOut": { "bundle": { "decision": "D###", "why": "..." } } }`
+naming a decision in the project's own ledger. The build side runs each surface's `build` in the project root and scans what is
+served (source maps, sensitive files, license banners, inlined env objects, the commit SHA, lockfile package versions, non-hash
+asset names, dev routes, forbidden strings, the static login graph) plus nginx `server_tokens` and express `x-powered-by` in the
+tracked tree. The live side runs inside `predeploy-gate --live`, anonymously, before ZAP: versioned `Server`, `X-Powered-By`,
+version headers, server banners / stack traces / framework errors in bodies (target URL + a fixed not-found path + configured
+`probes`), and the optional anonymous login crawl. `optOut.live` turns the live side off, again only with a ledger decision.
+Rules are never switched off one by one: an unavoidable item (React's own runtime version check, a platform header) is one entry in
+`predeploy-decisions.json` with scope `<surface dir>#<package or key>` (build) or the probed URL (live).
 
 ### `deps.*` — used by the `dep-version-guard` and `bash-guard` guards, `scripts/deps/check-dep-freshness.mjs` (D064)
 

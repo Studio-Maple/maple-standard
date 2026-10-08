@@ -5,6 +5,22 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Stack-exposure standard, enforced by the pre-deploy gate (plugin v0.14.0, D072).** From EasyCaller's 2026-10-08 audit: its
+  login page preloaded 82 app chunks and an anonymous crawl fetched 220 files / 5.9 MB naming exact library versions, the whole
+  inlined `import.meta.env` (commit SHA, internal hostnames, dev flags), Tailwind's banner and a dev-only route. New preset
+  `stack-exposure` (`plugin/scripts/predeploy/exposure.mjs`): builds each configured surface and fails on served source maps,
+  sensitive files (.env, package.json, lockfiles, .vite manifest), `/*!`/`@license` banners, inlined env objects, the candidate SHA,
+  lockfile package versions next to their names, non-hash asset names, dev routes, forbidden strings and an over-budget static login
+  graph; plus nginx blocks without `server_tokens off` and express without an x-powered-by disable in the tracked tree. Findings are
+  one per rule + surface + key (location = surface dir, resource = package/key), so an unavoidable item is one decision-backed entry.
+  Live half (`exposure-live.mjs`), run anonymously by `predeploy-gate --live` before ZAP: versioned `Server`, `X-Powered-By`,
+  version headers (or the SHA in any header), `Via` versions, server banners / stack traces / framework default errors in bodies
+  (target URL, `/__maple-exposure-probe`, configured probes; call-origination paths refused), optional anonymous login crawl with
+  file/byte budgets, `allowCode`, app markers and the bundle text rules. **Required by default** (`exposure-unconfigured`): adopters add
+  the check or set `predeploy.exposure.optOut.bundle|live { decision, why }` with a D### from their own ledger (verified; missing =
+  blocking). Config: `predeploy.exposure` (validated in `exposure-config.mjs`, schema JSON, plugin README). Tests:
+  `exposure.test.mjs` (15 unit), 3 new e2e cases; gate integration fixtures opt out via a fixture decision.
+
 - **Adopted shell files parse under semgrep (plugin v0.13.10).** semgrep's bash grammar rejects several valid constructs, and an adopter's predeploy
   gate counts an unparseable file as a `semgrep-error` finding. EasyCaller hand-fixed its vendored `prepush-lib.sh` (d920357a, e1c9be4c, 8de69d36) and every
   re-sync of the canonical file reverted it. The canonical `plugin/scripts/prepush/prepush-lib.sh` and the template `scripts/ci-local.sh` now use the parseable
