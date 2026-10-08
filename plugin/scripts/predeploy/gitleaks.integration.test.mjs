@@ -14,7 +14,8 @@ const sh = (...a) => { const r = spawnSync("git", a, { cwd: repo, encoding: "utf
 sh("init", "-q"); sh("config", "user.email", "t@t"); sh("config", "user.name", "t"); sh("config", "commit.gpgsign", "false");
 const put = (f, c) => { mkdirSync(dirname(join(repo, f)), { recursive: true }); writeFileSync(join(repo, f), c); };
 const KEY = "AKIAABCDEFGHIJKLMNOP";
-put("maple.config.json", JSON.stringify({ project: { name: "t", slug: "t" }, predeploy: { checks: [{ id: "gitleaks", preset: "gitleaks", options: { history: false } }] } }));
+put("maple.config.json", JSON.stringify({ project: { name: "t", slug: "t" }, predeploy: { checks: [{ id: "gitleaks", preset: "gitleaks", options: { history: false } }], exposure: { optOut: { bundle: { decision: "D161", why: "fixture repo: no web build to scan (the D072 opt-out path)" } } } } }));
+put("docs/decisions.md", "# Decisions\n\n## D161 | 2026-10-01 | Test exception decision\nbody\n");
 put("test/fixture.test.sh", `KEY=${KEY}\n`);
 put(".gitleaks.toml", `[extend]\nuseDefault = true\n[[allowlists]]\ncondition = "AND"\ntargetRules = ["aws-access-token"]\npaths = ['''^test/fixture\.test\.sh$''']\nregexes = ['''^${KEY}$''']\n`);
 sh("add", "-A"); sh("commit", "-q", "-m", "c");

@@ -39,6 +39,7 @@ import { liveScans, readLedger } from "./state.mjs";
 import { beginRun, finishRun, fmtGB, preflight } from "./runs.mjs";
 import { checkTargets } from "./targetcheck.mjs";
 import { dockerPull, dockerImagePresent, dockerUsable, nativePath } from "./tools.mjs";
+import { liveExposure, probePlan } from "./exposure-live.mjs";
 
 const stripCaret = (re) => re.replace(/^\^/, "");
 const HOST_ANY = "https?://[^/]+";
@@ -222,7 +223,7 @@ async function scan({ args, root, pd, ls, runDir, runName }) {
   const logFile = join(stateDir(root), "live-scans", `${runName}.zap.log`);
   const { plan, envNames } = buildPlan(ls);
   writeFileSync(join(runDir, "plan.yaml"), JSON.stringify(plan, null, 2));
-  if (args.dryRun) { console.log(JSON.stringify(plan, null, 2)); console.log("\n# container script (secrets only as $ZAPSCAN_Hn, expanded inside the container):\n" + containerScript(ls, envNames)); console.log(`\n(dry run — plan printed above; no request was sent)`); return 0; }
+  if (args.dryRun) { console.log(JSON.stringify(plan, null, 2)); console.log("\n# container script (secrets only as $ZAPSCAN_Hn, expanded inside the container):\n" + containerScript(ls, envNames)); console.log("\n# anonymous stack-exposure probes (D072):\n" + probePlan(ls, pd.exposure?.live).plan.map((x) => `${x.method} ${x.url}`).join("\n")); console.log(`\n(dry run — plan printed above; no request was sent)`); return 0; }
 
   const reach = await checkTargets(ls, args.probe ? { probe: args.probe } : {});
   for (const r of reach.results) console.log(`  target ${r.id}: ${r.state === "up" ? "up" : r.state.toUpperCase()} (${r.reason})`);
@@ -240,6 +241,9 @@ async function scan({ args, root, pd, ls, runDir, runName }) {
   for (const e of envNames) env[e.env] = getCredential(e.ref) || "";
   const dargs = dockerArgs({ runDirNative: nativePath(runDir), image, ls, envNames });
   console.log(`live scan: ${ls.targets.length} target(s), FULL ACTIVE policy (strength High / threshold Low); excluded call-origination routes: ${(ls.callOriginationExcludes || []).length}`);
+  // Stack-exposure probes (anonymous, D072) run BEFORE the active scan, so a WAF reacting to ZAP cannot mask them.
+  const exposure = await liveExposure(pd, ls, { sha, ledger: pd.exposure?.optOut?.live ? ledgerDecisionIds(root) : null });
+  for (const n of exposure.notes) console.log(n);
   const timeoutMs = (ls.targets.length * (ls.maxDurationMin || 60) + 90) * 60000;
   const r = spawnSync("docker", dargs, { env, encoding: "utf8", timeout: timeoutMs, maxBuffer: 512 * 1024 * 1024 });
   const log = (r.stdout || "") + (r.stderr || "");
@@ -247,7 +251,7 @@ async function scan({ args, root, pd, ls, runDir, runName }) {
   mkdirSync(dirname(logFile), { recursive: true });
   writeFileSync(logFile, log.length > 262144 ? "[... truncated ...]" + String.fromCharCode(10) + log.slice(-262144) : log);
   const reportFile = join(runDir, "zap-report.json");
-  const findings = authRejections(log, ls, envNames);
+  const findings = [...authRejections(log, ls, envNames), ...exposure.findings];
   if (findings.length) console.error(`\nLIVE SCAN AUTH FAILURE — ${findings.length} authenticated target(s) were NOT authenticated:\n` + findings.map((f) => `  ${f.id}: ${f.message}`).join("\n") + "\n");
   const preflightAborted = r.status === PREFLIGHT_EXIT;
   if (preflightAborted && !findings.length) findings.push({ check: "live-scan", id: "auth-preflight-failed", severity: "high", message: `auth preflight aborted the scan (see ${logFile})`, location: "" });

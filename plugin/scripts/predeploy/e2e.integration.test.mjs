@@ -17,9 +17,11 @@ const repo = mkdtempSync(join(tmpdir(), "predeploy-e2e-"));
 const sh = (args) => { const r = spawnSync("git", args, { cwd: repo, encoding: "utf8" }); assert.equal(r.status, 0, args.join(" ") + r.stderr); return r.stdout.trim(); };
 sh(["init", "-q"]); sh(["config", "user.email", "t@t"]); sh(["config", "user.name", "t"]); sh(["config", "commit.gpgsign", "false"]);
 
+// Every fixture opts out of the stack-exposure standard (D072) with a decision in its own ledger.
+const FIXTURE_LEDGER = "# Decisions\n\n## D161 | 2026-10-01 | Test exception decision\nbody\n";
 const cfgOf = (checks, extra = {}) => ({
   project: { name: "t", slug: "t" },
-  predeploy: { checks, deployGuard: { patterns: [{ id: "dep", regex: "(^|[\\s/\\\\])deploy\\.sh\\b" }] }, ...extra },
+  predeploy: { checks, deployGuard: { patterns: [{ id: "dep", regex: "(^|[\\s/\\\\])deploy\\.sh\\b" }] }, exposure: { optOut: { bundle: { decision: "D161", why: "fixture repo: no web build to scan (the D072 opt-out path)" } } }, ...extra },
 });
 const commit = (cfg, files = {}) => {
   writeFileSync(join(repo, "maple.config.json"), JSON.stringify(cfg, null, 2));
@@ -41,7 +43,7 @@ let n = 0;
 const t = async (name, fn) => { await fn(); n++; console.log("ok - " + name); };
 
 const OK = { id: "ok", command: 'node -e "process.exit(0)"' };
-commit(cfgOf([OK]));
+commit(cfgOf([OK]), { "docs/decisions.md": FIXTURE_LEDGER });
 
 await t("deploy is blocked with no stamp (exit 2), non-deploy untouched", () => {
   const r = hook("bash deploy.sh --prod");
@@ -202,7 +204,7 @@ const SUP = { id: "suppress", preset: "suppression-audit" };
 const report = () => JSON.parse(readFileSync(reportPath(repo, headSha(repo)), "utf8"));
 const blockingIds = () => report().blocking.map((f) => `${f.check}:${f.id}`);
 const daysAgo = (d) => new Date(Date.now() - d * 86400000).toISOString().slice(0, 10);
-const LEDGER = "# Decisions\n\n## D161 | 2026-10-01 | Test exception decision\nbody\n";
+const LEDGER = FIXTURE_LEDGER;
 const SUPP_FILES = {
   "docs/decisions.md": LEDGER,
   "src/a.ts": "// eslint-disable-next-line no-console\nconsole.log(1);\n",
@@ -316,6 +318,31 @@ await t("a decision entry past its expires blocks the gate (decision-expired) an
   commit(cfgOf([SUP]), withDecisions([...ALL_ENTRIES.slice(0, 3), dEntry("suppression-file:osv-scanner.toml", "osv-scanner.toml", { expires: inDays(5) })]));
   assert.equal(await gate(), 0);
   assert.equal(report().decisionExceptions.items.find((i) => i.scope === "osv-scanner.toml").expires, inDays(5));
+});
+
+// ── stack-exposure standard (D072) ──────────────────────────────────────────
+const BUILD = (body) => `import { mkdirSync, writeFileSync } from "node:fs";\nmkdirSync("web/dist/assets", { recursive: true });\nwriteFileSync("web/dist/index.html", '<script src="/assets/Ab12Cd34.js"></script>');\nwriteFileSync("web/dist/assets/Ab12Cd34.js", ${JSON.stringify(body)});\n`;
+const WEB = { id: "web", preset: "stack-exposure", options: { surfaces: [{ name: "web", dir: "web/dist", build: "node build.mjs" }] } };
+
+await t("no stack-exposure check and no opt-out: the gate blocks (exposure-unconfigured), no stamp", async () => {
+  commit(cfgOf([OK], { exposure: undefined }), { "z1.txt": "1", "predeploy-decisions.json": JSON.stringify({ version: 1, entries: [] }) });
+  assert.equal(await gate(), 1);
+  assert.deepEqual(blockingIds(), ["exposure-standard:exposure-unconfigured"]);
+  assert.ok(!existsSync(stampPath(repo, headSha(repo))));
+});
+await t("an opt-out naming a decision missing from the ledger blocks", async () => {
+  commit(cfgOf([OK], { exposure: { optOut: { bundle: { decision: "D404", why: "fixture repo: no web build to scan at all" } } } }), { "z2.txt": "1" });
+  assert.equal(await gate(), 1);
+  assert.deepEqual(blockingIds(), ["exposure-standard:exposure-optout-decision-missing"]);
+});
+await t("the stack-exposure check builds the surface: a license banner blocks, a clean build stamps", async () => {
+  commit(cfgOf([WEB], { exposure: undefined }), { "build.mjs": BUILD('/*! lib v1.2.3 */console.log(1)') });
+  assert.equal(await gate(), 1);
+  assert.deepEqual(blockingIds(), ["web:license-banner"]);
+  assert.equal(report().blocking[0].location, "web/dist");
+  commit(cfgOf([WEB], { exposure: undefined }), { "build.mjs": BUILD("console.log(1)") });
+  assert.equal(await gate(), 0);
+  assert.ok(existsSync(stampPath(repo, headSha(repo))));
 });
 
 console.log(`\n${n} e2e tests passed`);

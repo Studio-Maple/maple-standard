@@ -12,6 +12,7 @@ import { resolveTool, dockerRunCmd, shq, nativePath } from "./tools.mjs";
 import { parseOutput, sevFromWord } from "./parsers.mjs";
 import { getCredential, credentialExists } from "./credentials.mjs";
 import { git, runShell } from "./lib.mjs";
+import { stackExposure } from "./exposure.mjs";
 
 const F = (id, message, location = "", severity = "high") => ({ id, severity, message, location });
 const IMAGE_INFRA_ID = /^(no-report|unparseable-report)$/;
@@ -372,6 +373,7 @@ export const INTERNAL_PRESETS = {
   "supabase-advisors": { describe: "Supabase security + performance advisors via the Management API (every lint level counts).", tools: [], run: supabaseAdvisors, credentials: (o) => [o.tokenCredential || "Supabase-PAT"] },
   snyk: { describe: "Snyk Open Source (all lockfiles, dev deps, every severity); token read just-in-time from the credential store into the child env only.", tools: ["snyk"], run: snyk, credentials: (o) => [o.tokenCredential || "Snyk-Token"] },
   "gh-alerts": { describe: "Open GitHub code-scanning / Dependabot / secret-scanning alerts, read locally via `gh api` (no workflow minutes).", tools: ["gh"], run: ghAlerts },
+  "stack-exposure": { describe: "Stack-exposure standard (D072): builds each configured surface and fails on served source maps, sensitive files, license banners, inlined env objects, the commit SHA, package versions, non-hash asset names, dev routes, forbidden strings and an over-budget login graph; plus nginx server_tokens / express x-powered-by in the tracked tree.", tools: ["node"], run: stackExposure },
   "suppression-audit": { describe: "Scanner suppression markers (nosemgrep, checkov:skip, eslint-disable, ...) and ignore files/configs (osv-scanner.toml, .snyk, gitleaks allowlists, knip ignore*) are findings unless backed by a decision-backed entry (or the expiring allowlist).", tools: ["git"], run: suppressionAudit },
 };
 

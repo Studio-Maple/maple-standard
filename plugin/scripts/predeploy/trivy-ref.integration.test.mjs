@@ -3,7 +3,7 @@
 // absent) — there is no skip: an image the gate cannot scan is a hole, and so is this test.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { main as runGate } from "./run.mjs";
@@ -14,8 +14,9 @@ const repo = mkdtempSync(join(tmpdir(), "predeploy-trivyref-"));
 const sh = (args) => { const r = spawnSync("git", args, { cwd: repo, encoding: "utf8" }); assert.equal(r.status, 0, args.join(" ") + r.stderr); return r.stdout.trim(); };
 sh(["init", "-q"]); sh(["config", "user.email", "t@t"]); sh(["config", "user.name", "t"]); sh(["config", "commit.gpgsign", "false"]);
 const commit = (images) => {
-  const cfg = { project: { name: "t", slug: "t" }, predeploy: { checks: [{ id: "images", preset: "trivy-image", options: { images } }] } };
+  const cfg = { project: { name: "t", slug: "t" }, predeploy: { checks: [{ id: "images", preset: "trivy-image", options: { images } }], exposure: { optOut: { bundle: { decision: "D161", why: "fixture repo: no web build to scan (the D072 opt-out path)" } } } } };
   writeFileSync(join(repo, "maple.config.json"), JSON.stringify(cfg, null, 2));
+  mkdirSync(join(repo, "docs"), { recursive: true }); writeFileSync(join(repo, "docs", "decisions.md"), "# Decisions\n\n## D161 | 2026-10-01 | Test exception decision\nbody\n");
   sh(["add", "-A"]); sh(["commit", "-q", "-m", "c", "--allow-empty"]);
 };
 const gate = async () => { const log = console.log; console.log = () => {}; try { return await runGate(["--root", repo, "--pull"]); } finally { console.log = log; } };

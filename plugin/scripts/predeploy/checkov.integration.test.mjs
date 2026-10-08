@@ -13,9 +13,10 @@ import { reportPath } from "./state.mjs";
 const repo = mkdtempSync(join(tmpdir(), "predeploy-checkov-"));
 const sh = (args) => { const r = spawnSync("git", args, { cwd: repo, encoding: "utf8" }); assert.equal(r.status, 0, args.join(" ") + r.stderr); return r.stdout.trim(); };
 sh(["init", "-q"]); sh(["config", "user.email", "t@t"]); sh(["config", "user.name", "t"]); sh(["config", "commit.gpgsign", "false"]);
-const cfg = { project: { name: "t", slug: "t" }, predeploy: { checks: [{ id: "checkov", preset: "checkov", options: { dirs: ["infra"] } }] } };
+const cfg = { project: { name: "t", slug: "t" }, predeploy: { checks: [{ id: "checkov", preset: "checkov", options: { dirs: ["infra"] } }], exposure: { optOut: { bundle: { decision: "D161", why: "fixture repo: no web build to scan (the D072 opt-out path)" } } } } };
 const commit = (files) => {
   writeFileSync(join(repo, "maple.config.json"), JSON.stringify(cfg, null, 2));
+  files = { "docs/decisions.md": "# Decisions\n\n## D161 | 2026-10-01 | Test exception decision\nbody\n", ...files };
   for (const [k, v] of Object.entries(files)) { mkdirSync(dirname(join(repo, k)), { recursive: true }); writeFileSync(join(repo, k), v); }
   sh(["add", "-A"]); sh(["commit", "-q", "-m", "c", "--allow-empty"]);
 };
@@ -49,7 +50,7 @@ await t("every checkov finding can be backed by an exact file#resource decision 
     seen.add(f.id + scope);
     entries.push({ scanner: "checkov", rule: f.id, scope, decision: "D162", why: "test fixture: planted finding, intentionally unfixable here", reviewed: new Date().toISOString().slice(0, 10) });
   }
-  commit({ "docs/decisions.md": "# Decisions\n\n## D162 | 2026-10-01 | Fixture decision\nbody\n", "predeploy-decisions.json": JSON.stringify({ version: 1, entries }) });
+  commit({ "docs/decisions.md": "# Decisions\n\n## D162 | 2026-10-01 | Fixture decision\nbody\n\n## D161 | 2026-10-01 | Test exception decision\nbody\n", "predeploy-decisions.json": JSON.stringify({ version: 1, entries }) });
   assert.equal(await gate(), 0, JSON.stringify(report().blocking));
   assert.equal(report().totals.decisionBacked, blocking.length); assert.equal(report().totals.blocking, 0);
   commit({ "infra/main.tf": PLANTED.replace('"b"', '"renamed"') });

@@ -29,6 +29,7 @@ import { GATE_VERSION, findProjectRoot, git, headSha, loadMapleConfig, nowIso, r
 import { liveScanDebt, reportPath, stampPath, writeJson } from "./state.mjs";
 import { runRemote } from "./remote.mjs";
 import { beginRun, fmtGB, finishRun, preflight, pruneCli } from "./runs.mjs";
+import { exposureCoverage } from "./exposure-config.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -282,6 +283,7 @@ async function gateBody({ args, today, root, pd, subset, dirty, sha, al, committ
     ...validateEntries(al, { checkIds: allCheckIds, maxDays: pd.allowlistMaxDays }),
     ...validateDecisions(dl, { checkIds: allCheckIds, maxAgeDays: pd.decisionsMaxAgeDays, today, ledger: dl.entries.length ? ledgerDecisionIds(root) : { ids: new Set(), error: null, file: "" } }),
     ...decided.stale,
+    ...exposureCoverage(pd, pd.exposure?.optOut?.bundle ? ledgerDecisionIds(root) : { ids: new Set(), error: null }),
     ...(imageDebt ? imageDebt.blocking : []),
     ...(idCommitted ? [] : [{ check: "image-debt", id: "image-debt-uncommitted", severity: "high", message: "third-party image debt file is untracked or modified - the snapshot and due dates must be committed and reviewed", location: idl.path }]),
     ...(dCommitted ? [] : [{ check: "decisions", id: "decision-uncommitted", severity: "high", message: "decision-backed exceptions file is untracked or modified — permanent exceptions must be committed and reviewed", location: dl.path }]),

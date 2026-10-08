@@ -2,7 +2,7 @@
 // (a throwaway git repo; the trivy-image preset is replaced by a fake so no Docker/network is needed).
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PRESETS } from "./catalog.mjs";
@@ -116,9 +116,10 @@ const repo = mkdtempSync(join(tmpdir(), "imagedebt-e2e-"));
 const sh = (args) => { const r = spawnSync("git", args, { cwd: repo, encoding: "utf8" }); assert.equal(r.status, 0, args.join(" ") + r.stderr); return r.stdout.trim(); };
 sh(["init", "-q"]); sh(["config", "user.email", "t@t"]); sh(["config", "user.name", "t"]); sh(["config", "commit.gpgsign", "false"]);
 const images = (mysqlRef = "mysql:8@sha256:aa") => [{ name: "call-plane", context: "services/call-plane" }, { name: "mysql", ref: mysqlRef }, { name: "redis", ref: "redis:7@sha256:bb" }];
-const cfgOf = (mysqlRef, extra = {}) => ({ project: { name: "t", slug: "t" }, predeploy: { checks: [{ id: "trivy-images", preset: "trivy-image", options: { images: images(mysqlRef) } }], imageDebt: { ownImages: ["call-plane"] }, ...extra } });
+const cfgOf = (mysqlRef, extra = {}) => ({ project: { name: "t", slug: "t" }, predeploy: { checks: [{ id: "trivy-images", preset: "trivy-image", options: { images: images(mysqlRef) } }], imageDebt: { ownImages: ["call-plane"] }, exposure: { optOut: { bundle: { decision: "D161", why: "fixture repo: no web build to scan (the D072 opt-out path)" } } }, ...extra } });
 const commit = (cfg, files = {}) => {
   writeFileSync(join(repo, "maple.config.json"), JSON.stringify(cfg, null, 2));
+  mkdirSync(join(repo, "docs"), { recursive: true }); writeFileSync(join(repo, "docs", "decisions.md"), "# Decisions\n\n## D161 | 2026-10-01 | Test exception decision\nbody\n");
   for (const [k, v] of Object.entries(files)) writeFileSync(join(repo, k), v);
   sh(["add", "-A"]); sh(["commit", "-q", "-m", "c", "--allow-empty"]);
 };

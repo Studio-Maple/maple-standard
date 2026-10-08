@@ -13,6 +13,7 @@ import { PARSER_KINDS } from "./parsers.mjs";
 import { PRESET_NAMES } from "./catalog.mjs";
 import { IMAGE_DEBT_DEFAULT_PATH, IMAGE_DEBT_MAX_DAYS_DEFAULT } from "./imagedebt.mjs";
 import { MIN_FREE_GB_DEFAULT, RUNS_DEFAULTS } from "./runs.mjs";
+import { validateExposure } from "./exposure-config.mjs";
 
 export const DEFAULTS = {
   enabled: true,
@@ -68,7 +69,7 @@ export function validatePredeploy(cfg) {
   const p = cfg?.predeploy;
   if (p === undefined) return e;
   if (!isObj(p)) return ["predeploy: must be an object"];
-  const known = ["enabled", "policyRef", "allowlist", "allowlistMaxDays", "decisions", "decisionsMaxAgeDays", "stampTtlHours", "minSeverity", "concurrency", "allowlistUnused", "docker", "checks", "remote", "deployGuard", "emergency", "liveScan", "imageDebt", "runs", "minFreeGB"];
+  const known = ["enabled", "policyRef", "allowlist", "allowlistMaxDays", "decisions", "decisionsMaxAgeDays", "stampTtlHours", "minSeverity", "concurrency", "allowlistUnused", "docker", "checks", "remote", "deployGuard", "emergency", "liveScan", "imageDebt", "runs", "minFreeGB", "exposure"];
   for (const k of Object.keys(p)) if (!known.includes(k)) e.push(`predeploy.${k}: unknown key`);
   if (p.enabled !== undefined && typeof p.enabled !== "boolean") e.push("predeploy.enabled: must be a boolean");
   if (p.policyRef !== undefined && !isStr(p.policyRef)) e.push("predeploy.policyRef: must be a non-empty string (e.g. a decision id)");
@@ -90,6 +91,8 @@ export function validatePredeploy(cfg) {
       if (rn.maxGB !== undefined && !(typeof rn.maxGB === "number" && rn.maxGB > 0 && rn.maxGB <= 1000)) e.push("predeploy.runs.maxGB: number > 0 and <= 1000 (cap on runs/ in GB; default 10)");
     }
   }
+
+  e.push(...validateExposure(p));
 
   const idb = p.imageDebt;
   if (idb !== undefined) {
