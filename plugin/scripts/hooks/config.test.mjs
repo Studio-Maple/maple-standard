@@ -32,6 +32,11 @@ await t("hooks.bashGuard.cleanGuardEnabled is a known boolean", () => {
   assert.match(validateConfig({ ...base, hooks: { bashGuard: { cleanGuardEnabled: "no" } } }).join("\n"), /cleanGuardEnabled/);
 });
 
+await t("hooks.bashGuard.linkGuardEnabled is a known boolean", () => {
+  assert.deepEqual(validateConfig({ ...base, hooks: { bashGuard: { linkGuardEnabled: false } } }), []);
+  assert.match(validateConfig({ ...base, hooks: { bashGuard: { linkGuardEnabled: "no" } } }).join("\n"), /linkGuardEnabled/);
+});
+
 await t("an explicitly empty deployGuard.patterns is an error; omitted or non-empty is fine", () => {
   const cfg = (g) => ({ predeploy: { checks: [{ id: "a", command: "node -e 0" }], ...(g === undefined ? {} : { deployGuard: g }) } });
   assert.match(validatePredeploy(cfg({ patterns: [] })).join("\n"), /explicitly empty/);

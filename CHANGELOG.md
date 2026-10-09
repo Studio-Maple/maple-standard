@@ -5,6 +5,19 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **link-guard: no install into, or recursive delete through, a linked node_modules (plugin v0.14.1).** EasyCaller 2026-10-09:
+  the main checkout's `site/node_modules` was found empty. Worktrees junction every `worktrees.nodeModulesDirs` entry (there: 11,
+  `site` included) to the main checkout, and agents ran `(cd site && npm ci)` inside worktrees — the exact command EasyCaller's
+  ci-local preflight printed. `npm ci` deletes every entry of the `node_modules` it installs into before reifying
+  (npm `lib/commands/ci.js`), so each run emptied main's install through the junction and an interrupted or failed one left it empty.
+  New PreToolUse guard `plugin/hooks/guards/link-guard.mjs` (Bash + PowerShell, lstat only): denies `npm|pnpm|yarn|bun`
+  `ci/install/add/remove/update/prune/dedupe/link` (aliases included, `--prefix`/`-C`/`--dir` honoured, `-g` exempt) when the
+  target dir's `node_modules` or a workspace member's is a junction/symlink, and `rm -r` / `Remove-Item -Recurse` / `rmdir /s` /
+  `rimraf` on a path inside one (or the link itself). The deny names both safe paths: install in the owning checkout, or drop only
+  the link (`cmd //c rmdir <link>`) and install fresh. Opt out: `hooks.bashGuard.linkGuardEnabled=false` (schema, validator,
+  README). Regression test with real junctions: `plugin/scripts/hooks/link-guard.test.mjs` (27 cases, asserts the targets are
+  untouched).
+
 - **Stack-exposure standard, enforced by the pre-deploy gate (plugin v0.14.0, D072).** From EasyCaller's 2026-10-08 audit: its
   login page preloaded 82 app chunks and an anonymous crawl fetched 220 files / 5.9 MB naming exact library versions, the whole
   inlined `import.meta.env` (commit SHA, internal hostnames, dev flags), Tailwind's banner and a dev-only route. New preset

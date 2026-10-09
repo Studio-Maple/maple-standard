@@ -5,7 +5,7 @@
 // (git is only asked about for `git worktree add` / `git push` / an active loop cycle).
 //
 //   Bash | PowerShell   loop-budget, hook-bypass, credentials, worktree placement, deploy gate, shell guards
-//                       (cwd / push / clean / dependency-install freshness)
+//                       (linked node_modules installs/deletes, cwd / push / clean / dependency-install freshness)
 //   Read | Grep | Glob  loop-budget, credential paths
 //   Write | Edit | MultiEdit   loop-budget, dependency versions (D064), deploy-gate state / ask files
 //   mcp__*              loop-budget, mutating Supabase MCP tools
@@ -21,7 +21,7 @@ import { projectConfig } from "./guards/project.mjs";
 
 const DEADLINE_MS = 12_000; // below the hook's own timeout (hooks.json), so we answer instead of being killed
 
-const SHELL_GUARDS = ["loop-budget-guard", "hook-bypass", "deny-credential-paths", "worktree-guard", "deploy-guard", "bash-guard"];
+const SHELL_GUARDS = ["loop-budget-guard", "hook-bypass", "deny-credential-paths", "worktree-guard", "deploy-guard", "link-guard", "bash-guard"];
 
 /** Which guard modules a tool call needs, in run order. */
 export function planFor(tool, hasCommand) {

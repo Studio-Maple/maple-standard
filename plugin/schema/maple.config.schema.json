@@ -417,7 +417,8 @@
             "cwdGuardEnabled": { "type": "boolean" },
             "pushGuardEnabled": { "type": "boolean" },
             "pushGuardMinTimeoutMs": { "type": "integer", "minimum": 0 },
-            "cleanGuardEnabled": { "type": "boolean" }
+            "cleanGuardEnabled": { "type": "boolean" },
+            "linkGuardEnabled": { "type": "boolean", "description": "link-guard: deny package installs into, and recursive deletes through, a node_modules that is a junction/symlink (a worktree linked to the main checkout). Default true." }
           }
         }
       }

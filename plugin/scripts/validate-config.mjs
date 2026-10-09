@@ -474,7 +474,8 @@ export function validateConfig(config) {
         const bg = config.hooks.bashGuard;
         if (!isPlainObject(bg)) errors.push("hooks.bashGuard: must be an object");
         else {
-          checkNoExtraKeys(bg, ["cwdGuardEnabled", "pushGuardEnabled", "pushGuardMinTimeoutMs", "cleanGuardEnabled"], "hooks.bashGuard", errors);
+          checkNoExtraKeys(bg, ["cwdGuardEnabled", "pushGuardEnabled", "pushGuardMinTimeoutMs", "cleanGuardEnabled", "linkGuardEnabled"], "hooks.bashGuard", errors);
+          if (bg.linkGuardEnabled !== undefined && !isBool(bg.linkGuardEnabled)) errors.push("hooks.bashGuard.linkGuardEnabled: must be a boolean");
           if (bg.cleanGuardEnabled !== undefined && !isBool(bg.cleanGuardEnabled)) errors.push("hooks.bashGuard.cleanGuardEnabled: must be a boolean");
           if (bg.cwdGuardEnabled !== undefined && !isBool(bg.cwdGuardEnabled)) errors.push("hooks.bashGuard.cwdGuardEnabled: must be a boolean");
           if (bg.pushGuardEnabled !== undefined && !isBool(bg.pushGuardEnabled)) errors.push("hooks.bashGuard.pushGuardEnabled: must be a boolean");

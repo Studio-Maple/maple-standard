@@ -1,6 +1,6 @@
 {
   "name": "maple-standard",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "description": "Studio Maple's AI-workflow standard: worktree lifecycle, safety hooks, docs gate, repo-global ID allocation, self-healing, session commands, the dev-burner loop pack, and Jev-backed model routing/skill-select/search/sub-agent validation.",
   "author": {
     "name": "Maayan Margolin"
