@@ -31,7 +31,7 @@ jobs:
     name: Scan for secrets
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Full history needed so push/schedule scans cover everything;
           # PRs only need the diff.
