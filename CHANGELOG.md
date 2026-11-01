@@ -5,6 +5,8 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **predeploy osv-scanner reads `go.mod`, not `go.sum` (plugin v0.15.1).** The lockfile match passed every `go.sum` to `-L`; osv-scanner has no extractor for it ("could not determine extractor") and the scan failed. Now `go.mod` (exported `OSV_LOCKFILE` in `catalog.mjs`, regression test in `unit.test.mjs`). No other scanner depended on `go.sum` (trivy scans the tree; `npm-audit` / exposure use `package-lock.json` / `pnpm-lock.yaml` only).
+
 - **`/prune-sessions` keeps the desktop sidebar readable (plugin v0.15.0).** `plugin/scripts/sessions/prune-sessions.ps1` archives Claude Code
   desktop session cards whose last activity is older than `-Days` (default 7). Dry run is the default: it prints `total / active / stale /
   protected / to archive` plus every candidate's age and only writes under `-Apply`, which first zips the store to `~/.claude/backups/sessions`

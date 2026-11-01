@@ -51,6 +51,12 @@ export function invoke(ctx, toolName, argsFn, { env = [] } = {}) {
   });
 }
 
+/**
+ * Files passed to osv-scanner with -L. Go is go.mod, not go.sum: osv-scanner has no extractor for go.sum
+ * ("could not determine extractor") and fails the whole scan, while go.mod carries the module graph it parses.
+ */
+export const OSV_LOCKFILE = /(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|requirements[^/]*\.txt|poetry\.lock|Pipfile\.lock|go\.mod|Cargo\.lock|Gemfile\.lock|composer\.lock)$/;
+
 const DEFAULT_EXCLUDE_DIRS = ["node_modules", "dist", "build", ".next", ".wrangler", "coverage", ".worktrees"];
 
 /**
@@ -99,7 +105,7 @@ const COMMAND_PRESETS = {
     describe: "Known-vulnerable dependencies from every tracked lockfile (dev dependencies included). osv-scanner.toml ignores are NOT honoured.",
     tools: ["osv-scanner"],
     build(o, ctx) {
-      const locks = scoped(o, ctx.listFiles(/(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|requirements[^/]*\.txt|poetry\.lock|Pipfile\.lock|go\.sum|Cargo\.lock|Gemfile\.lock|composer\.lock)$/));
+      const locks = scoped(o, ctx.listFiles(OSV_LOCKFILE));
       if (!locks.length) return { command: "echo 'no lockfiles tracked' >&2; exit 0", reports: [], parse: "exit-code", cwd: "scan" };
       const command = invoke(ctx, "osv-scanner", (P) =>
         `scan source --config ${P.out}/empty.toml ${locks.map((l) => `-L ${shq(l)}`).join(" ")} --format json --output-file ${P.out}/osv.json`);

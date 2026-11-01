@@ -4,7 +4,7 @@ import { validatePredeploy } from "./config.mjs";
 import { applyDecisions, decisionIdsIn, summarizeDecisions, validateDecisions } from "./decisions.mjs";
 import { parseOutput } from "./parsers.mjs";
 import { authRejections, buildPlan, containerScript, dockerArgs, PREFLIGHT_EXIT } from "./livescan.mjs";
-import { semgrepArgs } from "./catalog.mjs";
+import { OSV_LOCKFILE, semgrepArgs } from "./catalog.mjs";
 import { matchDeploy, touchesGateState } from "../../hooks/guards/deploy-guard.mjs";
 
 let n = 0;
@@ -332,6 +332,12 @@ t("semgrep --timeout is opt-in, whole seconds only, and never touches the suppre
   assert.ok(semgrepArgs({ ...base, timeout: 30 }, P).includes(" --timeout 30 "));
   for (const bad of [0, -1, 2.5, "30", "30; rm -rf /", null]) assert.ok(!semgrepArgs({ ...base, timeout: bad }, P).includes("--timeout"), String(bad));
   assert.ok(semgrepArgs({ ...base, timeout: 30 }, P).includes("--disable-nosem"));
+});
+
+
+t("osv-scanner -L takes go.mod (not go.sum, which it cannot parse) and the other lockfiles", () => {
+  for (const ok of ["go.mod", "services/call-plane/go.mod", "package-lock.json", "a/pnpm-lock.yaml", "requirements-dev.txt", "Cargo.lock"]) assert.ok(OSV_LOCKFILE.test(ok), ok);
+  for (const no of ["go.sum", "services/x/go.sum", "xgo.mod", "go.mod.bak", "go.work"]) assert.ok(!OSV_LOCKFILE.test(no), no);
 });
 
 console.log(`\n${n} unit tests passed`);
