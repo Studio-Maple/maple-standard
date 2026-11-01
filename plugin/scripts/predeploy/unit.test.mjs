@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { applyAllowlist, validateEntries } from "./allowlist.mjs";
 import { validatePredeploy } from "./config.mjs";
+import { entryMatches } from "./decisions.mjs";
 import { applyDecisions, decisionIdsIn, summarizeDecisions, validateDecisions } from "./decisions.mjs";
 import { parseOutput } from "./parsers.mjs";
 import { authRejections, buildPlan, containerScript, dockerArgs, PREFLIGHT_EXIT } from "./livescan.mjs";
 import { OSV_LOCKFILE, semgrepArgs } from "./catalog.mjs";
+import { findingKey, imageFindingLocation } from "./imagedebt.mjs";
 import { matchDeploy, touchesGateState } from "../../hooks/guards/deploy-guard.mjs";
 
 let n = 0;
@@ -338,6 +340,30 @@ t("semgrep --timeout is opt-in, whole seconds only, and never touches the suppre
 t("osv-scanner -L takes go.mod (not go.sum, which it cannot parse) and the other lockfiles", () => {
   for (const ok of ["go.mod", "services/call-plane/go.mod", "package-lock.json", "a/pnpm-lock.yaml", "requirements-dev.txt", "Cargo.lock"]) assert.ok(OSV_LOCKFILE.test(ok), ok);
   for (const no of ["go.sum", "services/x/go.sum", "xgo.mod", "go.mod.bak", "go.work"]) assert.ok(!OSV_LOCKFILE.test(no), no);
+});
+
+t("trivy-images scopes are mode- and run-independent: image-<name>.tar (<os>)#pkg@ver, same native and docker", () => {
+  const native = ["C:", "Projects", "Caller", ".git", "maple", "predeploy", "runs", "0123abcd", "out", "image-freeswitch.tar (debian 12.15)"].join(String.fromCharCode(92));
+  const docker = "/out/image-freeswitch.tar (debian 12.15)";
+  assert.equal(imageFindingLocation("freeswitch", native), "image-freeswitch.tar (debian 12.15)");
+  assert.equal(imageFindingLocation("freeswitch", docker), "image-freeswitch.tar (debian 12.15)");
+  assert.equal(imageFindingLocation("freeswitch", "/home/u/x/runs/ff/out/image-freeswitch.tar (debian 12.15)"), "image-freeswitch.tar (debian 12.15)");
+  // in-image targets are already stable and keep the image prefix
+  assert.equal(imageFindingLocation("freeswitch", "usr/lib/x/package.json"), "freeswitch: usr/lib/x/package.json");
+  assert.equal(imageFindingLocation("freeswitch", "Node.js"), "freeswitch: Node.js");
+  // a decision scope written once matches the finding from either mode
+  const rep = (target) => JSON.stringify({ Results: [{ Target: target, Vulnerabilities: [{ VulnerabilityID: "CVE-1", PkgName: "libc6", InstalledVersion: "2.36-9", Severity: "HIGH", Title: "t" }] }] });
+  const scope = "image-freeswitch.tar (debian 12.15)#libc6@2.36-9";
+  for (const target of [native, docker]) {
+    const [f] = parseOutput("trivy-json", { reports: ["r"], readReport: () => rep(target) });
+    const fi = { ...f, check: "trivy-images", image: "freeswitch", location: imageFindingLocation("freeswitch", f.location) };
+    assert.ok(entryMatches({ scanner: "trivy-images", rule: "CVE-1", scope }, fi), target);
+    assert.equal(findingKey(fi), "CVE-1|libc6@2.36-9|<image> (debian 12.15)");
+  }
+});
+t("trivy-fs findings keep their raw target (the image normalisation is trivy-images only)", () => {
+  const rep = JSON.stringify({ Results: [{ Target: "package-lock.json", Vulnerabilities: [{ VulnerabilityID: "CVE-2", PkgName: "x", InstalledVersion: "1", Severity: "LOW" }] }] });
+  assert.equal(parseOutput("trivy-json", { reports: ["r"], readReport: () => rep })[0].location, "package-lock.json");
 });
 
 console.log(`\n${n} unit tests passed`);

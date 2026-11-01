@@ -83,7 +83,19 @@ export function trivyPins(pd) {
  * changes every run and machine; it is normalised to `<image>` so a key means the same thing next run. Targets inside the
  * image (`usr/lib/x/package.json`, `Node.js`) are already stable.
  */
-export const stableTarget = (t) => String(t).replace(/^.*[\\/]image-[^\\/]*\.tar(?= |$)/, "<image>");
+export const stableTarget = (t) => String(t).replace(/^(?:.*[\\/])?image-[^\\/]*\.tar(?= |$)/, "<image>");
+
+/**
+ * Location of a trivy-image finding. An OS-package finding's trivy target is the scanned tarball's path, which differs per
+ * run (native: `<git dir>\maple\predeploy\runs\<sha>\out\image-x.tar (debian 12.15)`) and per mode (docker:
+ * `/out/image-x.tar (debian 12.15)`), so a decision scope built on it could never match twice. It is reduced to its
+ * basename form `image-x.tar (debian 12.15)` (the tar name already carries the image name); a target inside the image
+ * (`usr/lib/x/package.json`, `Node.js`) is already stable and keeps the `<image>: ` prefix that tells images apart.
+ */
+export function imageFindingLocation(image, target) {
+  const m = /^(?:.*[\\/])?(image-[^\\/]*\.tar(?: .*)?)$/.exec(String(target));
+  return m ? m[1] : `${image}: ${target}`;
+}
 
 export function findingKey(f) {
   const target = String(f.location || "").replace(new RegExp(`^${String(f.image).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: `), "");

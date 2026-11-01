@@ -13,6 +13,7 @@ import { parseOutput, sevFromWord } from "./parsers.mjs";
 import { getCredential, credentialExists } from "./credentials.mjs";
 import { git, runShell } from "./lib.mjs";
 import { stackExposure } from "./exposure.mjs";
+import { imageFindingLocation } from "./imagedebt.mjs";
 
 const F = (id, message, location = "", severity = "high") => ({ id, severity, message, location });
 const IMAGE_INFRA_ID = /^(no-report|unparseable-report)$/;
@@ -137,7 +138,7 @@ async function trivyImage(o, ctx) {
       continue;
     }
     const text = readFileSync(join(ctx.outDir, report), "utf8");
-    for (const f of parseOutput("trivy-json", { reports: [report], readReport: () => text })) findings.push({ ...f, image: im.name, location: `${im.name}: ${f.location}`, imageFinding: !IMAGE_INFRA_ID.test(f.id) });
+    for (const f of parseOutput("trivy-json", { reports: [report], readReport: () => text })) findings.push({ ...f, image: im.name, location: imageFindingLocation(im.name, f.location), imageFinding: !IMAGE_INFRA_ID.test(f.id) });
     // built images are always ours to remove; a pulled ref only if it was not on this machine already
     if (!im.ref || pulledHere) capture(`docker image rm ${shq(tag)}`);
   }

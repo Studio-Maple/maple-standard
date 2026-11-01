@@ -5,6 +5,8 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **trivy-images decision scopes no longer embed the scanned tar path (plugin v0.15.2).** An OS-package finding's location was the tar's full trivy target (native: `<git dir>maplepredeployuns<sha>outimage-x.tar (debian 12.15)`; docker: `/out/image-x.tar (debian 12.15)`), so a decision could never match across runs or modes. It is now `image-<name>.tar (<os>)` in both modes, e.g. scope `image-freeswitch.tar (debian 12.15)#libc6@<ver>`; in-image targets (`usr/lib/x/package.json`, `Node.js`) keep their `<image>: ` prefix. New `imageFindingLocation` (`imagedebt.mjs`); image-debt keys are unchanged (`stableTarget` also accepts the bare form); `trivy-fs` is untouched. Existing scopes that embedded a path must be rewritten to the new form.
+
 - **predeploy osv-scanner reads `go.mod`, not `go.sum` (plugin v0.15.1).** The lockfile match passed every `go.sum` to `-L`; osv-scanner has no extractor for it ("could not determine extractor") and the scan failed. Now `go.mod` (exported `OSV_LOCKFILE` in `catalog.mjs`, regression test in `unit.test.mjs`). No other scanner depended on `go.sum` (trivy scans the tree; `npm-audit` / exposure use `package-lock.json` / `pnpm-lock.yaml` only).
 
 - **`/prune-sessions` keeps the desktop sidebar readable (plugin v0.15.0).** `plugin/scripts/sessions/prune-sessions.ps1` archives Claude Code
