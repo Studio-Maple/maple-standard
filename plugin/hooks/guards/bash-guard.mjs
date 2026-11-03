@@ -7,8 +7,11 @@
 //   `git push` gets killed mid-gate. Require run_in_background or a timeout above the minimum.
 // clean-guard: `git clean` with DOUBLE force deletes nested git repos — the parallel-session worktrees,
 //   whose node_modules junctions then get followed into the main checkout (D012).
-// install-guard (D064): `pnpm|npm|yarn|bun add <pkg>@<version>` behind the latest major is denied
-//   (registry lookup, ~4 s, fail-open with a warning; exceptions via maple.config.json deps.exceptions).
+// install-guard (D064): `pnpm|npm|yarn|bun add <pkg>@<version>` behind the newest release that has passed the
+//   project's release-age cooldown (.npmrc min-release-age / pnpm minimumReleaseAge; else npm `latest`) by a major
+//   is denied, and so is an exact pin still inside the cooldown (registry lookup, ~4 s, fail-open with a warning;
+//   exceptions via maple.config.json deps.exceptions). Global installs (`-g`) are in scope on purpose: same
+//   from-memory-version failure, and the cooldown is the owner's supply-chain posture (see install-guard.mjs).
 //
 // maple.config.json hooks.bashGuard.{cwdGuardEnabled,pushGuardEnabled,pushGuardMinTimeoutMs,cleanGuardEnabled}.
 import { gitInfo, inspectableArgs, isAbsPath } from "./shell.mjs";

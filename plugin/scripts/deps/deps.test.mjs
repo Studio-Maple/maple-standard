@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 // Unit tests for the dependency-freshness core (D064): semver floors, package.json diffing,
 // install-command parsing, minimumReleaseAge selection, exception validation. Registry stubbed.
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { validateConfig } from "../validate-config.mjs";
 import { checkInstallCommand } from "./install-guard.mjs";
 import { validateExceptions, findException } from "./exceptions.mjs";
 import { judgeDep } from "./freshness.mjs";
 import { parseInstallSpecs } from "./install-cmd.mjs";
 import { applyToolEdit, classifyDep, diffDeps } from "./pkgjson.mjs";
-import { fetchLatestEligible, pickLatestEligible } from "./registry.mjs";
+import { describeCooldown, fetchLatestEligible, pickLatestEligible, readMinReleaseAge } from "./registry.mjs";
 import { compareVersions, isBehind, isPrerelease, rangeFloor, sameBucket } from "./semver-lite.mjs";
 
 let failed = 0;
@@ -177,5 +180,101 @@ eq("allows bare install without lookup", await checkInstallCommand("pnpm add rea
 eq("allows current pin", (await checkInstallCommand("pnpm add react@19", ROOT, { fetchImpl: guardFetch })).deny, null);
 const offline = await checkInstallCommand("pnpm add other@1", ROOT, { fetchImpl: guardFetch });
 check("network failure allows with a warning", offline.deny === null && offline.warnings.length === 1);
+
+console.log("release-age cooldown source (shared by guard + gate + package manager)");
+{
+  const dir = mkdtempSync(join(tmpdir(), "dep-cooldown-"));
+  try {
+    eq("no config -> 0", readMinReleaseAge(dir), 0);
+    writeFileSync(join(dir, ".npmrc"), "# comment\nmin-release-age=7\nignore-scripts=true\n");
+    eq(".npmrc min-release-age is DAYS", readMinReleaseAge(dir), 7 * 1440);
+    writeFileSync(join(dir, ".npmrc"), "minimum-release-age = 90 ; pnpm, minutes\n");
+    eq(".npmrc minimum-release-age is MINUTES", readMinReleaseAge(dir), 90);
+    writeFileSync(join(dir, "pnpm-workspace.yaml"), "minimumReleaseAge: 1440 # 24 h\n");
+    eq("strictest source wins", readMinReleaseAge(dir), 1440);
+    writeFileSync(join(dir, ".npmrc"), "min-release-age=7\n");
+    eq("npm days beat a shorter pnpm window", readMinReleaseAge(dir), 7 * 1440);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  eq("describeCooldown", [describeCooldown(10080), describeCooldown(1440), describeCooldown(120), describeCooldown(90)], ["7-day", "1-day", "2-hour", "90-minute"]);
+}
+
+console.log("install-guard x release-age cooldown (the 2026-11-03 supabase incident)");
+{
+  const NOW3 = Date.parse("2026-11-03T12:00:00Z");
+  const ago = (days) => new Date(NOW3 - days * DAY).toISOString();
+  // supabase 3.0.0 published today; 2.120.0 is the newest cooled-down release; 1.0.0 is old
+  const supabase = {
+    "dist-tags": { latest: "3.0.0" },
+    versions: { "1.0.0": {}, "2.119.0": {}, "2.120.0": {}, "3.0.0": {} },
+    time: { "1.0.0": ago(400), "2.119.0": ago(30), "2.120.0": ago(10), "3.0.0": ago(0.2) },
+  };
+  const calls = [];
+  const reg = (doc) => async (url, init) => { calls.push({ url, accept: init.headers.accept }); return { ok: true, status: 200, json: async () => doc }; };
+  const proj = mkdtempSync(join(tmpdir(), "dep-cooldown-proj-"));
+  const bare = mkdtempSync(join(tmpdir(), "dep-cooldown-bare-"));
+  writeFileSync(join(proj, ".npmrc"), "min-release-age=7\n");
+  const run = (cmd, root = proj, doc = supabase) => checkInstallCommand(cmd, root, { fetchImpl: reg(doc), now: NOW3 });
+  try {
+    let r = await run("npm i -g supabase@2.120.0");
+    eq("newest cooled-down release is allowed (global)", r, { deny: null, warnings: [] });
+    check("lookup used the full document (publish times)", calls.at(-1).accept === "application/json");
+    r = await run("npm install supabase@2.120.0");
+    eq("newest cooled-down release is allowed (local)", r.deny, null);
+
+    r = await run("npm i -g supabase@1.0.0");
+    check("older major than the cooled-down newest is denied", r.deny !== null && r.deny.includes("2.120.0") && r.deny.includes("7-day") && !r.deny.includes("3.0.0"), r.deny ?? "");
+    check("suggestion is installable", r.deny.includes("supabase@2.120.0"));
+
+    r = await run("pnpm add supabase@3.0.0");
+    check("exact pin inside the cooldown is denied with its clearing date", r.deny !== null && r.deny.includes("cooldown until 2026-11-10") && r.deny.includes("supabase@2.120.0"), r.deny ?? "");
+    r = await run("npm i -g supabase@^3.0.0");
+    eq("a range is not date-checked (resolution applies the cooldown)", r.deny, null);
+
+    r = await run("npm i -g supabase@3.0.0", bare);
+    eq("global install outside a project: no cooldown, compared to latest", r.deny, null);
+    r = await run("npm i -g supabase@2.120.0", bare);
+    check("no cooldown configured: stale against npm latest, plain message kept", r.deny?.includes("behind the latest release (3.0.0)") ?? false, r.deny ?? "");
+
+    r = await run("npm i -g supabase@3.0.0 supabase@1.0.0");
+    check("both verdicts reported in one denial", r.deny.split("\n").length === 2);
+
+    // 3.0.0 aged past the cooldown -> now it IS the newest eligible and 2.120.0 is stale
+    const aged = { ...supabase, time: { ...supabase.time, "3.0.0": ago(8) } };
+    r = await run("npm i -g supabase@2.120.0", proj, aged);
+    check("once 3.0.0 clears the cooldown, 2.120.0 is denied naming 3.0.0", r.deny?.includes("(3.0.0)") ?? false, r.deny ?? "");
+    eq("and 3.0.0 is allowed", (await run("npm i -g supabase@3.0.0", proj, aged)).deny, null);
+
+    const nothingOld = { "dist-tags": { latest: "1.0.0" }, versions: { "1.0.0": {} }, time: { "1.0.0": ago(1) } };
+    r = await run("npm i -g supabase@1.0.0", proj, nothingOld);
+    check("no release old enough: allow with a warning (cannot judge)", r.deny === null && r.warnings.length === 1 && r.warnings[0].includes("cooldown"), JSON.stringify(r));
+
+    for (const [label, fetchImpl] of [
+      ["network throw", async () => { throw new Error("getaddrinfo ENOTFOUND"); }],
+      ["HTTP 503", async () => ({ ok: false, status: 503, json: async () => ({}) })],
+      ["bad JSON", async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError("Unexpected token"); } })],
+    ]) {
+      r = await checkInstallCommand("npm i -g supabase@2.120.0", proj, { fetchImpl, now: NOW3 });
+      check(`registry failure (${label}): no crash, allowed, clear warning`, r.deny === null && r.warnings.length === 1 && r.warnings[0].includes("could not verify supabase@2.120.0"), JSON.stringify(r));
+    }
+  } finally {
+    rmSync(proj, { recursive: true, force: true });
+    rmSync(bare, { recursive: true, force: true });
+  }
+}
+
+console.log("judgeDep x cooldown");
+{
+  const NOW4 = Date.parse("2026-11-03T12:00:00Z");
+  const cooldown = { minutes: 10080, now: NOW4, publishedAtFor: async (_p, v) => ({ "3.0.0": new Date(NOW4 - 0.2 * DAY).toISOString() })[v] };
+  const c = { latestFor: async () => "2.120.0", exceptions: [], cooldown };
+  const v = await judgeDep({ name: "supabase", spec: "3.0.0" }, c);
+  eq("too-new exact pin -> cooling", [v.status, v.version, v.latest], ["cooling", "3.0.0", "2.120.0"]);
+  eq("cooling carries the clearing instant", v.until, "2026-11-10T07:12:00.000Z");
+  eq("unknown version has no publish time -> ok", (await judgeDep({ name: "supabase", spec: "2.120.0" }, c)).status, "ok");
+  eq("without a cooldown nothing is cooling", (await judgeDep({ name: "supabase", spec: "3.0.0" }, { ...c, cooldown: undefined })).status, "ok");
+}
+
 
 process.exit(failed ? 1 : 0);

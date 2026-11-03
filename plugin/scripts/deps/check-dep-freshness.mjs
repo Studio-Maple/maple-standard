@@ -5,9 +5,10 @@
  * For every package.json that differs from the merge-base with the target branch (maple.config.json
  * `repo.devBranch`, else the origin default branch, else `main`; committed, staged, unstaged and new
  * files all count), each dependency ADDED or whose version spec CHANGED must not be behind the latest
- * eligible release's major (0.x: minor). Untouched dependencies are never checked here — Dependabot
+ * eligible release's major (0.x: minor). An exact pin of a release still inside the cooldown fails too. Untouched dependencies are never checked here — Dependabot
  * owns drift. "Latest eligible" = the registry `latest` tag, or, when pnpm `minimumReleaseAge` is set
- * in pnpm-workspace.yaml, the newest non-prerelease version older than that window.
+ * in pnpm-workspace.yaml (or .npmrc min-release-age / minimum-release-age; registry.mjs readMinReleaseAge, shared with
+ * the install guard), the newest non-prerelease version older than that window.
  *
  * workspace: / file: / link: / git / url specs are skipped; `npm:` aliases are checked against their
  * target. A registry that cannot be reached FAILS the gate (a gate that cannot check must not pass).
@@ -21,9 +22,9 @@ import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadMapleConfig } from "../docs/lib/config.mjs";
 import { loadExceptions } from "./exceptions.mjs";
-import { judgeDep, staleMessage } from "./freshness.mjs";
+import { coolingMessage, judgeDep, staleMessage } from "./freshness.mjs";
 import { diffDeps } from "./pkgjson.mjs";
-import { fetchLatestEligible, readMinReleaseAge } from "./registry.mjs";
+import { fetchEligibility, readMinReleaseAge } from "./registry.mjs";
 
 function defaultGit(root, args) {
   return execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024 });
@@ -105,14 +106,17 @@ export async function run({ root, base, git = defaultGit, fetchImpl = fetch, now
 
   const minAgeMinutes = readMinReleaseAge(root);
   const cache = new Map();
-  const latestFor = (pkg) => {
-    if (!cache.has(pkg)) cache.set(pkg, fetchLatestEligible(pkg, { minAgeMinutes, fetchImpl, timeoutMs, now }));
+  const infoFor = (pkg) => {
+    if (!cache.has(pkg)) cache.set(pkg, fetchEligibility(pkg, { minAgeMinutes, fetchImpl, timeoutMs, now }));
     return cache.get(pkg);
   };
+  const cooldown = { minutes: minAgeMinutes, now, publishedAtFor: async (pkg, version) => (await infoFor(pkg)).time[version] };
+  const latestFor = async (pkg) => (await infoFor(pkg)).latest;
   const tally = { ok: 0, skipped: 0, excepted: 0 };
-  const verdicts = await Promise.all(changes.map(async (c) => ({ c, r: await judgeDep({ name: c.name, spec: c.spec }, { latestFor, exceptions: valid }) })));
+  const verdicts = await Promise.all(changes.map(async (c) => ({ c, r: await judgeDep({ name: c.name, spec: c.spec }, { latestFor, exceptions: valid, cooldown }) })));
   for (const { c, r } of verdicts) {
-    if (r.status === "stale") fail(`${c.file}: ${c.section}: ${staleMessage(c.name, c.spec, r.latest)}`);
+    if (r.status === "stale") fail(`${c.file}: ${c.section}: ${staleMessage(c.name, c.spec, r.latest, minAgeMinutes)}`);
+    else if (r.status === "cooling") fail(`${c.file}: ${c.section}: ${coolingMessage(c.name, c.spec, r, minAgeMinutes)}`);
     else if (r.status === "unreachable") fail(`${c.file}: ${c.name}@${c.spec}: registry unreachable (${r.reason}) — cannot verify freshness; a gate that cannot check does not pass.`);
     else tally[r.status] += 1;
     if (r.status === "excepted") lines.push(`[note] ${c.file}: ${c.name}@${c.spec} behind ${r.latest}, excepted by ${r.decision}`);
