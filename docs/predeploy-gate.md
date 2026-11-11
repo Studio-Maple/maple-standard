@@ -226,10 +226,12 @@ blocks tool writes to the stamp directory itself. Stamps also bind a hash of the
 deploy script's preflight (belt and braces).
 
 **Heavy promotion requirement (D066).** `verify.mjs` and the guard additionally require, on top of everything above, a green **heavy** run for the exact `HEAD`
-(`<git-common-dir>/maple/heavy-pass/<sha>.json`, written by `pnpm ci:heavy` / the scheduled `plugin/scripts/gate/heavy-run.mjs`: live RLS + E2E, plugin
+(`<git-common-dir>/maple/heavy-pass/<sha>.json`, written by `pnpm ci:heavy` / the scheduled `plugin/scripts/gate/heavy-run.mjs`, or `gate-cli attest` from a verified OfficeCI job (D073): live RLS + E2E, plugin
 integration suites, Jev audit, dep-freshness; see [[quality]]) and **zero unpaid gate debt** among the commits `HEAD` contains (`MAPLE_GATE_SKIP` skips are
 recorded in `gate-debt.jsonl` and paid only by a green full heavy run on a containing commit). The refusal says which of the two is missing. There is no
 config knob to turn it off; a project must configure `ci.tiers.heavy` before it can deploy.
+
+**Attested passes (D073).** `node <plugin>/scripts/gate/gate-cli.mjs attest --kind predeploy --sha S --officeci-job J` imports a *standard* predeploy pass (`run.mjs`, never `--live`) that ran on OfficeCI: the same verification as the heavy kind ([[quality]]), then the stamp shape `run.mjs` writes, valid `stampTtlHours` from the job's finish time and bound to this checkout's config/allowlist/decisions hashes (so `S` must be a clean HEAD), with `who=officeci:J`, `via=attest`. The guard allows `attest` but still blocks hand-written stamps, `gate-cli stamp|pay`, and an `attest` that sets `OFFICECI_URL`/`OFFICECI_TOKEN` inline.
 
 **Emergency override**: default off. `emergency.mjs --reason "..."` needs an
 interactive terminal and the owner typing a phrase naming the sha; grants one

@@ -16,7 +16,11 @@
  *   stamp  [--sha SHA] [--skipped N]            heavy green: write heavy-pass/<sha>.json and pay debt.
  *                                               Refuses on a dirty tracked tree, a sha that is not HEAD,
  *                                               or --skipped > 0 (a run with skips never pays or stamps)
- *   verify [--sha SHA]                          promotion requirement: heavy stamp for sha + no unpaid debt
+ *   attest [--kind heavy|predeploy] --sha SHA --officeci-job J
+ *                                               import a tier pass verified on OfficeCI (D073): job passed, same origin repo,
+ *                                               success line + `officeci-sha SHA` in the log; writes who=officeci:J via=attest.
+ *                                               Any failed check exits 1 and writes nothing. Never --live (see attest.mjs)
+ *   verify [--sha SHA]                      promotion requirement: heavy stamp for sha + no unpaid debt
  *   base   [--head SHA]                         last heavy-stamped ancestor of head (empty when none)
  *
  * Reason via --reason or $MAPLE_GATE_SKIP; deprecated $SKIP_LIVE_GATE=1 maps to docker-unavailable
@@ -104,6 +108,16 @@ export async function main(argv, { root = process.cwd(), env = process.env, out 
       out(`heavy pass stamp written for ${sha.slice(0, 10)}${settled.length ? `; paid ${settled.length} gate debt entr${settled.length === 1 ? "y" : "ies"}` : ""}`);
       return rec ? 0 : 1;
     }
+    case "attest": {
+      try {
+        const { attest } = await import("./attest.mjs");
+        out(await attest({ kind: flags.kind === undefined ? "heavy" : flags.kind, sha: flags.sha, job: flags["officeci-job"], root: R, env, fetchImpl: deps?.fetchImpl, store: deps?.store }));
+        return 0;
+      } catch (e) {
+        err("attest refused, nothing written: " + (e?.message ?? e));
+        return 1;
+      }
+    }
     case "verify": {
       const sha = resolveSha(R, flags.sha || "HEAD");
       if (!sha) { err("unknown --sha"); return 2; }
@@ -121,7 +135,7 @@ export async function main(argv, { root = process.cwd(), env = process.env, out 
       return sha && readHeavyStamp(R, sha) ? 0 : 1;
     }
     default:
-      err("usage: gate-cli.mjs skip|record|list|pay|stamp|verify|base|has-stamp (see the file header)");
+      err("usage: gate-cli.mjs skip|record|list|pay|stamp|attest|verify|base|has-stamp (see the file header)");
       return 2;
   }
 }

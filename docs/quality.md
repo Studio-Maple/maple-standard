@@ -141,6 +141,13 @@ live tier -> Deno typecheck -> Jev audit (`quality.jevAudit.enabled`, changed fu
   (`E2E_PORT`), `reuseExistingServer: false`; nothing on port 3000 is touched. Setup is in [[docker]].
 - **Stamp.** Green writes `<git-common-dir>/maple/heavy-pass/<sha>.json` and **pays gate debt** for every commit the
   sha contains. A run with any skipped step writes **no stamp** and pays nothing.
+- **Second, verified path: `gate-cli attest` (D073).** A heavy pass (or a *standard* predeploy pass, `--kind predeploy`; never `--live`) that ran on
+  the office PC's OfficeCI runner is imported with `node <plugin>/scripts/gate/gate-cli.mjs attest [--kind heavy|predeploy] --sha S --officeci-job J`.
+  It re-checks the coordinator (`OFFICECI_URL`, token from `OFFICECI_TOKEN` or Credential Manager `officeci-attest` / `officeci-owner`): the job is
+  `passed`, exit 0, one attempt, ran on this repo's `origin`, the log carries the tier's own success line (heavy: `heavy passed - fast + gate additions + live RLS/pgTAP + audits green.`;
+  predeploy: `STAMP ISSUED`, every check `blocking=0`) and every `officeci-sha <40-hex>` line equals `S` (an optional `officeci-tree` line must match too).
+  Then it writes the same record a local green run writes (heavy: also pays covered debt; predeploy: valid `stampTtlHours` from the job's finish time,
+  `S` must be HEAD of a clean checkout) with `who=officeci:<J>`, `via=attest`. Any failed check exits 1 and writes nothing. Hand-written stamps and `gate-cli stamp|pay` stay blocked.
 - **Scheduled run** (`heavy-run.mjs`): fetch `<remote>/<target>`, exit if that sha is already stamped, take
   `heavy-run.lock` (never from a live pid), add a detached temporary worktree `.worktrees/_heavy-<sha8>`
   (node_modules junctioned from the main checkout), run `ci.tiers.heavy` (default `pnpm ci:heavy`) with output to
@@ -185,7 +192,7 @@ forbidden - see CLAUDE.md "No bypass".
 `plugin/scripts/predeploy` `verifyStamp` (used by the deploy guard and `verify.mjs`) requires, **in addition to**
 everything D060 already requires (sha/config/allowlist/decisions/image-debt-bound stamp, clean tree, live-scan debt):
 
-1. `<git-common-dir>/maple/heavy-pass/<HEAD sha>.json` - a green **full** heavy run on exactly this commit; and
+1. `<git-common-dir>/maple/heavy-pass/<HEAD sha>.json` - a green **full** heavy run on exactly this commit (local, or a verified OfficeCI job via `gate-cli attest`, D073); and
 2. **zero unpaid gate debt** among the commits HEAD contains.
 
 There is no knob to turn this off. A repo adopting the standard must configure `ci.tiers.heavy` and run the heavy tier

@@ -72,6 +72,10 @@ const STATE_WRITE_RE = /maple[\\/](predeploy|heavy-pass|heavy-runs)|gate-debt\.j
 // `gate-cli stamp|pay` is how a green heavy run records itself; ci-local.sh calls it from inside the heavy tier,
 // which this hook never sees. An agent invoking it directly would mint a stamp without the run.
 const GATE_CLI_WRITE_RE = /gate-cli(\.mjs)?["']?\s+["']?(stamp|pay)\b/i;
+// D073: `gate-cli attest` is the second, VERIFIED path to a heavy / predeploy stamp (an OfficeCI job re-checked against the
+// coordinator). It stays allowed, but not with the coordinator redirected by an inline OFFICECI_URL / OFFICECI_TOKEN.
+const GATE_CLI_ATTEST_RE = /gate-cli(\.mjs)?["']?\s+["']?attest\b/i;
+const OFFICECI_OVERRIDE_RE = /\bOFFICECI_(URL|TOKEN)\b/i;
 const PURE_READ_VERBS = new Set(["cat", "ls", "dir", "type", "head", "tail", "grep", "egrep", "rg", "get-content", "select-string", "gc", "sls", "wc", "findstr"]);
 
 /**
@@ -200,7 +204,10 @@ export async function check(ctx) {
     return { deny: "BLOCKED (predeploy-guard): this command touches the gate's state (maple/predeploy, heavy stamps, gate debt, pass stamps). It is written only by the gate runner / the owner's interactive override." };
   }
   if (GATE_CLI_WRITE_RE.test(ctx.command)) {
-    return { deny: "BLOCKED (predeploy-guard): heavy stamps and debt payments are recorded only by a green heavy run (`pnpm ci:heavy`), never by calling gate-cli stamp/pay directly." };
+    return { deny: "BLOCKED (predeploy-guard): heavy stamps and debt payments are recorded only by a green heavy run (`pnpm ci:heavy`) or a verified `gate-cli attest --officeci-job` (D073), never by calling gate-cli stamp/pay directly." };
+  }
+  if (GATE_CLI_ATTEST_RE.test(ctx.command) && OFFICECI_OVERRIDE_RE.test(ctx.command)) {
+    return { deny: "BLOCKED (predeploy-guard): `gate-cli attest` reads the coordinator URL and token from the environment / Credential Manager; setting OFFICECI_URL or OFFICECI_TOKEN inline would point it at a fake coordinator (D073)." };
   }
 
   const hit = matchDeploy(ctx.command, effectivePatterns(pd.deployGuard?.patterns), ctx.shell) || prodPushHit(ctx, root, cfg, pd);

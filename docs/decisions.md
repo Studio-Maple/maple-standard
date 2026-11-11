@@ -14,6 +14,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D073 | 2026-11-11 | Heavy and predeploy passes may come from a verified OfficeCI job (gate-cli attest)
+Amends D066/D060: besides a green local run, a heavy stamp or a STANDARD predeploy stamp (never --live) may be imported with gate-cli attest --officeci-job, which re-checks the coordinator: job passed exit 0 on attempt 1, same origin repo, tier success line, officeci-sha equal to the sha. Records carry who=officeci:<job>, via=attest. Hand-written stamps and gate-cli stamp/pay stay blocked; plugin 0.16.0.
+
 ## D071 | 2026-10-07 | Heavy tier runs against an isolated throwaway Supabase stack, never a dev stack
 Incident 2026-10-07: heavy used the owner's dev stack (VeHagita types-freshness red from unlanded migrations; EasyCaller data-loss risk on reset). maple.config.json ci.stack {projectId?, portBase} makes plugin/scripts/gate/ci-stack.mjs copy supabase/ to <git-common-dir>/maple/ci-stack, rename project_id to <id>-ci, pin every port into portBase..+9, start fresh, db reset, always tear down (pid lock, orphan sweep). Without ci.stack heavy warns. See [[quality]], [[docker]].
 
