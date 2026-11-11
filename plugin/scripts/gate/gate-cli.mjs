@@ -111,7 +111,7 @@ export async function main(argv, { root = process.cwd(), env = process.env, out 
     case "attest": {
       try {
         const { attest } = await import("./attest.mjs");
-        out(await attest({ kind: flags.kind === undefined ? "heavy" : flags.kind, sha: flags.sha, job: flags["officeci-job"], root: R, env, fetchImpl: deps?.fetchImpl, store: deps?.store }));
+        out(await attest({ kind: flags.kind === undefined ? "heavy" : flags.kind, sha: flags.sha, job: flags["officeci-job"], root: R, env, fetchImpl: deps?.fetchImpl, store: deps?.store, urlStore: deps?.urlStore }));
         return 0;
       } catch (e) {
         err("attest refused, nothing written: " + (e?.message ?? e));

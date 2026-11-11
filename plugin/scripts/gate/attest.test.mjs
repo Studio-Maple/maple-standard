@@ -7,7 +7,7 @@ import http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { main } from "./gate-cli.mjs";
-import { HEAVY_MARKER, coordinatorUrl, normalizeRepoUrl, parseSseLog } from "./attest.mjs";
+import { HEAVY_MARKER, URL_CRED_TARGETS, coordinatorUrl, credentialFromStore, normalizeRepoUrl, parseSseLog } from "./attest.mjs";
 import { heavyStampPath, mapleDir, readDebt, readHeavyStamp, recordDebt } from "./gate-state.mjs";
 
 const ORIGIN = "https://github.com/acme/widgets.git";
@@ -122,8 +122,8 @@ await t("refused: unknown job (404), wrong token (401), unreachable coordinator,
   await refused(["attest", "--sha", B, "--officeci-job", "nope"], /HTTP 404/);
   await refused(["attest", "--sha", B, "--officeci-job", "hv1"], /HTTP 401/, { env: { OFFICECI_URL: URL_, OFFICECI_TOKEN: "wrong" } });
   await refused(["attest", "--sha", B, "--officeci-job", "hv1"], /cannot reach/, { env: { OFFICECI_URL: "http://127.0.0.1:9", OFFICECI_TOKEN: TOKEN } });
-  await refused(["attest", "--sha", B, "--officeci-job", "hv1"], /no coordinator URL/, { env: { OFFICECI_TOKEN: TOKEN } });
-  await refused(["attest", "--sha", B, "--officeci-job", "hv1"], /not an http\(s\) URL/, { env: { OFFICECI_URL: "ftp://x", OFFICECI_TOKEN: TOKEN } });
+  await refused(["attest", "--sha", B, "--officeci-job", "hv1"], /no coordinator URL/, { env: { OFFICECI_TOKEN: TOKEN }, deps: { urlStore: () => null } });
+  await refused(["attest", "--sha", B, "--officeci-job", "hv1"], /not an http\(s\) URL/, { env: { OFFICECI_URL: "ftp://x", OFFICECI_TOKEN: TOKEN }, deps: { urlStore: () => null } });
   await refused(["attest", "--sha", B, "--officeci-job", "hv1"], /OFFICECI_TOKEN is not set/, { env: { OFFICECI_URL: URL_ }, deps: { store: () => null } });
   await refused(["attest", "--sha", "f".repeat(40), "--officeci-job", "hv1"], /not a commit in this repo/);
   await refused(["attest", "--officeci-job", "hv1"], /--sha is required/);
@@ -131,30 +131,47 @@ await t("refused: unknown job (404), wrong token (401), unreachable coordinator,
   await refused(["attest", "--kind", "live", "--sha", B, "--officeci-job", "hv1"], /--kind must be one of/);
 });
 
-await t("coordinator URL: officeci.url in maple.config.json, else OFFICECI_URL; config wins; trailing slash trimmed", () => {
+await t("coordinator URL sources: env, then Credential Manager officeci-url, then officeci.url in maple.config.json", () => {
   const dir = mkdtempSync(join(tmpdir(), "attest-cfg-"));
-  assert.equal(coordinatorUrl(dir, { OFFICECI_URL: "http://env:1/" }), "http://env:1");
+  const none = () => null;
+  assert.equal(coordinatorUrl(dir, { OFFICECI_URL: "http://env:1/" }, none), "http://env:1", "env alone; trailing slash trimmed");
+  assert.equal(coordinatorUrl(dir, {}, () => " http://cred:2/ "), "http://cred:2", "Credential Manager alone");
   writeFileSync(join(dir, "maple.config.json"), JSON.stringify({ officeci: { url: "http://cfg.ts.net:8080/" } }));
-  assert.equal(coordinatorUrl(dir, {}), "http://cfg.ts.net:8080");
-  assert.equal(coordinatorUrl(dir, { OFFICECI_URL: "http://env:1" }), "http://cfg.ts.net:8080", "a committed config beats the environment");
+  assert.equal(coordinatorUrl(dir, {}, none), "http://cfg.ts.net:8080", "config alone");
+  assert.equal(coordinatorUrl(dir, { OFFICECI_URL: "http://env:1" }, () => "http://cred:2"), "http://env:1", "env beats credential and config");
+  assert.equal(coordinatorUrl(dir, {}, () => "http://cred:2"), "http://cred:2", "credential beats config");
+  assert.equal(coordinatorUrl(dir, {}, none), "http://cfg.ts.net:8080");
   writeFileSync(join(dir, "maple.config.json"), JSON.stringify({ predeploy: {} }));
-  assert.equal(coordinatorUrl(dir, { OFFICECI_URL: "http://env:1" }), "http://env:1", "no officeci block falls back to the env var");
-  writeFileSync(join(dir, "maple.config.json"), JSON.stringify({ officeci: { url: "javascript:alert(1)" } }));
-  assert.throws(() => coordinatorUrl(dir, {}), /not an http\(s\) URL/);
+  assert.throws(() => coordinatorUrl(dir, {}, none), /no coordinator URL/, "none found");
+  assert.throws(() => coordinatorUrl(dir, { OFFICECI_URL: "ftp://x" }, none), /not an http\(s\) URL/);
+  assert.throws(() => coordinatorUrl(dir, {}, () => "javascript:alert(1)"), /not an http\(s\) URL/, "invalid from the credential store");
+  writeFileSync(join(dir, "maple.config.json"), JSON.stringify({ officeci: { url: "file:///etc/passwd" } }));
+  assert.throws(() => coordinatorUrl(dir, {}, none), /not an http\(s\) URL/, "invalid from config");
 });
 
-await t("attest with no env URL uses officeci.url from the repo's config; no flag can redirect it", async () => {
-  mk("cfg1", { log: heavyLog(B) });
+await t("attest end to end via each URL source (local HTTP stub); the token is never printed; no flag can redirect", async () => {
   const cfg = join(repo, "maple.config.json");
   const before = readFileSync(cfg, "utf8");
+  const ok = async (id, o) => { mk(id, { log: heavyLog(B) }); assert.equal(await run(["attest", "--sha", B, "--officeci-job", id], o), 0, errs.join("\n")); assert.equal(readHeavyStamp(repo, B).who, `officeci:${id}`); assert.ok(!out.join("\n").includes(TOKEN)); clear(); };
+  await ok("src-env", { env: { OFFICECI_URL: URL_, OFFICECI_TOKEN: TOKEN }, deps: { urlStore: () => { throw new Error("not consulted when env is set"); } } });
+  await ok("src-cred", { env: { OFFICECI_TOKEN: TOKEN }, deps: { urlStore: () => URL_ } });
   writeFileSync(cfg, JSON.stringify({ predeploy: { stampTtlHours: 72 }, officeci: { url: URL_ } }));
-  assert.equal(await run(["attest", "--sha", B, "--officeci-job", "cfg1"], { env: { OFFICECI_TOKEN: TOKEN } }), 0, errs.join("\n"));
-  assert.equal(readHeavyStamp(repo, B).who, "officeci:cfg1");
-  clear();
+  await ok("src-cfg", { env: { OFFICECI_TOKEN: TOKEN }, deps: { urlStore: () => null } });
+  // precedence over the wire: a dead env URL wins over a live config URL and so fails to connect
+  await refused(["attest", "--sha", B, "--officeci-job", "src-cfg"], /cannot reach/, { env: { OFFICECI_URL: "http://127.0.0.1:9", OFFICECI_TOKEN: TOKEN }, deps: { urlStore: () => URL_ } });
   // command-line flags are not a source for the URL: the config's wins, an unknown flag is ignored
-  assert.equal(await run(["attest", "--sha", B, "--officeci-job", "cfg1", "--url", "http://127.0.0.1:9", "--officeci-url", "http://127.0.0.1:9"], { env: { OFFICECI_TOKEN: TOKEN } }), 0, errs.join("\n"));
+  mk("src-flag", { log: heavyLog(B) });
+  assert.equal(await run(["attest", "--sha", B, "--officeci-job", "src-flag", "--url", "http://127.0.0.1:9", "--officeci-url", "http://127.0.0.1:9"], { env: { OFFICECI_TOKEN: TOKEN }, deps: { urlStore: () => null } }), 0, errs.join("\n"));
   clear();
   writeFileSync(cfg, before);
+});
+
+await t("credentialFromStore reads the officeci-url target through the injected runner", () => {
+  if (process.platform !== "win32") return;
+  const seenPs = [];
+  const run1 = (_c, args) => { seenPs.push(args.at(-1)); return { status: 0, stdout: "http://cm:3" }; };
+  assert.equal(credentialFromStore(URL_CRED_TARGETS, run1), "http://cm:3");
+  assert.match(seenPs[0], /-Target 'officeci-url'/);
 });
 
 await t("the token falls back to Credential Manager (injected store)", async () => {

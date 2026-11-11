@@ -14,7 +14,7 @@
  * run; predeploy writes the stamp shape run.mjs writes, 72h (stampTtlHours) from the JOB'S finish time. Both carry
  * who=officeci:<job> and via=attest.
  *
- * The URL is `officeci.url` in maple.config.json, else OFFICECI_URL. OFFICECI_TOKEN comes from the environment, else Windows Credential Manager (credential-manager
+ * The URL: OFFICECI_URL, else Credential Manager `officeci-url`, else `officeci.url` in maple.config.json. OFFICECI_TOKEN comes from the environment, else Windows Credential Manager (credential-manager
  * skill pattern; target officeci-attest, else officeci-owner). The token is only ever put in an Authorization header.
  * Coordinator shapes (officeci server.js): GET /api/jobs/<id> = {state, exitCode, repo, attempts, updatedAt(ms), ...};
  * the log is the SSE stream /api/jobs/<id>/stream (`event: log` chunks {seq,text}, ends with `event: end`).
@@ -51,21 +51,23 @@ function readTarget(target, run) {
   return r.status === 0 && r.stdout ? r.stdout : null;
 }
 
+export const URL_CRED_TARGETS = ["officeci-url"]; // the password field holds the coordinator URL (not a secret, kept beside the token)
+
 /**
- * Coordinator URL: `officeci.url` in the target repo's maple.config.json (committed, so a change is a reviewable diff and
- * the guard asks for owner approval to edit it), else the OFFICECI_URL of the real process environment. There is no
- * command-line flag for it, and the guard denies an inline OFFICECI_URL= on an attest command.
+ * Coordinator URL, first hit wins: the real process OFFICECI_URL; Windows Credential Manager target `officeci-url`;
+ * `officeci.url` in the target repo's maple.config.json (committed, reviewable). There is no command-line source, and the
+ * guard denies an inline OFFICECI_URL= on an attest command. Must be http(s).
  */
-export function coordinatorUrl(root, env = process.env) {
-  const raw = loadMapleConfig(root)?.officeci?.url ?? env.OFFICECI_URL ?? "";
+export function coordinatorUrl(root, env = process.env, urlStore = () => credentialFromStore(URL_CRED_TARGETS)) {
+  const raw = env.OFFICECI_URL || urlStore() || loadMapleConfig(root)?.officeci?.url || "";
   const url = String(raw).trim().replace(/\/+$/, "");
-  if (!url) fail("no coordinator URL: set officeci.url in maple.config.json (or OFFICECI_URL in the environment)");
-  if (!/^https?:\/\/[^\s/]+/i.test(url)) fail(`coordinator URL '${url}' is not an http(s) URL`);
+  if (!url) fail("no coordinator URL: set OFFICECI_URL, Credential Manager target 'officeci-url', or officeci.url in maple.config.json");
+  if (!/^https?:\/\/[^\s/]+/i.test(url)) fail("the coordinator URL is not an http(s) URL");
   return url;
 }
 
-export function resolveCoordinator(root, env = process.env, store = credentialFromStore) {
-  const url = coordinatorUrl(root, env);
+export function resolveCoordinator(root, env = process.env, store = credentialFromStore, urlStore) {
+  const url = coordinatorUrl(root, env, urlStore);
   const token = env.OFFICECI_TOKEN || store();
   if (!token) fail(`OFFICECI_TOKEN is not set and Credential Manager has no '${CRED_TARGETS.join("' or '")}' entry`);
   return { url, token };
@@ -168,10 +170,10 @@ async function writePredeployStamp(root, sha, tree, jobId, finishedAt) {
 }
 
 /**
- * @param {{kind?:string, sha:string, job:string, root:string, env?:object, fetchImpl?:Function, store?:Function}} o
+ * @param {{kind?:string, sha:string, job:string, root:string, env?:object, fetchImpl?:Function, store?:Function, urlStore?:Function}} o
  * @returns {Promise<string>} human line for stdout; throws AttestError when nothing was written
  */
-export async function attest({ kind = "heavy", sha: shaArg, job: jobId, root, env = process.env, fetchImpl = fetch, store }) {
+export async function attest({ kind = "heavy", sha: shaArg, job: jobId, root, env = process.env, fetchImpl = fetch, store, urlStore }) {
   if (!KINDS.includes(kind)) fail(`--kind must be one of ${KINDS.join(", ")} (never live: --live always runs locally)`);
   if (typeof jobId !== "string" || !jobId) fail("--officeci-job is required");
   if (typeof shaArg !== "string" || !shaArg) fail("--sha is required");
@@ -180,7 +182,7 @@ export async function attest({ kind = "heavy", sha: shaArg, job: jobId, root, en
   const tree = git(root, ["rev-parse", `${sha}^{tree}`]);
   const originUrl = git(root, ["remote", "get-url", "origin"]);
   if (!originUrl) fail("this repo has no 'origin' remote to compare the job's repo against");
-  const { job, log } = await fetchJob(resolveCoordinator(root, env, store), jobId, fetchImpl);
+  const { job, log } = await fetchJob(resolveCoordinator(root, env, store, urlStore), jobId, fetchImpl);
   const { finishedAt } = verifyJob({ job, log, kind, sha, originUrl, tree });
   const who = `officeci:${jobId}`;
   if (kind === "heavy") {
