@@ -23,6 +23,9 @@ await t("supabase refs validate", () => {
   assert.deepEqual(validateConfig({ ...base, supabase: { devProjectRefs: [] } }), []);
   assert.match(validateConfig({ ...base, supabase: { devProjectRefs: "abc" } }).join("\n"), /devProjectRefs/);
   assert.match(validateConfig({ ...base, supabase: { devProjectRefs: [""] } }).join("\n"), /non-empty/);
+  assert.deepEqual(validateConfig({ ...base, officeci: { url: "http://host.ts.net:8080" } }), []);
+  assert.match(validateConfig({ ...base, officeci: { url: "ftp://x" } }).join("\n"), /officeci\.url/);
+  assert.match(validateConfig({ ...base, officeci: { url: "http://x", token: "t" } }).join("\n"), /officeci/);
   assert.match(validateConfig({ ...base, supabase: { devProjectRefs: ["a"], prodProjectRefs: ["a"] } }).join("\n"), /both a dev and a prod/);
   assert.match(validateConfig({ ...base, supabase: { stagingRefs: [] } }).join("\n"), /stagingRefs/);
 });

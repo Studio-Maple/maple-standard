@@ -396,6 +396,15 @@
       }
     },
 
+    "officeci": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "plugin extension (D073) — the OfficeCI coordinator that `gate-cli attest` verifies jobs against. Committed on purpose: a change is a reviewable diff, and editing maple.config.json asks for owner approval. Falls back to the OFFICECI_URL environment variable.",
+      "properties": {
+        "url": { "type": "string", "pattern": "^https?://[^\\s/]+\\S*$", "description": "Coordinator base URL, e.g. http://host.tailnet.ts.net:8080 (no token here: that lives in OFFICECI_TOKEN / Credential Manager)." }
+      }
+    },
+
     "supabase": {
       "type": "object",
       "additionalProperties": false,

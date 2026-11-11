@@ -407,6 +407,7 @@ fixed during #T11's reconciliation pass:
 
 | Key | Default | Notes |
 |---|---|---|
+| `officeci.url` | env `OFFICECI_URL` | (D073, v0.16.1) base URL of the OfficeCI coordinator `gate-cli attest` verifies jobs against. Committed on purpose: a change is a reviewable diff and editing `maple.config.json` asks for owner approval. The config value wins over the environment; there is no command-line source, and the deploy guard denies an `attest` that sets `OFFICECI_URL`/`OFFICECI_TOKEN` inline. The token never lives here (`OFFICECI_TOKEN` / Credential Manager). |
 | `supabase.devProjectRefs` | `[]` | project refs of DEVELOPMENT Supabase projects. Mutating Supabase MCP tools (`apply_migration`, `execute_sql` unless provably read-only, `deploy_edge_function`, `merge_branch`, `reset_branch`, `rebase_branch`, `delete_branch`, `pause_project`, `restore_project`) are allowed only for a ref listed here. An unlisted ref is treated as production and denied. |
 | `supabase.prodProjectRefs` | `[]` | project refs of PRODUCTION projects, always denied (a sharper message than "unlisted"). A ref may not be in both lists. |
 

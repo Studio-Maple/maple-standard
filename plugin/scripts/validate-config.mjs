@@ -124,7 +124,7 @@ export function validateConfig(config) {
   }
   checkNoExtraKeys(
     config,
-    ["$schema", "project", "repo", "worktrees", "docs", "ci", "lint", "sizeCaps", "errorTracker", "loops", "hooks", "jev", "quality", "predeploy", "deps", "supabase"],
+    ["$schema", "project", "repo", "worktrees", "docs", "ci", "lint", "sizeCaps", "errorTracker", "loops", "hooks", "jev", "quality", "predeploy", "deps", "supabase", "officeci"],
     "root",
     errors
   );
@@ -461,6 +461,17 @@ export function validateConfig(config) {
       if (isStringArray(dev) && isStringArray(prod)) {
         for (const r of dev) if (prod.includes(r)) errors.push(`supabase: ref "${r}" is listed as both a dev and a prod project`);
       }
+    }
+  }
+
+  // ---- officeci (D073: the coordinator `gate-cli attest` talks to; committed so a change is a reviewable diff) ----
+  if (config.officeci !== undefined) {
+    if (!isPlainObject(config.officeci)) {
+      errors.push("officeci: must be an object");
+    } else {
+      checkNoExtraKeys(config.officeci, ["url"], "officeci", errors);
+      const u = config.officeci.url;
+      if (u !== undefined && !(typeof u === "string" && /^https?:\/\/[^\s/]+\S*$/i.test(u))) errors.push("officeci.url: must be an http(s) URL");
     }
   }
 

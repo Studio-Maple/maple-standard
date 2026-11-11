@@ -14,7 +14,7 @@
  * run; predeploy writes the stamp shape run.mjs writes, 72h (stampTtlHours) from the JOB'S finish time. Both carry
  * who=officeci:<job> and via=attest.
  *
- * OFFICECI_URL / OFFICECI_TOKEN come from the environment, else (token) Windows Credential Manager (credential-manager
+ * The URL is `officeci.url` in maple.config.json, else OFFICECI_URL. OFFICECI_TOKEN comes from the environment, else Windows Credential Manager (credential-manager
  * skill pattern; target officeci-attest, else officeci-owner). The token is only ever put in an Authorization header.
  * Coordinator shapes (officeci server.js): GET /api/jobs/<id> = {state, exitCode, repo, attempts, updatedAt(ms), ...};
  * the log is the SSE stream /api/jobs/<id>/stream (`event: log` chunks {seq,text}, ends with `event: end`).
@@ -22,6 +22,7 @@
 import { spawnSync } from "node:child_process";
 import { renameSync, writeFileSync } from "node:fs";
 import { git, payDebt, resolveSha, writeHeavyStamp } from "./gate-state.mjs";
+import { loadMapleConfig } from "../predeploy/lib.mjs";
 
 export const HEAVY_MARKER = "heavy passed - fast + gate additions + live RLS/pgTAP + audits green.";
 export const CRED_TARGETS = ["officeci-attest", "officeci-owner"]; // least-privilege token first
@@ -50,9 +51,21 @@ function readTarget(target, run) {
   return r.status === 0 && r.stdout ? r.stdout : null;
 }
 
-export function resolveCoordinator(env = process.env, store = credentialFromStore) {
-  const url = (env.OFFICECI_URL || "").replace(/\/+$/, "");
-  if (!url) fail("OFFICECI_URL is not set");
+/**
+ * Coordinator URL: `officeci.url` in the target repo's maple.config.json (committed, so a change is a reviewable diff and
+ * the guard asks for owner approval to edit it), else the OFFICECI_URL of the real process environment. There is no
+ * command-line flag for it, and the guard denies an inline OFFICECI_URL= on an attest command.
+ */
+export function coordinatorUrl(root, env = process.env) {
+  const raw = loadMapleConfig(root)?.officeci?.url ?? env.OFFICECI_URL ?? "";
+  const url = String(raw).trim().replace(/\/+$/, "");
+  if (!url) fail("no coordinator URL: set officeci.url in maple.config.json (or OFFICECI_URL in the environment)");
+  if (!/^https?:\/\/[^\s/]+/i.test(url)) fail(`coordinator URL '${url}' is not an http(s) URL`);
+  return url;
+}
+
+export function resolveCoordinator(root, env = process.env, store = credentialFromStore) {
+  const url = coordinatorUrl(root, env);
   const token = env.OFFICECI_TOKEN || store();
   if (!token) fail(`OFFICECI_TOKEN is not set and Credential Manager has no '${CRED_TARGETS.join("' or '")}' entry`);
   return { url, token };
@@ -167,7 +180,7 @@ export async function attest({ kind = "heavy", sha: shaArg, job: jobId, root, en
   const tree = git(root, ["rev-parse", `${sha}^{tree}`]);
   const originUrl = git(root, ["remote", "get-url", "origin"]);
   if (!originUrl) fail("this repo has no 'origin' remote to compare the job's repo against");
-  const { job, log } = await fetchJob(resolveCoordinator(env, store), jobId, fetchImpl);
+  const { job, log } = await fetchJob(resolveCoordinator(root, env, store), jobId, fetchImpl);
   const { finishedAt } = verifyJob({ job, log, kind, sha, originUrl, tree });
   const who = `officeci:${jobId}`;
   if (kind === "heavy") {
