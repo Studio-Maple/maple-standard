@@ -29,10 +29,10 @@ const git = (cwd, ...args) => spawnSync("git", args, { cwd, encoding: "utf8", wi
 
 function makeProject(setup = {}) {
   const root = fwd(realpathSync.native(mkdtempSync(join(tmpdir(), "guards-"))));
-  if (setup.config) writeFileSync(join(root, "maple.config.json"), JSON.stringify(setup.config, null, 2));
+  if (setup.config) writeFileSync(join(root, "maple.config.json"), JSON.stringify(sub(setup.config, root), null, 2));
   for (const [f, content] of Object.entries(setup.files ?? {})) {
     mkdirSync(dirname(join(root, f)), { recursive: true });
-    writeFileSync(join(root, f), content);
+    writeFileSync(join(root, f), sub(content, root));
   }
   if (setup.git || setup.linked || setup.approval) {
     git(root, "init", "-q", "-b", "main");
@@ -69,7 +69,10 @@ for (const file of readdirSync(dir).filter((f) => f.endsWith(".json")).sort()) {
         total++;
         const cwd = sub(c.cwd ?? "{ROOT}", root);
         const input = sub(c.input, root);
+        const savedEnv = Object.fromEntries(Object.keys(c.env ?? {}).map((k) => [k, process.env[k]]));
+        Object.assign(process.env, c.env ?? {});
         const res = await evaluate({ tool_name: c.tool ?? "Bash", cwd, tool_input: input });
+        for (const [k, v] of Object.entries(savedEnv)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
         const got = verdictOf(res);
         const text = res.deny || res.ask || res.warns.join("\n");
         const okVerdict = got === c.expect;

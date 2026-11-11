@@ -1,33 +1,376 @@
 [
   {
-    "setup": { "isolateTemp": true, "linked": ["w1"], "config": { "hooks": { "writeAllow": ["extra-out"] } } },
+    "setup": {
+      "isolateTemp": true,
+      "linked": [
+        "w1"
+      ],
+      "config": {
+        "hooks": {
+          "writeGuard": "deny",
+          "writeAllow": [
+            "extra-out"
+          ]
+        }
+      }
+    },
     "cases": [
-      { "name": "in-repo file", "tool": "Write", "input": { "file_path": "{ROOT}/docs/a.md" }, "expect": "allow" },
-      { "name": "relative in-repo file", "tool": "Edit", "input": { "file_path": "docs/a.md" }, "expect": "allow" },
-      { "name": "linked worktree under .worktrees, cwd in worktree", "tool": "Write", "cwd": "{ROOT}/.worktrees/w1", "input": { "file_path": "{ROOT}/.worktrees/w1/x.md" }, "expect": "allow" },
-      { "name": "worktree session may write the main checkout of the same repo", "tool": "Write", "cwd": "{ROOT}/.worktrees/w1", "input": { "file_path": "{ROOT}/docs/b.md" }, "expect": "allow" },
-      { "name": ".claude/worktrees path", "tool": "Write", "input": { "file_path": "{ROOT}/.claude/worktrees/q/x.md" }, "expect": "allow" },
-      { "name": "OS temp dir", "tool": "Write", "input": { "file_path": "{TMP}/scratch/x.txt" }, "expect": "allow" },
-      { "name": "config writeAllow (relative to config)", "tool": "Write", "input": { "file_path": "{ROOT}/extra-out/x.txt" }, "expect": "allow" },
-      { "name": "NotebookEdit in repo", "tool": "NotebookEdit", "input": { "notebook_path": "{ROOT}/n.ipynb" }, "expect": "allow" },
-      { "name": "forward vs back slashes + upper-case drive/case", "tool": "Write", "input": { "file_path": "{ROOT_BACKSLASH_UPPER}{BS}docs{BS}a.md" }, "expect": "allow" },
-      { "name": "8.3 short name resolves to the same repo", "tool": "Write", "input": { "file_path": "{ROOT_SHORT}/docs/a.md" }, "expect": "allow" },
-      { "name": "dotdot escape out of the repo", "tool": "Write", "input": { "file_path": "{ROOT}/docs/../../escape.md" }, "expect": "deny", "match": "sibling|outside" },
-      { "name": "sibling folder of the repo", "tool": "Write", "input": { "file_path": "{ROOT}-sibling/x.md" }, "expect": "deny", "match": "sibling" },
-      { "name": "shared notes folder", "tool": "Write", "input": { "file_path": "C:/Users/someone/AppData/Roaming/Claude/side-session-notes/local_1/report.md" }, "expect": "deny", "match": "notes folder.*inside the project's repo|inside the project's repo" },
-      { "name": "NotebookEdit outside", "tool": "NotebookEdit", "input": { "notebook_path": "{ROOT}-sibling/n.ipynb" }, "expect": "deny" },
-      { "name": "bash redirect outside", "input": { "command": "echo hi > {ROOT}-sibling/x.txt" }, "expect": "deny" },
-      { "name": "bash append outside", "input": { "command": "cat a >> {ROOT}-sibling/x.txt" }, "expect": "deny" },
-      { "name": "bash tee outside", "input": { "command": "echo hi | tee {ROOT}-sibling/x.txt" }, "expect": "deny" },
-      { "name": "PowerShell redirect outside", "tool": "PowerShell", "input": { "command": "'x' > '{ROOT}-sibling/x.txt'" }, "expect": "deny" },
-      { "name": "bash redirect inside / dev-null / stderr merge / input redirect", "input": { "command": "echo hi > docs/x.txt 2>/dev/null; cat < {ROOT}-sibling/in.txt; ls 2>&1" }, "expect": "allow" },
-      { "name": "bash redirect after cd into sibling", "input": { "command": "cd \"{ROOT}-sibling\" && echo hi > x.txt" }, "expect": "deny" }
+      {
+        "name": "in-repo file",
+        "tool": "Write",
+        "input": {
+          "file_path": "{ROOT}/docs/a.md"
+        },
+        "expect": "allow"
+      },
+      {
+        "name": "relative in-repo file",
+        "tool": "Edit",
+        "input": {
+          "file_path": "docs/a.md"
+        },
+        "expect": "allow"
+      },
+      {
+        "name": "linked worktree under .worktrees, cwd in worktree",
+        "tool": "Write",
+        "cwd": "{ROOT}/.worktrees/w1",
+        "input": {
+          "file_path": "{ROOT}/.worktrees/w1/x.md"
+        },
+        "expect": "allow"
+      },
+      {
+        "name": "worktree session may write the main checkout of the same repo",
+        "tool": "Write",
+        "cwd": "{ROOT}/.worktrees/w1",
+        "input": {
+          "file_path": "{ROOT}/docs/b.md"
+        },
+        "expect": "allow"
+      },
+      {
+        "name": ".claude/worktrees path",
+        "tool": "Write",
+        "input": {
+          "file_path": "{ROOT}/.claude/worktrees/q/x.md"
+        },
+        "expect": "allow"
+      },
+      {
+        "name": "OS temp dir",
+        "tool": "Write",
+        "input": {
+          "file_path": "{TMP}/scratch/x.txt"
+        },
+        "expect": "allow"
+      },
+      {
+        "name": "config writeAllow (relative to config)",
+        "tool": "Write",
+        "input": {
+          "file_path": "{ROOT}/extra-out/x.txt"
+        },
+        "expect": "allow"
+      },
+      {
+        "name": "NotebookEdit in repo",
+        "tool": "NotebookEdit",
+        "input": {
+          "notebook_path": "{ROOT}/n.ipynb"
+        },
+        "expect": "allow"
+      },
+      {
+        "name": "forward vs back slashes + upper-case drive/case",
+        "tool": "Write",
+        "input": {
+          "file_path": "{ROOT_BACKSLASH_UPPER}{BS}docs{BS}a.md"
+        },
+        "expect": "allow"
+      },
+      {
+        "name": "8.3 short name resolves to the same repo",
+        "tool": "Write",
+        "input": {
+          "file_path": "{ROOT_SHORT}/docs/a.md"
+        },
+        "expect": "allow"
+      },
+      {
+        "name": "dotdot escape out of the repo",
+        "tool": "Write",
+        "input": {
+          "file_path": "{ROOT}/docs/../../escape.md"
+        },
+        "expect": "deny",
+        "match": "sibling|outside"
+      },
+      {
+        "name": "sibling folder of the repo",
+        "tool": "Write",
+        "input": {
+          "file_path": "{ROOT}-sibling/x.md"
+        },
+        "expect": "deny",
+        "match": "sibling"
+      },
+      {
+        "name": "shared notes folder",
+        "tool": "Write",
+        "input": {
+          "file_path": "C:/Users/someone/AppData/Roaming/Claude/side-session-notes/local_1/report.md"
+        },
+        "expect": "deny",
+        "match": "notes folder.*inside the project's repo|inside the project's repo"
+      },
+      {
+        "name": "NotebookEdit outside",
+        "tool": "NotebookEdit",
+        "input": {
+          "notebook_path": "{ROOT}-sibling/n.ipynb"
+        },
+        "expect": "deny"
+      },
+      {
+        "name": "bash redirect outside",
+        "input": {
+          "command": "echo hi > {ROOT}-sibling/x.txt"
+        },
+        "expect": "deny"
+      },
+      {
+        "name": "bash append outside",
+        "input": {
+          "command": "cat a >> {ROOT}-sibling/x.txt"
+        },
+        "expect": "deny"
+      },
+      {
+        "name": "bash tee outside",
+        "input": {
+          "command": "echo hi | tee {ROOT}-sibling/x.txt"
+        },
+        "expect": "deny"
+      },
+      {
+        "name": "PowerShell redirect outside",
+        "tool": "PowerShell",
+        "input": {
+          "command": "'x' > '{ROOT}-sibling/x.txt'"
+        },
+        "expect": "deny"
+      },
+      {
+        "name": "bash redirect inside / dev-null / stderr merge / input redirect",
+        "input": {
+          "command": "echo hi > docs/x.txt 2>/dev/null; cat < {ROOT}-sibling/in.txt; ls 2>&1"
+        },
+        "expect": "allow"
+      },
+      {
+        "name": "bash redirect after cd into sibling",
+        "input": {
+          "command": "cd \"{ROOT}-sibling\" && echo hi > x.txt"
+        },
+        "expect": "deny"
+      }
     ]
   },
   {
-    "setup": { "isolateTemp": true },
+    "setup": {
+      "isolateTemp": true
+    },
     "cases": [
-      { "name": "non-git cwd: nothing to protect", "tool": "Write", "input": { "file_path": "{ROOT}-sibling/x.md" }, "expect": "allow" }
+      {
+        "name": "non-git cwd: nothing to protect",
+        "tool": "Write",
+        "input": {
+          "file_path": "{ROOT}-sibling/x.md"
+        },
+        "expect": "allow"
+      }
+    ]
+  },
+  {
+    "setup": {
+      "isolateTemp": true,
+      "git": true
+    },
+    "cases": [
+      {
+        "name": "default mode is warn: outside write allowed with notice",
+        "tool": "Write",
+        "input": {
+          "file_path": "{ROOT}-sibling/x.md"
+        },
+        "expect": "warn",
+        "match": "inside the project"
+      },
+      {
+        "name": "default mode: in-repo write is silent",
+        "tool": "Write",
+        "input": {
+          "file_path": "{ROOT}/a.md"
+        },
+        "expect": "allow"
+      }
+    ]
+  },
+  {
+    "setup": {
+      "isolateTemp": true,
+      "git": true,
+      "config": {
+        "hooks": {
+          "writeGuard": "off"
+        }
+      }
+    },
+    "cases": [
+      {
+        "name": "off: outside write allowed silently",
+        "tool": "Write",
+        "input": {
+          "file_path": "{ROOT}-sibling/x.md"
+        },
+        "expect": "allow"
+      }
+    ]
+  },
+  {
+    "setup": {
+      "isolateTemp": true,
+      "git": true,
+      "config": {
+        "hooks": {
+          "writeGuard": "deny"
+        }
+      }
+    },
+    "cases": [
+      {
+        "name": "env off beats config deny",
+        "tool": "Write",
+        "input": {
+          "file_path": "{ROOT}-sibling/x.md"
+        },
+        "env": {
+          "MAPLE_WRITE_GUARD": "off"
+        },
+        "expect": "allow"
+      },
+      {
+        "name": "env warn beats config deny",
+        "tool": "Write",
+        "input": {
+          "file_path": "{ROOT}-sibling/x.md"
+        },
+        "env": {
+          "MAPLE_WRITE_GUARD": "warn"
+        },
+        "expect": "warn"
+      },
+      {
+        "name": "no env: config deny applies",
+        "tool": "Write",
+        "input": {
+          "file_path": "{ROOT}-sibling/x.md"
+        },
+        "expect": "deny"
+      }
+    ]
+  },
+  {
+    "setup": {
+      "isolateTemp": true,
+      "git": true
+    },
+    "cases": [
+      {
+        "name": "env deny beats default warn",
+        "tool": "Write",
+        "input": {
+          "file_path": "{ROOT}-sibling/x.md"
+        },
+        "env": {
+          "MAPLE_WRITE_GUARD": "deny"
+        },
+        "expect": "deny"
+      }
+    ]
+  },
+  {
+    "setup": {
+      "isolateTemp": true,
+      "git": true,
+      "config": {
+        "hooks": {
+          "writeGuard": "deny"
+        },
+        "docs": {
+          "decisions": "{ROOT}-intent/decisions.md",
+          "tasks": "docs/tasks.md"
+        }
+      }
+    },
+    "cases": [
+      {
+        "name": "absolute docs.* path: its folder is allowed",
+        "tool": "Write",
+        "input": {
+          "file_path": "{ROOT}-intent/decisions.md"
+        },
+        "expect": "allow"
+      },
+      {
+        "name": "absolute docs.* path: sibling file in that folder too",
+        "tool": "Write",
+        "input": {
+          "file_path": "{ROOT}-intent/tasks.md"
+        },
+        "expect": "allow"
+      },
+      {
+        "name": "unrelated sibling still denied",
+        "tool": "Write",
+        "input": {
+          "file_path": "{ROOT}-other/x.md"
+        },
+        "expect": "deny"
+      }
+    ]
+  },
+  {
+    "setup": {
+      "isolateTemp": true,
+      "git": true,
+      "config": {
+        "hooks": {
+          "writeGuard": "deny"
+        }
+      },
+      "files": {
+        ".maplelens/desk.json": "{\"intentRepo\":\"{ROOT}-intent2\"}"
+      }
+    },
+    "cases": [
+      {
+        "name": "desk intentRepo is allowed",
+        "tool": "Write",
+        "input": {
+          "file_path": "{ROOT}-intent2/tasks.md"
+        },
+        "expect": "allow"
+      },
+      {
+        "name": "desk intentRepo: other sibling denied",
+        "tool": "Write",
+        "input": {
+          "file_path": "{ROOT}-other/x.md"
+        },
+        "expect": "deny"
+      }
     ]
   }
 ]

@@ -62,6 +62,19 @@ export function repoRootOf(cwd) {
   return root;
 }
 
+/** Dirs the project itself declares: absolute docs.* paths and the desk intentRepo, each as its repo root. */
+function declaredDirs(conf, root) {
+  const out = [];
+  const add = (p, isDir) => { try { const d = isDir || (existsSync(p) && statSync(p).isDirectory()) ? p : dirname(p); out.push(d, repoRootOf(d) ?? d); } catch { /* skip */ } };
+  const docs = conf?.cfg?.docs;
+  if (docs && typeof docs === "object") for (const v of Object.values(docs)) if (typeof v === "string" && isAbsPath(v)) add(normPath(v));
+  try {
+    const desk = JSON.parse(readFileSync(join(conf?.root ?? root, ".maplelens", "desk.json"), "utf8"));
+    if (typeof desk.intentRepo === "string" && desk.intentRepo) add(resolve(conf?.root ?? root, desk.intentRepo), true);
+  } catch { /* no desk config */ }
+  return out;
+}
+
 function allowedRoots(root, ctx) {
   const roots = [root, tmpdir(), process.env.TEMP, process.env.TMP, process.env.TMPDIR, join(homedir(), ".claude")];
   if (!WIN) roots.push("/tmp");
@@ -70,6 +83,7 @@ function allowedRoots(root, ctx) {
   const base = conf?.root ?? root;
   const extra = conf?.cfg?.hooks?.writeAllow;
   if (Array.isArray(extra)) for (const e of extra) if (typeof e === "string" && e) roots.push(isAbsPath(e) ? e : resolve(base, e));
+  for (const d of declaredDirs(conf, root)) roots.push(d);
   return roots.filter(Boolean).flatMap((r) => { const rp = realish(r); return rp === r ? [key(r)] : [key(r), key(rp)]; });
 }
 
@@ -95,13 +109,24 @@ export function checkTarget(target, baseDir, ctx) {
   return allowedRoots(root, ctx).some((r) => within(real, r)) ? null : denyText(realish(abs), root);
 }
 
+/** off | warn | deny: env MAPLE_WRITE_GUARD (per session) beats maple.config.json hooks.writeGuard; default warn. */
+export function modeOf(ctx) {
+  const norm = (v) => (typeof v === "string" && ["off", "warn", "deny"].includes(v.trim().toLowerCase()) ? v.trim().toLowerCase() : null);
+  let cfgMode = null;
+  try { cfgMode = norm(ctx.config()?.cfg?.hooks?.writeGuard); } catch { /* ignore */ }
+  return norm(process.env.MAPLE_WRITE_GUARD) ?? cfgMode ?? "warn";
+}
+
 const FILE_TOOLS = { Write: "file_path", Edit: "file_path", MultiEdit: "file_path", NotebookEdit: "notebook_path" };
 
 export function check(ctx) {
+  const mode = modeOf(ctx);
+  if (mode === "off") return undefined;
+  const verdict = (reason) => (mode === "deny" ? { deny: reason } : { warn: `${reason} (warn mode: allowed; set hooks.writeGuard to "deny" to block)` });
   const field = FILE_TOOLS[ctx.tool];
   if (field) {
     const reason = checkTarget(ctx.input?.[field] ?? ctx.input?.file_path, ctx.cwd, ctx);
-    return reason ? { deny: reason } : undefined;
+    return reason ? verdict(reason) : undefined;
   }
   if (ctx.tool !== "Bash" && ctx.tool !== "PowerShell") return undefined;
   for (const seg of ctx.segments()) {
@@ -110,7 +135,7 @@ export function check(ctx) {
     if (seg.verb === "tee") for (const a of seg.args) if (!a.redir && !a.sub && !a.text.startsWith("-")) targets.push(a.text);
     for (const t of targets) {
       const reason = checkTarget(t, base, ctx);
-      if (reason) return { deny: reason };
+      if (reason) return verdict(reason);
     }
   }
   return undefined;

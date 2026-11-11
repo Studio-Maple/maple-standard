@@ -419,6 +419,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "writeGuard": { "enum": ["off", "warn", "deny"], "description": "write-scope-guard mode: off | warn (default: allow + notice) | deny. Env MAPLE_WRITE_GUARD overrides per session." },
         "writeAllow": { "type": "array", "items": { "type": "string" }, "description": "write-scope-guard: extra folders file-writing tools may write to, besides the project's repo (all its worktrees), the OS temp dirs and ~/.claude. Absolute, or relative to this file's folder." },
         "bashGuard": {
           "type": "object",
