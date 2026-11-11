@@ -35,7 +35,8 @@ Malformed config? Run
 ## Arguments
 
 `$ARGUMENTS` — optional:
-- `--dry-run` → show what would be removed, change nothing.
+- `--dry-run` → strictly read-only: no fetch, no prune; lists what prune would drop and what would be removed (judged against the last-fetched origin ref).
+- `--include-pi` → also reap merged `pi/*` worktrees + branches, children before parents (default off).
 - `--force` → also free disk for unmerged-but-idle worktrees (removes the worktree dir, **keeps** the branch).
 - `--stale-hours N` → idle threshold for `--force` (default `worktrees.reap.staleHours`, itself default 24).
 

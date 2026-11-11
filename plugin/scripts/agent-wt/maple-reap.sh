@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# maple-reap [--dry-run] [--force] [--stale-hours N]
+# maple-reap [--dry-run] [--force] [--include-pi] [--stale-hours N]
+#
+# --dry-run is strictly READ-ONLY: no fetch, no `git worktree prune`, no ref/branch/worktree change. It
+# lists what prune would drop and what a real run would remove, judged against the last-fetched origin ref.
+# --include-pi (default off) also reaps merged `pi/*` worktrees and branches, children (more commits)
+# before parents, through the same guards (dirty / fresh / locked / fail-closed removal).
 #
 # Keep the worktree set from sprawling. Mechanical cleanup so nobody has to
 # remember to do it — wire it to /loop or a schedule. By default it ONLY
@@ -30,10 +35,11 @@ set -euo pipefail
 . "$(dirname "$0")/maple-lib.sh"
 
 DEFAULT_STALE="$(maple_cfg worktrees.reap.staleHours 24)"
-DRY=false FORCE=false STALE_HOURS="${MAPLE_STALE_HOURS:-$DEFAULT_STALE}"
+DRY=false FORCE=false INCLUDE_PI=false STALE_HOURS="${MAPLE_STALE_HOURS:-$DEFAULT_STALE}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run)     DRY=true ;;
+    --include-pi)  INCLUDE_PI=true ;;   # opt-in: also reap merged pi/* (Jev worker) worktrees + branches
     --force)       FORCE=true ;;
     --stale-hours) STALE_HOURS="${2:-}"; shift ;;
     -*)            maple_die "unknown flag: $1" ;;
@@ -58,10 +64,19 @@ remove_or_keep() {
   kept=$((kept+1)); return 1
 }
 
-maple_log "fetching $MAPLE_REMOTE/$MAPLE_TARGET (to decide what's merged)…"
-git fetch "$MAPLE_REMOTE" "$MAPLE_TARGET" --quiet 2>/dev/null || maple_warn "fetch failed — merged-detection may be stale"
-git worktree prune
 TARGET_REF="$MAPLE_REMOTE/$MAPLE_TARGET"
+if $DRY; then
+  # --dry-run is strictly read-only: no fetch (it moves refs), no `git worktree prune` (it deletes admin
+  # data). Merged-detection uses the remote ref as of the last fetch; the prune is only listed.
+  git rev-parse --verify --quiet "$TARGET_REF" >/dev/null || maple_die "$TARGET_REF is not fetched yet - run a real fetch first (dry-run never fetches)"
+  maple_log "[dry] not fetching - judging 'merged' against $TARGET_REF as of the last fetch"
+  pruned="$(git worktree prune --dry-run -v 2>&1 || true)"
+  if [ -n "$pruned" ]; then printf '%s\n' "$pruned" | while IFS= read -r l; do maple_log "[dry] would prune: $l"; done; else maple_log "[dry] nothing to prune"; fi
+else
+  maple_log "fetching $MAPLE_REMOTE/$MAPLE_TARGET (to decide what's merged)…"
+  git fetch "$MAPLE_REMOTE" "$MAPLE_TARGET" --quiet 2>/dev/null || maple_warn "fetch failed — merged-detection may be stale"
+  git worktree prune
+fi
 
 is_merged() { git merge-base --is-ancestor "$1" "$TARGET_REF" 2>/dev/null; }
 # Uncommitted changes in a worktree. A failed `status` counts as dirty.
@@ -79,7 +94,7 @@ branch_idle_hours() {
   now="$(date +%s)"; echo $(( (now - last) / 3600 ))
 }
 
-reaped=0 kept=0
+reaped=0 kept=0 PI_PASS=false
 
 # `git worktree list --porcelain` prints paths in git's own native form
 # (Windows-mixed `C:/...` on Windows); MAPLE_WT_ROOT is POSIX form
@@ -135,6 +150,8 @@ flush() {
         maple_log "keeping $cur_branch — protected branch, never reaped ($cur_path)"; kept=$((kept+1)); return 0 ;;
     esac
     case "$cur_branch" in
+      pi/*) if $INCLUDE_PI && ! $PI_PASS; then return 0; fi   # handled by pass 1b, children first
+            if ! $INCLUDE_PI; then maple_log "keeping $cur_branch — pi/* worktree, reaped only with --include-pi ($cur_path)"; kept=$((kept+1)); return 0; fi ;;
       "$MAPLE_NAME_PREFIX"*"$MAPLE_NAME_SUFFIX") ;;
       *) maple_log "keeping $cur_branch — not a ${MAPLE_NAME_PREFIX}<slug>${MAPLE_NAME_SUFFIX} branch, not ours to reap ($cur_path)"; kept=$((kept+1)); return 0 ;;
     esac
@@ -193,6 +210,36 @@ while IFS= read -r line; do
 done < <(git worktree list --porcelain)
 flush
 
+# pi/* branches, merged ones only, CHILDREN FIRST: a descendant has strictly more commits than any of its
+# ancestors, so ordering by commit count descending removes children before the parents they were cut from.
+pi_branches_children_first() {
+  local b
+  while IFS= read -r b; do
+    [ -n "$b" ] || continue
+    is_merged "$b" || continue
+    printf '%s %s\n' "$(git rev-list --count "$b" 2>/dev/null || echo 0)" "$b"
+  done < <(git for-each-ref --format='%(refname:short)' 'refs/heads/pi/*') | sort -rn -k1,1 | cut -d' ' -f2-
+}
+
+# ── pass 1b (--include-pi): merged pi/* worktrees, through the SAME flush guards ──
+if $INCLUDE_PI; then
+  PI_PASS=true
+  porcelain="$(git worktree list --porcelain)"
+  while IFS= read -r pb; do
+    [ -n "$pb" ] || continue
+    cur_path="" cur_branch="" cur_locked=false
+    while IFS= read -r line; do
+      case "$line" in
+        worktree\ *) [ -n "$cur_path" ] && [ "$cur_branch" = "$pb" ] && break; cur_path="${line#worktree }"; cur_branch=""; cur_locked=false ;;
+        branch\ refs/heads/*) cur_branch="${line#branch refs/heads/}" ;;
+        locked|locked\ *) cur_locked=true ;;
+      esac
+    done <<<"$porcelain"$'\n'"worktree "
+    [ "$cur_branch" = "$pb" ] && flush
+  done < <(pi_branches_children_first)
+  PI_PASS=false
+fi
+
 # ── pass 2: orphan agent/* branches (merged, no worktree) ────────────────────
 while IFS= read -r b; do
   [ -n "$b" ] || continue
@@ -206,6 +253,16 @@ while IFS= read -r b; do
     maple_log "keeping unmerged orphan branch $b (idle $(branch_idle_hours "$b")h)"; kept=$((kept+1))
   fi
 done < <(git for-each-ref --format='%(refname:short)' "refs/heads/${MAPLE_NAME_PREFIX}*${MAPLE_NAME_SUFFIX}")
+
+# pass 2b (--include-pi): merged pi/* branches with no worktree, children first
+if $INCLUDE_PI; then
+  while IFS= read -r b; do
+    [ -n "$b" ] || continue
+    git worktree list --porcelain | grep -q "branch refs/heads/$b$" && continue
+    maple_ok "merged pi orphan branch (no worktree): $b -> deleting"
+    do_or_echo git branch -D "$b"; reaped=$((reaped+1))
+  done < <(pi_branches_children_first)
+fi
 
 # ── pass 3: empty leftover dirs (a removal whose dir was some shell's cwd) ────
 # rmdir only: it refuses a non-empty dir and one still in use, so this can never

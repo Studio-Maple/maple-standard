@@ -7,7 +7,7 @@
 //   Bash | PowerShell   loop-budget, hook-bypass, credentials, worktree placement, prod-migration approval, deploy gate, shell guards
 //                       (linked node_modules installs/deletes, cwd / push / clean / dependency-install freshness)
 //   Read | Grep | Glob  loop-budget, credential paths
-//   Write | Edit | MultiEdit   loop-budget, dependency versions (D064), prod-migration approval, deploy-gate state / ask files
+//   Write | Edit | MultiEdit | NotebookEdit   loop-budget, write scope (stay inside the project repo), dependency versions (D064), prod-migration approval, deploy-gate state / ask files
 //   mcp__*              loop-budget, mutating Supabase MCP tools
 //
 // Output contract: deny = reason on stderr + exit 2; ask = permissionDecision JSON on stdout (exit 0);
@@ -21,13 +21,13 @@ import { projectConfig } from "./guards/project.mjs";
 
 const DEADLINE_MS = 12_000; // below the hook's own timeout (hooks.json), so we answer instead of being killed
 
-const SHELL_GUARDS = ["loop-budget-guard", "hook-bypass", "deny-credential-paths", "worktree-guard", "prod-migration-guard", "deploy-guard", "link-guard", "bash-guard"];
+const SHELL_GUARDS = ["loop-budget-guard", "hook-bypass", "deny-credential-paths", "worktree-guard", "prod-migration-guard", "deploy-guard", "write-scope-guard", "link-guard", "bash-guard"];
 
 /** Which guard modules a tool call needs, in run order. */
 export function planFor(tool, hasCommand) {
   if (tool === "Bash" || tool === "PowerShell") return hasCommand ? SHELL_GUARDS : [];
   if (tool === "Read" || tool === "Grep" || tool === "Glob") return ["loop-budget-guard", "deny-credential-paths"];
-  if (tool === "Write" || tool === "Edit" || tool === "MultiEdit") return ["loop-budget-guard", "dep-version-guard", "prod-migration-guard", "deploy-guard"];
+  if (tool === "Write" || tool === "Edit" || tool === "MultiEdit" || tool === "NotebookEdit") return ["loop-budget-guard", "write-scope-guard", "dep-version-guard", "prod-migration-guard", "deploy-guard"];
   if (typeof tool === "string" && tool.startsWith("mcp__")) return ["loop-budget-guard", "mcp-guard"];
   return [];
 }

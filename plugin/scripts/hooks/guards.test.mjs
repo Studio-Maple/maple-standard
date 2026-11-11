@@ -22,7 +22,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const { evaluate } = await import(pathToFileURL(join(HERE, "..", "..", "hooks", "guard.mjs")).href);
 
 const fwd = (p) => p.replace(/\\/g, "/");
-const sub = (v, root) => (typeof v === "string" ? v.replaceAll("{ROOT}", root) : Array.isArray(v) ? v.map((x) => sub(x, root)) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, sub(x, root)])) : v);
+const shortName = (p) => { const r = spawnSync("powershell", ["-NoProfile", "-Command", `(New-Object -ComObject Scripting.FileSystemObject).GetFolder('${p}').ShortPath`], { encoding: "utf8", windowsHide: true }); return r.status === 0 && r.stdout.trim() ? fwd(r.stdout.trim()) : p; };
+const expand = (v, root) => v.replaceAll("{ROOT_BACKSLASH_UPPER}", root.replace(/\//g, "\\").toUpperCase()).replaceAll("{ROOT_SHORT}", v.includes("{ROOT_SHORT}") && process.platform === "win32" ? shortName(root) : root).replaceAll("{BS}", "\\").replaceAll("{TMP}", fwd(tmpdir())).replaceAll("{ROOT}", root);
+const sub = (v, root) => (typeof v === "string" ? expand(v, root) : Array.isArray(v) ? v.map((x) => sub(x, root)) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, sub(x, root)])) : v);
 const git = (cwd, ...args) => spawnSync("git", args, { cwd, encoding: "utf8", windowsHide: true });
 
 function makeProject(setup = {}) {
@@ -58,6 +60,10 @@ for (const file of readdirSync(dir).filter((f) => f.endsWith(".json")).sort()) {
   console.log(`\n=== ${file} ===`);
   for (const suite of suites) {
     const root = makeProject(suite.setup);
+    // setup.isolateTemp: point the OS temp dirs at a fresh folder so the project (made in the real temp dir) is not "in temp"
+    const savedTemp = { TEMP: process.env.TEMP, TMP: process.env.TMP, TMPDIR: process.env.TMPDIR };
+    const zone = suite.setup?.isolateTemp ? realpathSync.native(mkdtempSync(join(tmpdir(), "tempzone-"))) : null;
+    if (zone) Object.assign(process.env, { TEMP: zone, TMP: zone, TMPDIR: zone });
     try {
       for (const c of suite.cases) {
         total++;
@@ -73,6 +79,7 @@ for (const file of readdirSync(dir).filter((f) => f.endsWith(".json")).sort()) {
         else { failed++; console.log(`  FAIL  want ${c.expect}${c.match ? ` /${c.match}/` : ""}, got ${got} — ${label}\n        ${text.slice(0, 240)}`); }
       }
     } finally {
+      if (zone) { for (const [k, v] of Object.entries(savedTemp)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } rmSync(zone, { recursive: true, force: true }); }
       for (const w of suite.setup?.linked ?? []) git(root, "worktree", "remove", "--force", `.worktrees/${w}`);
       rmSync(root, { recursive: true, force: true });
     }

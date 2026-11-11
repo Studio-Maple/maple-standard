@@ -480,7 +480,9 @@ export function validateConfig(config) {
     if (!isPlainObject(config.hooks)) {
       errors.push("hooks: must be an object");
     } else {
-      checkNoExtraKeys(config.hooks, ["bashGuard"], "hooks", errors);
+      checkNoExtraKeys(config.hooks, ["bashGuard", "writeAllow"], "hooks", errors);
+      if (config.hooks.writeAllow !== undefined && !(Array.isArray(config.hooks.writeAllow) && config.hooks.writeAllow.every((x) => typeof x === "string")))
+        errors.push("hooks.writeAllow: must be an array of folder paths (strings)");
       if (config.hooks.bashGuard !== undefined) {
         const bg = config.hooks.bashGuard;
         if (!isPlainObject(bg)) errors.push("hooks.bashGuard: must be an object");

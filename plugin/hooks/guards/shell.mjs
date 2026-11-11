@@ -7,7 +7,7 @@
 //
 // parseShell(command, shell) -> Segment[]
 //   Segment = { verb, args: Word[], words: Word[], env, cd, anchored, nested }
-//   Word    = { text, quoted, sub, redir }
+//   Word    = { text, quoted, sub, redir }   redir: false, or ">" / "<" when the word is that redirect's target
 // Pure functions, no I/O, no process spawn.
 
 const WRAPPERS = new Set(["sudo", "nohup", "command", "time", "exec", "call", "builtin"]);
@@ -106,8 +106,9 @@ class Parser {
         // a redirect: `2>`, `>>`, `>&1`, `<`, `<<<`; the NEXT word is its target
         if (w && /^\d+$/.test(w.text) && !w.quoted) w = null;
         flushWord();
+        const dir = c; // ">" (write) or "<" (read): Word.redir carries it, so a guard can tell them apart
         while (s[this.i] === ">" || s[this.i] === "<") this.i++;
-        if (s[this.i] === "&") { this.i++; while (/[\d-]/.test(s[this.i] ?? "")) this.i++; redirNext = false; } else redirNext = true;
+        if (s[this.i] === "&") { this.i++; while (/[\d-]/.test(s[this.i] ?? "")) this.i++; redirNext = false; } else redirNext = dir;
         continue;
       }
       if (this.ps && c === "@" && (s[this.i + 1] === "'" || s[this.i + 1] === '"') && /^[ \t]*\r?\n/.test(s.slice(this.i + 2))) {
