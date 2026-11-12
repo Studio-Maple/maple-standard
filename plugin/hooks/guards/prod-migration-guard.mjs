@@ -44,6 +44,7 @@ const READERS = new Set([
 const GIT_NONWRITE = new Set(["add", "diff", "log", "show", "status", "blame", "ls-files", "restore", "checkout", "stash", "commit", "grep", "check-ignore", "rev-parse"]);
 const APPROVAL_RE = /prod-migration-(approval|\*|\?|\[)|maple[\\/]prod-/i;
 const SCRIPT_RE = /approve-prod-migration/i;
+const SCRIPT_WRAPPER_RE = /^(db-push|apply-migrations)(\.(sh|bash|ps1))?$/i;
 
 const baseOf = (t) => String(t).replace(/\\/g, "/").split("/").pop().replace(/\.(exe|cmd|bat|ps1)$/i, "").toLowerCase();
 
@@ -106,7 +107,6 @@ export function supabaseCalls(segments, shell = "bash", depth = 0, cwd = process
           for (const c of inner) calls.push({ ...c, seg });
         }
       }
-      continue;
     }
     if (depth < 3 && (SHELLS.has(seg.verb) || seg.verb === "eval")) {
       const ps = /^(pwsh|powershell|cmd)$/.test(seg.verb) ? "powershell" : "bash";
@@ -118,6 +118,25 @@ export function supabaseCalls(segments, shell = "bash", depth = 0, cwd = process
       }
       if (inner) {
         for (const c of supabaseCalls(parseShell(inner, ps), ps, depth + 1, cwd)) calls.push({ ...c, seg });
+      }
+    }
+    // Migration wrapper scripts (db-push.sh, apply-migrations.sh): run directly or through a shell. The target cannot be
+    // read out of the script, so it is judged as a default `db push` (linked project) plus whatever flags follow the script name.
+    const ins = inspectableArgs(seg);
+    const scriptAt = SCRIPT_WRAPPER_RE.test(baseOf(seg.verb)) ? -1 : ins.findIndex((w) => SCRIPT_WRAPPER_RE.test(baseOf(w.text)));
+    if (SCRIPT_WRAPPER_RE.test(baseOf(seg.verb)) || (scriptAt >= 0 && (SHELLS.has(seg.verb) || seg.verb === "source" || seg.verb === "."))) {
+      calls.push({ args: [{ text: "db", sub: false }, { text: "push", sub: false }, ...view(ins.slice(scriptAt + 1))], seg });
+    }
+    // Generic wrapper rule (`npm run sb -- db push`, `node scripts/sb.mjs db push`, ...): the subcommand tokens appear in a
+    // CLI invocation whose binary is not supabase itself. The tokens after the group are parsed like a supabase call.
+    if (seg.verb !== "git" && seg.verb !== "supabase" && !ins.some((w) => /^prisma(@.+)?$/.test(baseOf(w.text)))) {
+      for (let k = 0; k + 1 < ins.length; k++) {
+        const grp = ins[k].text.toLowerCase();
+        const sub = ins[k + 1].text.toLowerCase();
+        if ((grp === "db" && (sub === "push" || sub === "reset")) || (/^migrations?$/.test(grp) && (sub === "up" || sub === "repair"))) {
+          calls.push({ args: view(ins.slice(k)), seg });
+          break;
+        }
       }
     }
   }

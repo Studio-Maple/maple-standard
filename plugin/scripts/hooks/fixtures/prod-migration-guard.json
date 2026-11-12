@@ -1588,6 +1588,344 @@
      ]
     }
    },
+   "git": true,
+   "files": {
+    "supabase/config.toml": "",
+    "supabase/migrations/20261001000000_a.sql": "--",
+    "supabase/migrations/20261004120000_b.sql": "--",
+    "supabase/migrations/20261004130000_c.sql": "--",
+    "supabase/.temp/project-ref": "prodref0000000000000",
+    "package.json": "{\"scripts\": {\"sb\": \"node scripts/sb.mjs\"}}"
+   }
+  },
+  "cases": [
+   {
+    "name": "npm run sb -- db push",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && npm run sb -- db push"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "pnpm run sb -- migration repair",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && pnpm run sb -- migration repair --status applied 20261004120000"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "npm run sb -- migration up --linked",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && npm run sb -- migration up --linked"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "npm run sb -- db push --local",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && npm run sb -- db push --local"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "npm run sb -- db push --dry-run",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && npm run sb -- db push --dry-run"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "npm run sb -- db reset --linked",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && npm run sb -- db reset --linked"
+    },
+    "expect": "deny",
+    "match": "WIPE"
+   },
+   {
+    "name": "npm run sb -- status",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && npm run sb -- status"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "node scripts/sb.mjs db push",
+    "tool": "Bash",
+    "input": {
+     "command": "node scripts/sb.mjs db push"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "node scripts/sb.mjs migration up --linked",
+    "tool": "Bash",
+    "input": {
+     "command": "node scripts/sb.mjs migration up --linked"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "node scripts/sb.mjs migration repair",
+    "tool": "Bash",
+    "input": {
+     "command": "node scripts/sb.mjs migration repair --status applied 20261004120000"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "node scripts/sb.mjs migration up (local default)",
+    "tool": "Bash",
+    "input": {
+     "command": "node scripts/sb.mjs migration up"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "node scripts/sb.mjs functions deploy",
+    "tool": "Bash",
+    "input": {
+     "command": "node scripts/sb.mjs functions deploy x"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "prisma db push is not supabase",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && npx prisma db push"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "bash db-push.sh",
+    "tool": "Bash",
+    "input": {
+     "command": "bash scripts/db-push.sh"
+    },
+    "expect": "deny",
+    "match": "no owner approval"
+   },
+   {
+    "name": "direct ./db-push.sh",
+    "tool": "Bash",
+    "input": {
+     "command": "./scripts/db-push.sh"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "sh apply-migrations.sh",
+    "tool": "Bash",
+    "input": {
+     "command": "sh scripts/apply-migrations.sh"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "source db-push.sh",
+    "tool": "Bash",
+    "input": {
+     "command": "source scripts/db-push.sh"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "db-push.sh with --local",
+    "tool": "Bash",
+    "input": {
+     "command": "bash scripts/db-push.sh --local"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "PowerShell db-push.ps1",
+    "tool": "PowerShell",
+    "input": {
+     "command": "./scripts/db-push.ps1"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "cat db-push.sh is a read",
+    "tool": "Bash",
+    "input": {
+     "command": "cat scripts/db-push.sh"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "chmod db-push.sh is not a run",
+    "tool": "Bash",
+    "input": {
+     "command": "chmod +x scripts/db-push.sh"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "git add db-push.sh",
+    "tool": "Bash",
+    "input": {
+     "command": "git add scripts/db-push.sh"
+    },
+    "expect": "allow"
+   }
+  ]
+ },
+ {
+  "setup": {
+   "config": {
+    "project": {
+     "name": "t",
+     "slug": "t"
+    },
+    "supabase": {
+     "devProjectRefs": [
+      "devref00000000000000"
+     ],
+     "prodProjectRefs": [
+      "prodref0000000000000"
+     ]
+    }
+   },
+   "git": true,
+   "files": {
+    "supabase/config.toml": "",
+    "supabase/migrations/20261001000000_a.sql": "--",
+    "supabase/migrations/20261004120000_b.sql": "--",
+    "supabase/migrations/20261004130000_c.sql": "--",
+    "supabase/.temp/project-ref": "prodref0000000000000",
+    "package.json": "{\"scripts\": {\"sb\": \"node scripts/sb.mjs\"}}"
+   },
+   "approval": {
+    "projectRef": "prodref0000000000000",
+    "versions": [
+     "20261004120000",
+     "20261004130000"
+    ]
+   }
+  },
+  "cases": [
+   {
+    "name": "approval 20261004120000/20261004130000: node scripts/sb.mjs db push",
+    "tool": "Bash",
+    "input": {
+     "command": "node scripts/sb.mjs db push"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "approval 20261004120000/20261004130000: bash scripts/db-push.sh",
+    "tool": "Bash",
+    "input": {
+     "command": "bash scripts/db-push.sh"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "approval 20261004120000/20261004130000: sh scripts/apply-migrations.sh",
+    "tool": "Bash",
+    "input": {
+     "command": "sh scripts/apply-migrations.sh"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "approval 20261004120000/20261004130000: node scripts/sb.mjs migration repair --status applied 20261004120000",
+    "tool": "Bash",
+    "input": {
+     "command": "node scripts/sb.mjs migration repair --status applied 20261004120000"
+    },
+    "expect": "allow"
+   }
+  ]
+ },
+ {
+  "setup": {
+   "config": {
+    "project": {
+     "name": "t",
+     "slug": "t"
+    },
+    "supabase": {
+     "devProjectRefs": [
+      "devref00000000000000"
+     ],
+     "prodProjectRefs": [
+      "prodref0000000000000"
+     ]
+    }
+   },
+   "git": true,
+   "files": {
+    "supabase/config.toml": "",
+    "supabase/migrations/20261001000000_a.sql": "--",
+    "supabase/migrations/20261004120000_b.sql": "--",
+    "supabase/migrations/20261004130000_c.sql": "--",
+    "supabase/.temp/project-ref": "prodref0000000000000",
+    "package.json": "{\"scripts\": {\"sb\": \"node scripts/sb.mjs\"}}"
+   },
+   "approval": {
+    "projectRef": "prodref0000000000000",
+    "versions": [
+     "20261004120000"
+    ]
+   }
+  },
+  "cases": [
+   {
+    "name": "approval 20261004120000: bash scripts/db-push.sh",
+    "tool": "Bash",
+    "input": {
+     "command": "bash scripts/db-push.sh"
+    },
+    "expect": "deny",
+    "match": "20261004130000"
+   },
+   {
+    "name": "approval 20261004120000: node scripts/sb.mjs db push",
+    "tool": "Bash",
+    "input": {
+     "command": "node scripts/sb.mjs db push"
+    },
+    "expect": "deny",
+    "match": "20261004130000"
+   }
+  ]
+ },
+ {
+  "setup": {
+   "config": {
+    "project": {
+     "name": "t",
+     "slug": "t"
+    },
+    "supabase": {
+     "devProjectRefs": [
+      "devref00000000000000"
+     ],
+     "prodProjectRefs": [
+      "prodref0000000000000"
+     ]
+    }
+   },
    "git": true
   },
   "cases": [
