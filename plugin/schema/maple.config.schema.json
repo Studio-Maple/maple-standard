@@ -408,7 +408,7 @@
     "supabase": {
       "type": "object",
       "additionalProperties": false,
-      "description": "plugin extension (D065) — Supabase project refs for the MCP guard. Mutating Supabase MCP tools (apply_migration, execute_sql writes, deploy_edge_function, branch/project mutations) are denied unless tool_input.project_id is listed in devProjectRefs; a ref in prodProjectRefs is always denied; an unlisted ref is treated as production.",
+      "description": "plugin extension (D065) — Supabase project refs for the MCP guard. Mutating Supabase MCP tools (apply_migration, execute_sql writes, deploy_edge_function, branch/project mutations) are denied unless tool_input.project_id is listed in devProjectRefs; a ref in prodProjectRefs is always denied; an unlisted ref is treated as production. The same lists drive prod-migration-guard (D074): `supabase db push` / `migration up|repair` against a ref that is not a dev ref needs an owner-issued approval.",
       "properties": {
         "devProjectRefs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Project refs of DEVELOPMENT projects (safe for MCP mutations)." },
         "prodProjectRefs": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Project refs of PRODUCTION projects (never mutated through MCP). Optional: any unlisted ref is denied anyway; listing prod refs gives a sharper message." }

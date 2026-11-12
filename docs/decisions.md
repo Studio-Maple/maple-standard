@@ -14,6 +14,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D074 | 2026-11-12 | prod-migration-guard: Supabase migrations against a prod ref need an owner-issued per-version approval
+After a cloud agent pushed 11 unapproved migrations to prod (2026-10-04), db push / migration up|repair / remote db reset on a prod or unknown target are denied unless the owner-only approve-prod-migration.mjs (30 min TTL) wrote <git-common-dir>/maple/prod-migration-approval.json naming the ref and every pending version. Tool calls cannot touch that file or script. Only covers sessions running this plugin.
+
 ## D073 | 2026-11-11 | Heavy and predeploy passes may come from a verified OfficeCI job (gate-cli attest)
 Amends D066/D060: besides a green local run, a heavy stamp or a STANDARD predeploy stamp (never --live) may be imported with gate-cli attest --officeci-job, which re-checks the coordinator: job passed exit 0 on attempt 1, same origin repo, tier success line, officeci-sha equal to the sha. Records carry who=officeci:<job>, via=attest. Hand-written stamps and gate-cli stamp/pay stay blocked; plugin 0.16.0.
 
