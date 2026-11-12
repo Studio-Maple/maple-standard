@@ -7,6 +7,8 @@
  *   setup.git     true -> `git init` + one commit in the project
  *   setup.linked  ["w1"] -> real linked worktrees created at .worktrees/<name>
  *   setup.files   { "package.json": "..." } extra files
+ *   setup.approval  (needs git) writes <git-dir>/maple/prod-migration-approval.json: { projectRef, versions, issuedAgoMinutes=0,
+ *                   ttlMinutes=30, issuedBy="owner-cli" } or { raw: <object|string written verbatim> }
  * Strings in a case may use {ROOT} (the temp project, forward slashes). Plain node, exits non-zero on failure:
  *   node plugin/scripts/hooks/guards.test.mjs
  */
@@ -30,10 +32,18 @@ function makeProject(setup = {}) {
     mkdirSync(dirname(join(root, f)), { recursive: true });
     writeFileSync(join(root, f), content);
   }
-  if (setup.git || setup.linked) {
+  if (setup.git || setup.linked || setup.approval) {
     git(root, "init", "-q", "-b", "main");
     git(root, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init");
     for (const w of setup.linked ?? []) git(root, "worktree", "add", "-q", `.worktrees/${w}`, "-b", `agent/${w}`);
+  }
+  if (setup.approval) {
+    const a = setup.approval;
+    const now = Date.now();
+    const issued = now - (a.issuedAgoMinutes ?? 0) * 60_000;
+    const body = a.raw ?? { projectRef: a.projectRef, versions: a.versions, issuedAt: new Date(issued).toISOString(), expiresAt: new Date(issued + (a.ttlMinutes ?? 30) * 60_000).toISOString(), issuedBy: a.issuedBy ?? "owner-cli" };
+    mkdirSync(join(root, ".git", "maple"), { recursive: true });
+    writeFileSync(join(root, ".git", "maple", "prod-migration-approval.json"), typeof body === "string" ? body : JSON.stringify(body));
   }
   return root;
 }

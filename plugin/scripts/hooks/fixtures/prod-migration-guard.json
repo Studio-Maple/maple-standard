@@ -1,0 +1,1650 @@
+[
+ {
+  "setup": {
+   "config": {
+    "project": {
+     "name": "t",
+     "slug": "t"
+    },
+    "supabase": {
+     "devProjectRefs": [
+      "devref00000000000000"
+     ],
+     "prodProjectRefs": [
+      "prodref0000000000000"
+     ]
+    }
+   },
+   "git": true,
+   "files": {
+    "supabase/config.toml": "",
+    "supabase/migrations/20261001000000_a.sql": "--",
+    "supabase/migrations/20261004120000_b.sql": "--",
+    "supabase/migrations/20261004130000_c.sql": "--",
+    "supabase/.temp/project-ref": "prodref0000000000000"
+   }
+  },
+  "cases": [
+   {
+    "name": "prod linked: db push, no approval",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push"
+    },
+    "expect": "deny",
+    "match": "no owner approval"
+   },
+   {
+    "name": "deny message carries the issuing command",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push"
+    },
+    "expect": "deny",
+    "match": "approve-prod-migration.mjs.*--project-ref prodref0000000000000"
+   },
+   {
+    "name": "db push --linked, no approval",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --linked"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "npx wrapper",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && npx supabase db push"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "npx -y supabase@latest",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && npx -y supabase@latest db push"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "pnpm dlx wrapper",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && pnpm dlx supabase db push"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "bunx wrapper",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && bunx supabase db push"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "local binary path",
+    "tool": "Bash",
+    "input": {
+     "command": "./node_modules/.bin/supabase db push"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "bash -c wrapper",
+    "tool": "Bash",
+    "input": {
+     "command": "bash -c \"supabase db push\""
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "chained after cd and &&",
+    "tool": "Bash",
+    "input": {
+     "command": "cd . && supabase db push --linked"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "PowerShell",
+    "tool": "PowerShell",
+    "input": {
+     "command": "supabase db push"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "PowerShell npx",
+    "tool": "PowerShell",
+    "input": {
+     "command": "cd \"{ROOT}\" && npx supabase db push"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "global flags before the subcommand",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase --debug --workdir . db push"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "migration up --linked",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase migration up --linked"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "migration repair names a version",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase migration repair --status applied 20261004120000"
+    },
+    "expect": "deny",
+    "match": "approve-prod-migration.mjs.*20261004120000"
+   },
+   {
+    "name": "migration repair names no version",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase migration repair --status applied"
+    },
+    "expect": "deny",
+    "match": "names no migration version"
+   },
+   {
+    "name": "db reset --linked is always denied",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db reset --linked"
+    },
+    "expect": "deny",
+    "match": "WIPE"
+   },
+   {
+    "name": "db reset --db-url remote",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db reset --db-url postgresql://postgres:pw@db.prodref0000000000000.supabase.co:5432/postgres"
+    },
+    "expect": "deny",
+    "match": "WIPE"
+   },
+   {
+    "name": "db push --include-all",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --include-all"
+    },
+    "expect": "deny",
+    "match": "include-all"
+   },
+   {
+    "name": "db push --include-seed",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --include-seed"
+    },
+    "expect": "deny",
+    "match": "seed"
+   },
+   {
+    "name": "explicit --project-ref prod",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --project-ref prodref0000000000000"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "--project-ref unknown",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --project-ref unknownref0000000000"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "--project-ref dev while linked to prod",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --project-ref devref00000000000000"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "--local is allowed",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --local"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "--dry-run is allowed",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --dry-run"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "--dry-run --linked is allowed",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --linked --dry-run"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "migration up defaults to LOCAL",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase migration up"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "db reset (local) is allowed",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db reset"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "migration list is not a trigger",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase migration list --linked"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "db pull is not a trigger",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db pull"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "echoing the command is data",
+    "tool": "Bash",
+    "input": {
+     "command": "echo supabase db push"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "grep for the command is a read",
+    "tool": "Bash",
+    "input": {
+     "command": "grep -rn 'supabase db push' docs"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "git commit message mentioning it",
+    "tool": "Bash",
+    "input": {
+     "command": "git commit -m \"docs: supabase db push needs approval\""
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "db-url localhost",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --db-url postgresql://postgres:postgres@localhost:54322/postgres"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "db-url 127.0.0.1",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase migration up --db-url postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "db-url [::1]",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --db-url postgresql://postgres:postgres@[::1]:54322/postgres"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "db-url host.docker.internal",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --db-url postgresql://postgres:postgres@host.docker.internal:54322/postgres"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "db-url remote host",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --db-url postgresql://postgres:pw@db.prodref0000000000000.supabase.co:5432/postgres"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "db-url remote unknown host",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --db-url postgresql://u:p@db.example.com:5432/postgres"
+    },
+    "expect": "deny",
+    "match": "cannot be determined"
+   },
+   {
+    "name": "db-url localhost lookalike",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --db-url postgresql://u:p@localhost.evil.com:5432/postgres"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "db-url userinfo spoofing localhost",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --db-url postgresql://localhost:x@evil.com:5432/postgres"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "db-url localhost with host= override",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --db-url \"postgresql://u:p@localhost/postgres?host=evil.com\""
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "db-url from a shell variable",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --db-url \"$DB_URL\""
+    },
+    "expect": "deny",
+    "match": "cannot be determined"
+   },
+   {
+    "name": "db-url to a DEV project host",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --db-url postgresql://postgres:pw@db.devref00000000000000.supabase.co:5432/postgres"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "fake dev ref in username on a foreign host",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --db-url postgresql://postgres.devref00000000000000:pw@evil.example.com:5432/postgres"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "unrelated supabase command",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase functions list"
+    },
+    "expect": "allow"
+   }
+  ]
+ },
+ {
+  "setup": {
+   "config": {
+    "project": {
+     "name": "t",
+     "slug": "t"
+    },
+    "supabase": {
+     "devProjectRefs": [
+      "devref00000000000000"
+     ],
+     "prodProjectRefs": [
+      "prodref0000000000000"
+     ]
+    }
+   },
+   "git": true,
+   "files": {
+    "supabase/config.toml": "",
+    "supabase/migrations/20261001000000_a.sql": "--",
+    "supabase/migrations/20261004120000_b.sql": "--",
+    "supabase/migrations/20261004130000_c.sql": "--",
+    "supabase/.temp/project-ref": "devref00000000000000"
+   }
+  },
+  "cases": [
+   {
+    "name": "dev linked: db push",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "dev linked: migration repair",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase migration repair --status applied 20261004120000"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "dev linked: db reset --linked",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db reset --linked"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "dev linked: db push --include-all",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --include-all"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "dev linked but --project-ref prod",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --project-ref prodref0000000000000"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   }
+  ]
+ },
+ {
+  "setup": {
+   "config": {
+    "project": {
+     "name": "t",
+     "slug": "t"
+    },
+    "supabase": {
+     "devProjectRefs": [
+      "devref00000000000000"
+     ],
+     "prodProjectRefs": [
+      "prodref0000000000000"
+     ]
+    }
+   },
+   "git": true,
+   "files": {
+    "supabase/config.toml": "",
+    "supabase/migrations/20261001000000_a.sql": "--",
+    "supabase/migrations/20261004120000_b.sql": "--",
+    "supabase/migrations/20261004130000_c.sql": "--",
+    "supabase/.temp/project-ref": "unknownref0000000000"
+   }
+  },
+  "cases": [
+   {
+    "name": "unknown linked ref is treated as prod",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push"
+    },
+    "expect": "deny",
+    "match": "no owner approval"
+   }
+  ]
+ },
+ {
+  "setup": {
+   "config": {
+    "project": {
+     "name": "t",
+     "slug": "t"
+    },
+    "supabase": {
+     "devProjectRefs": [
+      "devref00000000000000"
+     ],
+     "prodProjectRefs": [
+      "prodref0000000000000"
+     ]
+    }
+   },
+   "git": true,
+   "files": {
+    "supabase/config.toml": "",
+    "supabase/migrations/20261001000000_a.sql": "--",
+    "supabase/migrations/20261004120000_b.sql": "--",
+    "supabase/migrations/20261004130000_c.sql": "--"
+   }
+  },
+  "cases": [
+   {
+    "name": "no linked ref: fail closed",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push"
+    },
+    "expect": "deny",
+    "match": "cannot be determined"
+   },
+   {
+    "name": "no linked ref: --local still fine",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --local"
+    },
+    "expect": "allow"
+   }
+  ]
+ },
+ {
+  "setup": {
+   "config": {
+    "supabase": {
+     "devProjectRefs": [
+      "devref00000000000000"
+     ],
+     "prodProjectRefs": [
+      "devref00000000000000"
+     ]
+    }
+   },
+   "git": true,
+   "files": {
+    "supabase/config.toml": "",
+    "supabase/migrations/20261001000000_a.sql": "--",
+    "supabase/migrations/20261004120000_b.sql": "--",
+    "supabase/migrations/20261004130000_c.sql": "--",
+    "supabase/.temp/project-ref": "devref00000000000000"
+   }
+  },
+  "cases": [
+   {
+    "name": "ref listed in both lists is prod",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   }
+  ]
+ },
+ {
+  "setup": {
+   "git": true,
+   "files": {
+    "supabase/config.toml": "",
+    "supabase/migrations/20261001000000_a.sql": "--",
+    "supabase/migrations/20261004120000_b.sql": "--",
+    "supabase/migrations/20261004130000_c.sql": "--",
+    "supabase/.temp/project-ref": "devref00000000000000"
+   }
+  },
+  "cases": [
+   {
+    "name": "no maple.config.json: nothing is dev",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   }
+  ]
+ },
+ {
+  "setup": {
+   "config": {
+    "project": {
+     "name": "t",
+     "slug": "t"
+    },
+    "supabase": {
+     "devProjectRefs": [
+      "devref00000000000000"
+     ],
+     "prodProjectRefs": [
+      "prodref0000000000000"
+     ]
+    }
+   },
+   "git": true,
+   "files": {
+    "supabase/config.toml": "",
+    "supabase/migrations/20261001000000_a.sql": "--",
+    "supabase/migrations/20261004120000_b.sql": "--",
+    "supabase/migrations/20261004130000_c.sql": "--",
+    "supabase/.temp/project-ref": "prodref0000000000000"
+   },
+   "approval": {
+    "projectRef": "prodref0000000000000",
+    "versions": [
+     "20261004120000",
+     "20261004130000"
+    ]
+   }
+  },
+  "cases": [
+   {
+    "name": "approved set covers every pending file: db push",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "approved set covers: migration up --linked",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase migration up --linked"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "approved set covers: npx",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && npx supabase db push"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "older file below the approved minimum is ignored",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "repair of approved versions",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase migration repair --status applied 20261004120000 20261004130000"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "repair of one approved version",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase migration repair --status reverted 20261004130000"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "repair of a version not approved",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase migration repair --status applied 20261001000000"
+    },
+    "expect": "deny",
+    "match": "not approved.*20261001000000"
+   },
+   {
+    "name": "repair of approved + unapproved mix",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase migration repair --status applied 20261004120000 20261001000000"
+    },
+    "expect": "deny",
+    "match": "20261001000000"
+   },
+   {
+    "name": "--include-all stays denied even with approval",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --include-all"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "db reset stays denied even with approval",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db reset --linked"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   }
+  ]
+ },
+ {
+  "setup": {
+   "config": {
+    "project": {
+     "name": "t",
+     "slug": "t"
+    },
+    "supabase": {
+     "devProjectRefs": [
+      "devref00000000000000"
+     ],
+     "prodProjectRefs": [
+      "prodref0000000000000"
+     ]
+    }
+   },
+   "git": true,
+   "files": {
+    "supabase/config.toml": "",
+    "supabase/migrations/20261001000000_a.sql": "--",
+    "supabase/migrations/20261004120000_b.sql": "--",
+    "supabase/migrations/20261004130000_c.sql": "--",
+    "supabase/.temp/project-ref": "prodref0000000000000"
+   },
+   "approval": {
+    "projectRef": "prodref0000000000000",
+    "versions": [
+     "20261004120000"
+    ]
+   }
+  },
+  "cases": [
+   {
+    "name": "an unapproved pending file after the minimum",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push"
+    },
+    "expect": "deny",
+    "match": "20261004130000"
+   },
+   {
+    "name": "deny message re-issues with the full set",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push"
+    },
+    "expect": "deny",
+    "match": "approve-prod-migration.mjs.*20261004120000 20261004130000"
+   }
+  ]
+ },
+ {
+  "setup": {
+   "config": {
+    "project": {
+     "name": "t",
+     "slug": "t"
+    },
+    "supabase": {
+     "devProjectRefs": [
+      "devref00000000000000"
+     ],
+     "prodProjectRefs": [
+      "prodref0000000000000"
+     ]
+    }
+   },
+   "git": true,
+   "files": {
+    "supabase/config.toml": "",
+    "supabase/migrations/20261001000000_a.sql": "--",
+    "supabase/migrations/20261004120000_b.sql": "--",
+    "supabase/migrations/20261004130000_c.sql": "--",
+    "supabase/.temp/project-ref": "prodref0000000000000"
+   },
+   "approval": {
+    "projectRef": "prodref0000000000000",
+    "versions": [
+     "20261004130000"
+    ]
+   }
+  },
+  "cases": [
+   {
+    "name": "approving only the newest file is enough when older ones are below the minimum",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push"
+    },
+    "expect": "allow"
+   }
+  ]
+ },
+ {
+  "setup": {
+   "config": {
+    "project": {
+     "name": "t",
+     "slug": "t"
+    },
+    "supabase": {
+     "devProjectRefs": [
+      "devref00000000000000"
+     ],
+     "prodProjectRefs": [
+      "prodref0000000000000"
+     ]
+    }
+   },
+   "git": true,
+   "files": {
+    "supabase/config.toml": "",
+    "supabase/migrations/20261001000000_a.sql": "--",
+    "supabase/migrations/20261004120000_b.sql": "--",
+    "supabase/migrations/20261004130000_c.sql": "--",
+    "supabase/.temp/project-ref": "prodref0000000000000"
+   },
+   "approval": {
+    "projectRef": "prodref0000000000000",
+    "versions": [
+     "20261001000000"
+    ]
+   }
+  },
+  "cases": [
+   {
+    "name": "approval of the oldest file leaves B and C unapproved",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push"
+    },
+    "expect": "deny",
+    "match": "20261004120000"
+   }
+  ]
+ },
+ {
+  "setup": {
+   "config": {
+    "project": {
+     "name": "t",
+     "slug": "t"
+    },
+    "supabase": {
+     "devProjectRefs": [
+      "devref00000000000000"
+     ],
+     "prodProjectRefs": [
+      "prodref0000000000000"
+     ]
+    }
+   },
+   "git": true,
+   "files": {
+    "supabase/config.toml": "",
+    "supabase/migrations/20261001000000_a.sql": "--",
+    "supabase/migrations/20261004120000_b.sql": "--",
+    "supabase/migrations/20261004130000_c.sql": "--",
+    "supabase/.temp/project-ref": "prodref0000000000000"
+   },
+   "approval": {
+    "projectRef": "prodref0000000000000",
+    "versions": [
+     "20261004120000",
+     "20261004130000"
+    ],
+    "issuedAgoMinutes": 45,
+    "ttlMinutes": 30
+   }
+  },
+  "cases": [
+   {
+    "name": "expired approval",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push"
+    },
+    "expect": "deny",
+    "match": "expired"
+   }
+  ]
+ },
+ {
+  "setup": {
+   "config": {
+    "project": {
+     "name": "t",
+     "slug": "t"
+    },
+    "supabase": {
+     "devProjectRefs": [
+      "devref00000000000000"
+     ],
+     "prodProjectRefs": [
+      "prodref0000000000000"
+     ]
+    }
+   },
+   "git": true,
+   "files": {
+    "supabase/config.toml": "",
+    "supabase/migrations/20261001000000_a.sql": "--",
+    "supabase/migrations/20261004120000_b.sql": "--",
+    "supabase/migrations/20261004130000_c.sql": "--",
+    "supabase/.temp/project-ref": "prodref0000000000000"
+   },
+   "approval": {
+    "projectRef": "devref00000000000000x",
+    "versions": [
+     "20261004120000",
+     "20261004130000"
+    ]
+   }
+  },
+  "cases": [
+   {
+    "name": "approval for another project",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push"
+    },
+    "expect": "deny",
+    "match": "approval is for"
+   }
+  ]
+ },
+ {
+  "setup": {
+   "config": {
+    "project": {
+     "name": "t",
+     "slug": "t"
+    },
+    "supabase": {
+     "devProjectRefs": [
+      "devref00000000000000"
+     ],
+     "prodProjectRefs": [
+      "prodref0000000000000"
+     ]
+    }
+   },
+   "git": true,
+   "files": {
+    "supabase/config.toml": "",
+    "supabase/migrations/20261001000000_a.sql": "--",
+    "supabase/migrations/20261004120000_b.sql": "--",
+    "supabase/migrations/20261004130000_c.sql": "--",
+    "supabase/.temp/project-ref": "prodref0000000000000"
+   },
+   "approval": {
+    "projectRef": "prodref0000000000000",
+    "versions": [
+     "20261004120000",
+     "20261004130000"
+    ],
+    "issuedBy": "agent"
+   }
+  },
+  "cases": [
+   {
+    "name": "approval not issued by the owner CLI",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push"
+    },
+    "expect": "deny",
+    "match": "not issued by the owner"
+   }
+  ]
+ },
+ {
+  "setup": {
+   "config": {
+    "project": {
+     "name": "t",
+     "slug": "t"
+    },
+    "supabase": {
+     "devProjectRefs": [
+      "devref00000000000000"
+     ],
+     "prodProjectRefs": [
+      "prodref0000000000000"
+     ]
+    }
+   },
+   "git": true,
+   "files": {
+    "supabase/config.toml": "",
+    "supabase/migrations/20261001000000_a.sql": "--",
+    "supabase/migrations/20261004120000_b.sql": "--",
+    "supabase/migrations/20261004130000_c.sql": "--",
+    "supabase/.temp/project-ref": "prodref0000000000000"
+   },
+   "approval": {
+    "projectRef": "prodref0000000000000",
+    "versions": [
+     "20261004120000",
+     "20261004130000"
+    ],
+    "ttlMinutes": 100000
+   }
+  },
+  "cases": [
+   {
+    "name": "approval with an absurd lifetime",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push"
+    },
+    "expect": "deny",
+    "match": "lifetime"
+   }
+  ]
+ },
+ {
+  "setup": {
+   "config": {
+    "project": {
+     "name": "t",
+     "slug": "t"
+    },
+    "supabase": {
+     "devProjectRefs": [
+      "devref00000000000000"
+     ],
+     "prodProjectRefs": [
+      "prodref0000000000000"
+     ]
+    }
+   },
+   "git": true,
+   "files": {
+    "supabase/config.toml": "",
+    "supabase/migrations/20261001000000_a.sql": "--",
+    "supabase/migrations/20261004120000_b.sql": "--",
+    "supabase/migrations/20261004130000_c.sql": "--",
+    "supabase/.temp/project-ref": "prodref0000000000000"
+   },
+   "approval": {
+    "raw": "{not json"
+   }
+  },
+  "cases": [
+   {
+    "name": "corrupt approval file",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push"
+    },
+    "expect": "deny",
+    "match": "not valid JSON"
+   }
+  ]
+ },
+ {
+  "setup": {
+   "config": {
+    "project": {
+     "name": "t",
+     "slug": "t"
+    },
+    "supabase": {
+     "devProjectRefs": [
+      "devref00000000000000"
+     ],
+     "prodProjectRefs": [
+      "prodref0000000000000"
+     ]
+    }
+   },
+   "git": true,
+   "files": {
+    "supabase/config.toml": "",
+    "supabase/migrations/20261001000000_a.sql": "--",
+    "supabase/migrations/20261004120000_b.sql": "--",
+    "supabase/migrations/20261004130000_c.sql": "--",
+    "supabase/.temp/project-ref": "prodref0000000000000"
+   },
+   "approval": {
+    "projectRef": "prodref0000000000000",
+    "versions": [
+     "20261004120000",
+     "20261004130000"
+    ]
+   }
+  },
+  "cases": [
+   {
+    "name": "approval does not unlock a --db-url to an unknown host",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --db-url postgresql://u:p@db.example.com/postgres"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "approval is per ref: --project-ref of another prod ref",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push --project-ref otherprod000000000"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "approval tamper: redirect",
+    "tool": "Bash",
+    "input": {
+     "command": "echo '{}' > .git/maple/prod-migration-approval.json"
+    },
+    "expect": "deny",
+    "match": "approval"
+   },
+   {
+    "name": "approval tamper: tee",
+    "tool": "Bash",
+    "input": {
+     "command": "echo x | tee .git/maple/prod-migration-approval.json"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "approval tamper: rm",
+    "tool": "Bash",
+    "input": {
+     "command": "rm .git/maple/prod-migration-approval.json"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "approval tamper: mv",
+    "tool": "Bash",
+    "input": {
+     "command": "mv /tmp/x .git/maple/prod-migration-approval.json"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "approval tamper: cp",
+    "tool": "Bash",
+    "input": {
+     "command": "cp x.json .git/maple/prod-migration-approval.json"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "approval tamper: glob",
+    "tool": "Bash",
+    "input": {
+     "command": "rm .git/maple/prod-migration-*"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "approval tamper: node -e",
+    "tool": "Bash",
+    "input": {
+     "command": "node -e \"require('fs').writeFileSync('.git/maple/prod-migration-approval.json','{}')\""
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "approval tamper: sed -i",
+    "tool": "Bash",
+    "input": {
+     "command": "sed -i s/a/b/ .git/maple/prod-migration-approval.json"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "approval tamper: PowerShell Set-Content",
+    "tool": "PowerShell",
+    "input": {
+     "command": "Set-Content .git/maple/prod-migration-approval.json '{}'"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "approval tamper: PowerShell redirect",
+    "tool": "PowerShell",
+    "input": {
+     "command": "'{}' > .git\\maple\\prod-migration-approval.json"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "approval reading is fine: cat",
+    "tool": "Bash",
+    "input": {
+     "command": "cat .git/maple/prod-migration-approval.json"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "approval listing is fine: ls",
+    "tool": "Bash",
+    "input": {
+     "command": "ls .git/maple"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "running the approve script through Bash",
+    "tool": "Bash",
+    "input": {
+     "command": "node plugin/scripts/predeploy/approve-prod-migration.mjs --project-ref prodref0000000000000 20261004120000"
+    },
+    "expect": "deny",
+    "match": "owner in his own terminal"
+   },
+   {
+    "name": "running the approve script by absolute plugin path",
+    "tool": "Bash",
+    "input": {
+     "command": "node \"/c/Users/x/.claude/plugins/cache/m/maple-standard/0.17.0/scripts/predeploy/approve-prod-migration.mjs\" --project-ref prodref0000000000000 20261004120000"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "running the approve script through PowerShell",
+    "tool": "PowerShell",
+    "input": {
+     "command": "node .\\scripts\\predeploy\\approve-prod-migration.mjs --project-ref x 20261004120000"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "running the approve script via bash -c",
+    "tool": "Bash",
+    "input": {
+     "command": "bash -c 'node scripts/predeploy/approve-prod-migration.mjs --project-ref x 20261004120000'"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "copying the approve script",
+    "tool": "Bash",
+    "input": {
+     "command": "cp plugin/scripts/predeploy/approve-prod-migration.mjs /tmp/a.mjs"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "reading the approve script is fine",
+    "tool": "Bash",
+    "input": {
+     "command": "cat plugin/scripts/predeploy/approve-prod-migration.mjs"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "git add of the approve script is fine",
+    "tool": "Bash",
+    "input": {
+     "command": "git add plugin/scripts/predeploy/approve-prod-migration.mjs"
+    },
+    "expect": "allow"
+   }
+  ]
+ },
+ {
+  "setup": {
+   "config": {
+    "project": {
+     "name": "t",
+     "slug": "t"
+    },
+    "supabase": {
+     "devProjectRefs": [
+      "devref00000000000000"
+     ],
+     "prodProjectRefs": [
+      "prodref0000000000000"
+     ]
+    }
+   },
+   "git": true,
+   "files": {
+    "supabase/config.toml": "",
+    "supabase/migrations/20261001000000_a.sql": "--",
+    "supabase/migrations/20261004120000_b.sql": "--",
+    "supabase/migrations/20261004130000_c.sql": "--",
+    "supabase/.temp/project-ref": "devref00000000000000"
+   }
+  },
+  "cases": [
+   {
+    "name": "link to prod then push in one command",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase link --project-ref prodref0000000000000 && supabase db push"
+    },
+    "expect": "deny",
+    "match": "re-link"
+   },
+   {
+    "name": "link to prod then push, semicolon",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase link --project-ref prodref0000000000000; supabase db push"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "redirect a prod ref into project-ref then push",
+    "tool": "Bash",
+    "input": {
+     "command": "echo prodref0000000000000 > supabase/.temp/project-ref; supabase db push"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "tee into project-ref then push",
+    "tool": "Bash",
+    "input": {
+     "command": "echo prodref0000000000000 | tee supabase/.temp/project-ref && supabase db push"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "link to dev then --local push",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase link --project-ref devref00000000000000 && supabase db push --local"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "reading project-ref then pushing to a dev link",
+    "tool": "Bash",
+    "input": {
+     "command": "cat supabase/.temp/project-ref && supabase db push"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "push before the link is judged on the old link",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push && supabase link --project-ref prodref0000000000000"
+    },
+    "expect": "allow"
+   }
+  ]
+ },
+ {
+  "setup": {
+   "config": {
+    "project": {
+     "name": "t",
+     "slug": "t"
+    },
+    "supabase": {
+     "devProjectRefs": [
+      "devref00000000000000"
+     ],
+     "prodProjectRefs": [
+      "prodref0000000000000"
+     ]
+    }
+   },
+   "git": true,
+   "files": {
+    "supabase/config.toml": "",
+    "supabase/migrations/20261001000000_a.sql": "--",
+    "supabase/migrations/20261004120000_b.sql": "--",
+    "supabase/migrations/20261004130000_c.sql": "--",
+    "supabase/.temp/project-ref": "prodref0000000000000",
+    "package.json": "{\"scripts\": {\"db:push\": \"supabase db push\", \"db:local\": \"supabase db push --local\", \"db:all\": \"pnpm run db:push && echo done\", \"db:dry\": \"supabase db push --dry-run\", \"test\": \"vitest run\", \"db:plain\": \"echo hi\"}}"
+   }
+  },
+  "cases": [
+   {
+    "name": "pnpm run script that pushes",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && pnpm run db:push"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "pnpm shorthand script",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && pnpm db:push"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "npm run script",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && npm run db:push"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "yarn script",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && yarn db:push"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "bun run script",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && bun run db:push"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "nested script",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && pnpm db:all"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "script plus extra --include-all",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && pnpm run db:push -- --include-all"
+    },
+    "expect": "deny",
+    "match": "include-all"
+   },
+   {
+    "name": "local script",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && pnpm run db:local"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "dry-run script",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && pnpm run db:dry"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "script with --local appended",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && pnpm run db:push -- --local"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "unrelated script",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && pnpm test"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "script without supabase",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && pnpm run db:plain"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "unknown script",
+    "tool": "Bash",
+    "input": {
+     "command": "cd \"{ROOT}\" && pnpm run nope"
+    },
+    "expect": "allow"
+   },
+   {
+    "name": "PowerShell splatting hides flags",
+    "tool": "PowerShell",
+    "input": {
+     "command": "supabase db push @flags"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   },
+   {
+    "name": "shell variable as argument",
+    "tool": "Bash",
+    "input": {
+     "command": "supabase db push $FLAGS"
+    },
+    "expect": "deny",
+    "match": "prod-migration-guard"
+   }
+  ]
+ },
+ {
+  "setup": {
+   "config": {
+    "project": {
+     "name": "t",
+     "slug": "t"
+    },
+    "supabase": {
+     "devProjectRefs": [
+      "devref00000000000000"
+     ],
+     "prodProjectRefs": [
+      "prodref0000000000000"
+     ]
+    }
+   },
+   "git": true
+  },
+  "cases": [
+   {
+    "name": "Write on the approval file",
+    "tool": "Write",
+    "input": {
+     "file_path": "{ROOT}/.git/maple/prod-migration-approval.json",
+     "content": "{}",
+     "old_string": "a",
+     "new_string": "b"
+    },
+    "expect": "deny",
+    "match": "approval"
+   },
+   {
+    "name": "Edit on the approval file",
+    "tool": "Edit",
+    "input": {
+     "file_path": "{ROOT}/.git/maple/prod-migration-approval.json",
+     "content": "{}",
+     "old_string": "a",
+     "new_string": "b"
+    },
+    "expect": "deny",
+    "match": "approval"
+   },
+   {
+    "name": "MultiEdit on the approval file",
+    "tool": "MultiEdit",
+    "input": {
+     "file_path": "{ROOT}/.git/maple/prod-migration-approval.json",
+     "content": "{}",
+     "old_string": "a",
+     "new_string": "b"
+    },
+    "expect": "deny",
+    "match": "approval"
+   },
+   {
+    "name": "Write on the approval file, backslash path",
+    "tool": "Write",
+    "input": {
+     "file_path": "C:\\x\\.git\\maple\\prod-migration-approval.json",
+     "content": "{}"
+    },
+    "expect": "deny"
+   },
+   {
+    "name": "Write on an ordinary file",
+    "tool": "Write",
+    "input": {
+     "file_path": "{ROOT}/notes.md",
+     "content": "x"
+    },
+    "expect": "allow"
+   }
+  ]
+ }
+]
