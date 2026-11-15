@@ -14,6 +14,12 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D076 | 2026-11-15 | Fast lane: eligible changes deploy first, heavy + predeploy are owed after
+Amends D066/D060. With predeploy.fastLane on, a commit whose diff from the nearest fully stamped commit touches only allow-listed paths (deny list wins, unclassified refused) may deploy on a time-limited permit after a green gate tier, clean pushed tree and clean gitleaks diff scan. The guard records one debt (heavy + predeploy owed within deadlineHours); until paid only a fully stamped descendant or a rollback to the base deploys. No auto-rollback. Owner approved 2026-11-15.
+
+## D075 | 2026-11-15 | Predeploy preflight stop
+A predeploy run that could stamp (full, clean tree) runs the gate's own fast verdicts first and stops (exit 1, stage "preflight" report, no scanner started) if any fail. Preflight adds no new rule; runs that cannot stamp treat it as advisory. Owner approved 2026-11-15.
+
 ## D074 | 2026-11-12 | prod-migration-guard: Supabase migrations against a prod ref need an owner-issued per-version approval
 After a cloud agent pushed 11 unapproved migrations to prod (2026-10-04), db push / migration up|repair / remote db reset on a prod or unknown target are denied unless the owner-only approve-prod-migration.mjs (30 min TTL) wrote <git-common-dir>/maple/prod-migration-approval.json naming the ref and every pending version. Tool calls cannot touch that file or script. Only covers sessions running this plugin.
 

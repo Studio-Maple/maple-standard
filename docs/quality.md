@@ -198,6 +198,8 @@ everything D060 already requires (sha/config/allowlist/decisions/image-debt-boun
 There is no knob to turn this off. A repo adopting the standard must configure `ci.tiers.heavy` and run the heavy tier
 (or schedule `heavy-run.mjs`) before it can deploy; the refusal message says which of the two is missing.
 
+Opt-in exception (D076): with `predeploy.fastLane` on, a change that touches only allow-listed, non-denied paths may deploy before its heavy + predeploy run on a time-limited permit; the pair is then owed within `deadlineHours` and blocks other deploys until paid. See [[predeploy-gate]].
+
 
 ## Cloud CI (`.github/workflows/`)
 

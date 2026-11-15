@@ -31,6 +31,8 @@ one thing that must run on GitHub.
 | `emergency` | `{ enabled: false, maxMinutes: 60 }` owner-only override |
 | `liveScan` | the aggressive post-deploy ZAP scan (below) |
 | `runs` | `{ keep: 5, maxGB: 10 }` retention of the disposable run workspaces (D068, below) |
+| `concurrency` | checks run at once, default 4 (real parallelism: tool calls never block the event loop) |
+| `fastLane` | opt-in deploy-first lane (D076, see Fast lane below), off unless `enabled: true` |
 | `minFreeGB` | free GB the repo drive must have before a gate or live scan starts, default 20 (D068) |
 
 Validation (`validate-config.mjs`) rejects any check command that hides its
@@ -56,6 +58,9 @@ ref that is deployed (tag or digest) and scanned for vulnerabilities and secrets
 production must be listed, ours or not: an unscanned image is a hole, not a zero. `ref` and `context` are
 mutually exclusive; an unpullable ref is an `image-pull-failed` finding. Pulled images are removed afterwards
 only if they were not already present. Findings carry `name: target` as location and `pkg@version` as resource.
+`options.concurrency` (integer 1..16, default 3) is how many images are prepared (pulled or built, then saved) at once. The trivy scans
+themselves run one at a time behind a process-wide trivy lock, shared with any other check that needs trivy (e.g. `trivy-fs`, which holds it
+for its whole run; the wait shows as `queuedMs`).
 
 **Snyk** (`snyk`): `snyk test --all-projects --dev --severity-threshold=low` over the clean candidate tree. The account
 token is read just-in-time from the credential store (`options.tokenCredential`, default `Snyk-Token`; Windows Credential
@@ -285,6 +290,57 @@ record is a failed live scan with `outcome: "target-down"` (deploy debt stays); 
 Optional `schedule: { days, from, to, tz }` (on `liveScan` or a target) only adds a note saying whether the target was expected
 to be up (a parked VM outside its window is the usual cause). Re-run the live scan inside the window.
 
+## Preflight and timing (D075)
+
+`node plugin/scripts/predeploy/run.mjs preflight [--check ID ...] [--allow-dirty] [--pull] [--json]` runs only the gate's fast verdicts (seconds)
+and exits 0/1. A normal `run.mjs` starts with the same preflight. If the run could stamp (full run, clean tree) and any verdict fails, it
+stops: exit 1, a report with `stage: "preflight"`, no scanner started, no stamp. A run that cannot stamp (`--check` subset, `--allow-dirty`)
+treats failures as advisory and continues. `--live` is not a preflight mode.
+
+It adds no rule: each failure is a verdict the full gate would reach later, from the same code (`gate-preflight.mjs`). It checks the tracked
+tree, the exception files (allowlist, decisions + ledger, exposure coverage, image-debt pins, committed state), live-scan debt (full runs),
+the remote leg (candidate pushed, a matching runner online or a green run reusable), tools, Docker reachability and credential presence
+(name only). Check-scoped failures go through the gate's severity floor, decisions and allowlist first. It cannot judge what needs scanner
+findings: `allowlist-unused`, `decision-stale`, `image-debt-growth`, `image-debt-overdue`; the full gate still does.
+
+Timing: each check result carries `startedAt`, `endedAt`, `ms` (`endedAt - startedAt`: the check's own run time, not queue wait) and `queuedMs`
+(batch start until a pool slot or the trivy lock picked it up). The run report has a `timing` block (`startedAt`, `endedAt`, `wallMs`,
+`concurrency`, `checkMsSum`) and a `preflight` block.
+
+## Fast lane (D076)
+
+Opt-in, off by default. Deploy first, enforce after: a change that provably touches only low-risk paths may deploy before its heavy +
+predeploy run, which is then owed within a deadline. Amends D066/D060. Code: `fastlane.mjs`, `fastlane-rules.mjs`, `fastlane-cli.mjs`;
+the guard and `verify.mjs` decide through `verifyDeploy`. Command: `plugin/commands/fast-lane.md`; see also [[quality]].
+
+Config `predeploy.fastLane`: `enabled` (required boolean), `allow` (globs, required non-empty when enabled; a catch-all is rejected),
+`deny` (globs, only adds to the built-in list), `deadlineHours` (1..48, default 12), `permitMinutes` (5..240, default 60; also the window for
+a multi-step deploy under the permit), `gateTiers` (default `["gate"]`; a tree-bound pass stamp of one of these must exist). `fastLane` is excluded
+from the stamp config hash, so opting in invalidates no stamp.
+
+**Eligibility** is a proof from the diff between the nearest fully stamped commit (green heavy + predeploy pass, searched 2000 commits back)
+and HEAD. Every changed path must match no deny pattern and at least one `allow` pattern. Deny wins; a path matching neither is unclassified and
+refused; renames judge both names; submodule pointer and symlink changes are refused. The built-in deny list covers migrations, infra/deploy,
+auth/permissions/RLS, edge functions, dependency manifests and lockfiles, CI/gate/hook config, the gate's own exception files, secret/env files and
+git plumbing. No stamped base, or HEAD already stamped, means no fast lane.
+
+**Permit** (`fastlane-cli.mjs permit`) requires: tracked tree clean, HEAD on a remote branch, gate tier green on the tree, no unpaid gate debt,
+eligible diff, no other open debt, and a clean gitleaks scan of base..HEAD (fails closed, no allowlist). It is bound to the sha and the rules hash and
+expires after `permitMinutes`.
+
+**Debt.** The first allowed deploy under a permit makes the guard record one debt: heavy + predeploy owed on that commit within `deadlineHours`. While it is
+open, other production deploys are refused except (1) a fully stamped commit containing the indebted one (pays it) and (2) a rollback to the debt's
+fully stamped base (closes it as rolled back). Stamps on the commit or any descendant pay it. Past the deadline nothing is rolled back
+automatically: deploys stay blocked and both ways out are printed. State lives in `<git-common-dir>/maple/predeploy/fast-lane/` (`permit.json`,
+`debt.jsonl`), guarded like other gate state.
+
+```
+node plugin/scripts/predeploy/fastlane-cli.mjs check|permit|status [--root DIR] [--json]
+```
+
+`check` and `permit` exit 0 eligible / issued, 1 refused (reasons printed); `check` writes nothing and skips the secret scan. `status` exits 0 clear,
+10 debt owed, 11 debt overdue; `--json` carries `action.run` / `action.on` for a scheduled runner.
+
 ## Commands
 
 ```
@@ -293,6 +349,8 @@ node plugin/scripts/predeploy/run.mjs --live [--pull]     # after a deploy
 node plugin/scripts/predeploy/livescan.mjs --dry-run      # write + print the ZAP plan, send nothing
 node plugin/scripts/predeploy/verify.mjs                  # exit 0/1
 node plugin/scripts/predeploy/doctor.mjs [--pull]         # missing tools / credentials by name, runs/ size, free space
+node plugin/scripts/predeploy/run.mjs preflight [--check ID] [--json]   # fast verdicts only
+node plugin/scripts/predeploy/fastlane-cli.mjs check|permit|status   # fast lane (D076)
 node plugin/scripts/predeploy/run.mjs prune [--all]       # delete disposable run workspaces (agents may run this)
 node plugin/scripts/predeploy/record-deploy.mjs --outcome failed
 ```
