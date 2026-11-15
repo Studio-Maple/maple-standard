@@ -160,4 +160,11 @@ export function mutex() {
   };
 }
 
-export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/**
+ * One trivy at a time in this process: trivy's cache is a single-writer bolt DB, so a trivy-fs check overlapping a
+ * trivy-image scan would fail on the cache lock. trivy-image takes it per scan; check-runner takes it for any other
+ * check that needs the trivy tool.
+ */
+export const TRIVY_LOCK = mutex();
+
+export const sleep =(ms) => new Promise((r) => setTimeout(r, ms));

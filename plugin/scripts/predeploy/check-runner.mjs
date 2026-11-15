@@ -10,12 +10,12 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { PRESETS, ToolMissing } from "./catalog.mjs";
+import { PRESETS, ToolMissing, checkNeeds } from "./catalog.mjs";
 import { installHints } from "./tools.mjs";
 import { parseOutput } from "./parsers.mjs";
 import { runShellAsync } from "./lib.mjs";
 import { runRemote } from "./remote.mjs";
-import { pool } from "./proc.mjs";
+import { TRIVY_LOCK, pool } from "./proc.mjs";
 
 export async function runCheck(check, pd, ctx) {
   const t0 = Date.now();
@@ -73,8 +73,12 @@ export async function runCheck(check, pd, ctx) {
 export async function runChecks(selected, pd, ctx, { log = () => {} } = {}) {
   const t0 = Date.now();
   const results = await pool(selected, pd.concurrency, async (c) => {
-    const queuedMs = Date.now() - t0;
-    const r = await runCheck(c, pd, ctx);
+    // trivy-image locks per scan itself; any other trivy user holds the lock for its whole run (wait = queuedMs).
+    const trivyUser = c.preset !== "trivy-image" && checkNeeds(c).tools.includes("trivy");
+    const go = () => { r0 = Date.now() - t0; return runCheck(c, pd, ctx); };
+    let r0 = 0;
+    const r = trivyUser ? await TRIVY_LOCK.run(go) : await go();
+    const queuedMs = r0;
     r.queuedMs = queuedMs;
     log(r);
     return r;

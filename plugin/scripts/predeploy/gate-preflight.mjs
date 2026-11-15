@@ -50,15 +50,21 @@ export function structuralFindings(root, pd, { al, dl, idl, today, stale = [], i
 
 const F = (check, id, message, location = "") => ({ check, id, severity: "high", message, location });
 
-/** Tool, Docker and credential verdicts for one check (check-scoped findings). */
-function environmentFindings(c, pd, { pull, resolve, docker, credExists }) {
+/**
+ * Tool, Docker and credential verdicts for one check (check-scoped findings). A plain `command` check's declared
+ * `tools` are only a warning: the gate never resolves them (its verdict is exit 127, if the command calls the binary).
+ */
+function environmentFindings(c, pd, { pull, resolve, docker, credExists }, warnings) {
   const out = [];
   const { tools, credentials } = checkNeeds(c);
   const allowDocker = c.preset === "snyk" ? false : pd.docker.enabled !== false;
+  const declaredOnly = !c.preset && !c.github;
   for (const name of tools) {
     if (!TOOLS[name]) continue; // undeclared tool name: the gate never resolves it
     const t = resolve(name, { allowDocker, pull });
-    if (t.mode === "missing") out.push(F(c.id, "tool-missing", `${name}: ${t.reason}. Install: ${installHints(name)}`));
+    if (t.mode !== "missing") continue;
+    if (declaredOnly) warnings.push(`${c.id}: declared tool ${name} is not runnable (${t.reason}) — the command will likely exit 127`);
+    else out.push(F(c.id, "tool-missing", `${name}: ${t.reason}. Install: ${installHints(name)}`));
   }
   if (tools.includes("docker") && !docker().ok) out.push(F(c.id, "docker-unreachable", `${c.id} drives Docker and the Docker daemon is not reachable — start Docker Desktop, then re-run`));
   for (const target of credentials) {
@@ -102,7 +108,7 @@ export async function gatePreflight(o) {
       if (probe.note) notes.push(probe.note);
     }
   }
-  for (const c of selected) scoped.push(...environmentFindings(c, pd, { pull, ...seams }));
+  for (const c of selected) scoped.push(...environmentFindings(c, pd, { pull, ...seams }, warnings));
 
   // The gate's own filters for check-scoped findings: severity floor, then decision-backed entries, then the allowlist.
   const floor = new Map(pd.checks.map((c) => [c.id, sevRank(c.minSeverity || pd.minSeverity)]));

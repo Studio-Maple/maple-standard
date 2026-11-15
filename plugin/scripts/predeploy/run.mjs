@@ -177,7 +177,9 @@ export async function main(argv, opts = {}) {
     }
     if (preflightOnly) return pf.ok ? 0 : 1;
     if (stamping) {
-      writeJson(reportPath(root, sha), { version: GATE_VERSION, sha, ts: nowIso(), stage: "preflight", status: "fail", subset, dirty, policyRef: pd.policyRef || null, configHash: configHash(pd), totals: { blocking: pf.failures.length }, checks: [], blocking: pf.failures, preflight: pf });
+      const rep = { version: GATE_VERSION, sha, ts: nowIso(), stage: "preflight", status: "fail", subset, dirty, policyRef: pd.policyRef || null, configHash: configHash(pd), totals: { blocking: pf.failures.length }, checks: [], blocking: pf.failures, preflight: pf };
+      writeJson(reportPath(root, sha), rep);
+      if (args.json) console.log(JSON.stringify(rep, null, 2));
       console.log(`\nGATE FAILED IN PREFLIGHT: ${pf.failures.length} blocking finding(s); no scanner was started. No stamp.\nreport: ${reportPath(root, sha)}`);
       return 1;
     }
@@ -211,7 +213,8 @@ async function gateBody({ args, today, root, pd, subset, dirty, sha, al, dl, idl
   // still flags the tracked originals.
   for (const f of ctx.listFiles(SCANNER_IGNORE_FILES)) rmSync(join(scanRoot, f), { force: true });
 
-  console.log(`predeploy gate — ${pd.policyRef ? "policy " + pd.policyRef + " — " : ""}${selected.length} check(s) on ${sha.slice(0, 8)}${dirty ? " (DIRTY — no stamp)" : ""}, ${pd.concurrency} at a time (lines print as checks finish)`);
+  console.log(`predeploy gate — ${pd.policyRef ? "policy " + pd.policyRef + " — " : ""}${selected.length} check(s) on ${sha.slice(0, 8)}${dirty ? " (DIRTY — no stamp)" : ""}`);
+  console.log(`  ${pd.concurrency} at a time; lines print as checks finish`);
   const { results, timing } = await runChecks(selected, pd, ctx, {
     log: (r) => console.log(`  ${r.findings.length ? "FAIL" : " ok "}  ${r.id}  (${r.findings.length} raw finding(s), ${(r.ms / 1000).toFixed(1)}s${r.queuedMs >= 1000 ? `, queued ${(r.queuedMs / 1000).toFixed(0)}s` : ""})`),
   });

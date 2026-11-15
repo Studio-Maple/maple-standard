@@ -134,6 +134,9 @@ await t("tools: a missing tool fails as tool-missing; the check's severity floor
   const r = await pf(cfg, { resolve: missing });
   assert.deepEqual(ids(r), ["sg:tool-missing"]); assert.match(r.failures[0].message, /semgrep not installed\. Install:/);
   assert.deepEqual(ids(await pf(cfgOf([{ id: "sg", preset: "semgrep", minSeverity: "critical" }]), { resolve: missing })), []);
+  // A plain command check's declared tools are never resolved by the gate (its verdict is exit 127): a warning only.
+  const cmd = await pf(cfgOf([{ id: "c", command: "semgrep scan", tools: ["semgrep"] }]), { resolve: missing });
+  assert.deepEqual(ids(cmd), []); assert.match(cmd.warnings.join(), /c: declared tool semgrep is not runnable/);
 });
 
 await t("Docker: a check that drives Docker fails fast when the daemon is down", async () => {

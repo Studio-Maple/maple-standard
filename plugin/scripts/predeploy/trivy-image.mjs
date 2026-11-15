@@ -3,7 +3,7 @@
  * tree ({name, context}) or a third-party image pulled by its exact deployed ref ({name, ref}).
  *
  * Images are prepared (pull or build, then `docker save`) `options.concurrency` at a time (default 3). The trivy scan
- * itself runs one image at a time behind an in-process mutex: trivy's cache is a single-writer bolt DB, so parallel
+ * itself runs one image at a time behind the process-wide TRIVY_LOCK (shared with trivy-fs etc.): trivy's cache is a single-writer bolt DB, so parallel
  * scans on one cache would only collide and fall into the lock-retry loop. Prepare work (the slow part: pulls from a
  * registry, builds) overlaps with other images' scans. Findings are returned in the configured image order, whatever
  * order the images finish in. Each image's tarball is removed right after its scan (peak disk stays ~N tarballs).
@@ -16,7 +16,7 @@ import { resolveTool, dockerRunCmd, shq } from "./tools.mjs";
 import { parseOutput } from "./parsers.mjs";
 import { getCredential } from "./credentials.mjs";
 import { runShellAsync } from "./lib.mjs";
-import { mutex, pool, sleep } from "./proc.mjs";
+import { TRIVY_LOCK, pool, sleep } from "./proc.mjs";
 import { imageFindingLocation } from "./imagedebt.mjs";
 
 export const IMAGE_CONCURRENCY_DEFAULT = 3;
@@ -35,7 +35,7 @@ export async function trivyImage(o, ctx) {
   if (o.concurrency !== undefined && !(Number.isInteger(o.concurrency) && o.concurrency >= 1 && o.concurrency <= 16)) return { findings: [F("misconfigured", `trivy-image options.concurrency must be an integer 1..16 (images prepared at once; default ${IMAGE_CONCURRENCY_DEFAULT})`)] };
   const width = o.concurrency ?? IMAGE_CONCURRENCY_DEFAULT;
   writeFileSync(join(ctx.outDir, "empty.ignore"), "");
-  const scanLock = mutex();
+  const scanLock = TRIVY_LOCK;
   const notes = [];
   const lists = await pool(images, width, async (im) => {
     const t0 = Date.now();

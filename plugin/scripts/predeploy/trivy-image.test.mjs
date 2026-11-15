@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { delimiter, join } from "node:path";
 import { tmpdir } from "node:os";
 import { trivyImage, IMAGE_CONCURRENCY_DEFAULT } from "./trivy-image.mjs";
+import { runChecks } from "./check-runner.mjs";
 
 let n = 0;
 const t = async (name, fn) => { await fn(); n++; console.log("ok - " + name); };
@@ -96,6 +97,22 @@ await t("one failing image does not disturb the others; tarballs are removed; pe
   assert.ok(!existsSync(join(r.outDir, "image-imga.tar")) && !existsSync(join(r.outDir, "image-imgc.tar")));
   assert.match(r.notes[0], /3 image\(s\), 3 prepared at a time/);
   assert.match(r.notes[1], /^imga: prepare \d+s, scan \d+s/);
+});
+
+await t("a separate trivy-using check (trivy-fs and the like) never overlaps a trivy-image scan: one process-wide lock", async () => {
+  const outDir = join(base, "out-cross");
+  mkdirSync(outDir);
+  writeFileSync(LOG, "");
+  const p = posix(outDir);
+  const FS = { id: "trivy-fs-like", command: `trivy image --input ${p}/image-fscheck.tar -o ${p}/fs.json`, tools: ["trivy"] };
+  const TI = { id: "trivy-images", preset: "trivy-image", options: { images: IMGS([0.2, 0.2, 0.2]) } };
+  const ctx = { resolveTool: fakeResolve, docker: true, root: base, outDir, scanRoot: base, scanRootPosix: posix(base), sha: "c".repeat(40) };
+  const { results } = await runChecks([TI, FS, { ...FS, id: "trivy-fs-2", command: FS.command.replace("fscheck", "fscheck2").replace("fs.json", "fs2.json") }], { concurrency: 3 }, ctx);
+  assert.deepEqual(results[0].findings.map((f) => f.id), ["CVE-imga", "CVE-imgb", "CVE-imgc"]);
+  const events = readFileSync(LOG, "utf8").split(/\r?\n/).filter(Boolean).map((l) => { const [ev, who, at] = l.split(" "); return { ev, who, at: Number(at) }; });
+  const scans = spans(events, "scan");
+  assert.equal(scans.length, 5, JSON.stringify(events));
+  assert.equal(anyOverlap(scans), false, "two trivy processes ran at once");
 });
 
 rmSync(base, { recursive: true, force: true });
