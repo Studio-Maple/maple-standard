@@ -32,7 +32,7 @@
  */
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { runShell } from "./lib.mjs";
+import { runShellAsync } from "./lib.mjs";
 
 export const DEFAULT_ENV_PREFIXES = ["VITE_", "NEXT_PUBLIC_", "REACT_APP_", "NUXT_PUBLIC_", "EXPO_PUBLIC_", "GATSBY_"];
 export const DEFAULT_HASH_PATTERN = "^[A-Za-z0-9_-]{8}(\\.[a-z0-9]+)+$";
@@ -258,7 +258,7 @@ export async function stackExposure(o, ctx) {
   const shas = [ctx.sha, ctx.sha.slice(0, prefix)];
   const opts = { root: ctx.root, shas, envRe: envDumpPattern(o.envPrefixes || []), index: versionIndex(lockTexts(ctx)), devRoutes: o.devRoutes || [], forbidden: o.forbidden || [], markers: o.appMarkers || [] };
   for (const s of o.surfaces || []) {
-    const b = runShell(s.build, { cwd: ctx.root, env: { PREDEPLOY_SHA: ctx.sha }, timeoutSec: s.buildTimeoutSec || 1800 });
+    const b = await runShellAsync(s.build, { cwd: ctx.root, env: { PREDEPLOY_SHA: ctx.sha }, timeoutSec: s.buildTimeoutSec || 1800 });
     if (b.status !== 0) {
       findings.push(F("build-failed", `surface ${s.name}: \`${s.build}\` exited ${b.timedOut ? "on timeout" : b.status}: ${(b.stderr || b.stdout).trim().split(/\r?\n/).slice(-2).join(" | ").slice(0, 200)}`, s.dir, undefined, "high"));
       continue;

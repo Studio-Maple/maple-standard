@@ -8,6 +8,7 @@ import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { spawnAsync } from "./proc.mjs";
 
 export const SEVERITIES = ["info", "low", "medium", "high", "critical"];
 export const GATE_VERSION = 1;
@@ -93,15 +94,20 @@ export function shellBin() {
   return process.env.MAPLE_SHELL || "bash";
 }
 
-/** Run a shell command string; never throws. */
+const SHELL_MAX_BUFFER = 512 * 1024 * 1024;
+const shellOpts = ({ cwd, env, timeoutSec }) => ({ cwd, env: { ...process.env, ...(env || {}) }, maxBuffer: SHELL_MAX_BUFFER, timeout: timeoutSec * 1000 });
+
+/** Run a shell command string; never throws. Blocks the event loop: inside a gate check use runShellAsync. */
 export function runShell(command, { cwd, env, timeoutSec = 900 } = {}) {
-  const r = spawnSync(shellBin(), ["-c", command], {
-    cwd,
-    env: { ...process.env, ...(env || {}) },
-    encoding: "utf8",
-    maxBuffer: 512 * 1024 * 1024,
-    timeout: timeoutSec * 1000,
-  });
+  return shellResult(spawnSync(shellBin(), ["-c", command], { ...shellOpts({ cwd, env, timeoutSec }), encoding: "utf8" }));
+}
+
+/** runShell without blocking the event loop (so the gate's checks really overlap). Same result shape; never rejects. */
+export async function runShellAsync(command, { cwd, env, timeoutSec = 900 } = {}) {
+  return shellResult(await spawnAsync(shellBin(), ["-c", command], { ...shellOpts({ cwd, env, timeoutSec }), msysShell: shellBin() }));
+}
+
+function shellResult(r) {
   return {
     status: r.status,
     signal: r.signal,

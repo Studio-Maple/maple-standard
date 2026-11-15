@@ -9,7 +9,7 @@
  * gate can run. Exit 0 = everything the gate needs is runnable, 1 = gaps.
  */
 import { credentialExists } from "./credentials.mjs";
-import { PRESETS } from "./catalog.mjs";
+import { checkNeeds } from "./catalog.mjs";
 import { normalize, validatePredeploy } from "./config.mjs";
 import { findProjectRoot, loadMapleConfig, which } from "./lib.mjs";
 import { GB, diskLines, diskReport, lowSpaceMessage } from "./runs.mjs";
@@ -26,9 +26,9 @@ const rows = [];
 const need = new Map();
 const creds = new Set();
 for (const c of pd?.checks || []) {
-  const tools = c.github ? ["gh"] : c.preset ? PRESETS[c.preset]?.tools || [] : c.tools || [];
-  for (const t of tools) need.set(t, [...(need.get(t) || []), c.id]);
-  if (c.preset && PRESETS[c.preset]?.credentials) for (const r of PRESETS[c.preset].credentials(c.options || {})) creds.add(r);
+  const needs = checkNeeds(c);
+  for (const t of needs.tools) need.set(t, [...(need.get(t) || []), c.id]);
+  for (const r of needs.credentials) creds.add(r);
   for (const r of c.credentials || []) creds.add(r);
 }
 if (pd?.liveScan && pd.liveScan.enabled !== false) {

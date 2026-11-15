@@ -7,6 +7,10 @@
  *                [--rebaseline-image-debt [--owner X --plan "..." --due YYYY-MM-DD]]   (see imagedebt.mjs)
  *   node run.mjs prune [--all] [--root DIR] [--json]   delete disposable run workspaces (see runs.mjs)
  *   node run.mjs doctor [--pull] [--json]               tools, credentials, runs/ size, free space
+ *   node run.mjs preflight [--root DIR] [--check ID ...] [--allow-dirty] [--pull] [--json]
+ *                                                       the fast verdicts only (seconds; gate-preflight.mjs). A gate
+ *                                                       run starts with the same preflight and stops there (exit 1, no
+ *                                                       scanner started) when it fails and the run could stamp.
  *
  * Runs EVERY configured check against the exact HEAD commit, applies the
  * expiring allowlist, writes <state>/reports/<sha>.json, and — only when
@@ -18,18 +22,16 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { PRESETS, ToolMissing } from "./catalog.mjs";
 import { configHash, normalize, validatePredeploy } from "./config.mjs";
-import { applyAllowlist, allowlistCommitted, allowlistHash, loadAllowlist, validateEntries } from "./allowlist.mjs";
-import { applyDecisions, decisionsCommitted, decisionsHash, ledgerDecisionIds, loadDecisions, summarizeDecisions, validateDecisions } from "./decisions.mjs";
-import { buildBaseline, evaluateImageDebt, imageDebtCommitted, imageDebtHash, loadImageDebt, scannedImages, trivyPins } from "./imagedebt.mjs";
-import { nativePath, installHints, shq } from "./tools.mjs";
-import { parseOutput } from "./parsers.mjs";
-import { GATE_VERSION, findProjectRoot, git, headSha, loadMapleConfig, nowIso, runShell, sevRank, stateDir, trackedDirty } from "./lib.mjs";
+import { applyAllowlist, allowlistHash, loadAllowlist } from "./allowlist.mjs";
+import { applyDecisions, decisionsHash, loadDecisions, summarizeDecisions } from "./decisions.mjs";
+import { buildBaseline, evaluateImageDebt, imageDebtHash, loadImageDebt, scannedImages, trivyPins } from "./imagedebt.mjs";
+import { nativePath, shq } from "./tools.mjs";
+import { GATE_VERSION, findProjectRoot, git, headSha, loadMapleConfig, nowIso, sevRank, stateDir, trackedDirty } from "./lib.mjs";
 import { liveScanDebt, reportPath, stampPath, writeJson } from "./state.mjs";
-import { runRemote } from "./remote.mjs";
 import { beginRun, fmtGB, finishRun, preflight, pruneCli } from "./runs.mjs";
-import { exposureCoverage } from "./exposure-config.mjs";
+import { runChecks } from "./check-runner.mjs";
+import { gatePreflight, preflightLines, structuralFindings } from "./gate-preflight.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -76,62 +78,6 @@ function exportTree(root, sha, dest) {
   mkdirSync(dest, { recursive: true });
   const r = spawnSync("bash", ["-c", `git -C ${shq(posix(root))} archive --format=tar ${sha} | tar -x -C ${shq(posix(dest))}`], { encoding: "utf8" });
   if (r.status !== 0) throw new Error("git archive export failed: " + (r.stderr || "").slice(0, 200));
-}
-
-async function runCheck(check, pd, ctx) {
-  const t0 = Date.now();
-  const res = { id: check.id, kind: check.github ? "github" : check.preset ? "preset:" + check.preset : "command", findings: [], notes: [], meta: undefined };
-  try {
-    if (check.github) {
-      const r = await runRemote(check, pd, ctx);
-      Object.assign(res, { findings: r.findings, notes: r.notes || [], meta: r.meta });
-    } else if (check.preset && PRESETS[check.preset].run) {
-      const r = await PRESETS[check.preset].run(check.options || {}, ctx);
-      Object.assign(res, { findings: r.findings, notes: r.notes || [] });
-    } else {
-      let spec;
-      if (check.preset) spec = PRESETS[check.preset].build(check.options || {}, ctx);
-      else spec = { command: check.command, parse: check.parse || "exit-code", reports: check.reports || [], cwd: "root", env: check.env };
-      for (const f of spec.emptyFiles || []) writeFileSync(join(ctx.outDir, f), /\.ya?ml$/.test(f) ? "{}\n" : "");
-      const cwd = spec.cwd === "scan" ? ctx.scanRoot : check.cwd ? join(ctx.root, check.cwd) : ctx.root;
-      const out = runShell(spec.command, { cwd, env: { ...(spec.env || {}), PREDEPLOY_OUT: ctx.outDir, PREDEPLOY_SHA: ctx.sha }, timeoutSec: check.timeoutSec || 1800 });
-      res.raw = { status: out.status };
-      res.text = out.stdout + "\n" + out.stderr;
-      if (out.timedOut) res.findings.push({ id: "timeout", severity: "high", message: `exceeded ${check.timeoutSec || 1800}s`, location: "" });
-      else if (out.spawnError) res.findings.push({ id: "spawn-failed", severity: "high", message: out.spawnError, location: "" });
-      else if (out.status === 127) res.findings.push({ id: "tool-missing", severity: "high", message: `command not found: ${out.stderr.trim().split(/\r?\n/).pop()}`, location: "" });
-      else {
-        const { readFileSync } = await import("node:fs");
-        res.findings = parseOutput(spec.parse, {
-          status: out.status, stdout: out.stdout, stderr: out.stderr, reports: spec.reports || [], repoRoot: ctx.root,
-          readReport: (n) => { try { return readFileSync(join(ctx.outDir, n), "utf8"); } catch { return null; } },
-        });
-        if (out.status === 126) res.findings.push({ id: "tool-blocked", severity: "high", message: "command could not be executed (blocked or not executable)", location: "" });
-      }
-    }
-  } catch (e) {
-    if (e instanceof ToolMissing) res.findings = [{ id: "tool-missing", severity: "high", message: `${e.tool}: ${e.message}. Install: ${installHints(e.tool)}`, location: "" }];
-    else res.findings = [{ id: "check-crashed", severity: "high", message: String(e.stack || e).split("\n").slice(0, 3).join(" | "), location: "" }];
-  }
-  const rel = (p) => String(p || "").split(ctx.scanRootPosix + "/").join("").split(ctx.scanRoot.replace(/\\/g, "/") + "/").join("");
-  if (check.countPattern && res.findings.length && res.raw) {
-    const text = res.text || "";
-    let total = 0;
-    for (const m of text.matchAll(new RegExp(check.countPattern, "g"))) total += Number(m[1]) || 0;
-    if (total) res.estimated = total;
-  }
-  res.findings = res.findings.map((f) => ({ ...f, check: check.id, location: rel(f.location) }));
-  res.ms = Date.now() - t0;
-  return res;
-}
-
-async function pool(items, n, fn) {
-  const out = new Array(items.length);
-  let i = 0;
-  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
-    while (i < items.length) { const k = i++; out[k] = await fn(items[k], k); }
-  }));
-  return out;
 }
 
 /** One row per decision-backed entry (not per finding): scanner/rule scope -> D###, with how many findings it covers. */
@@ -188,10 +134,11 @@ export async function main(argv, opts = {}) {
     const rest = argv.slice(1).filter((a, k, all) => a !== "--root" && all[k - 1] !== "--root");
     return pruneCli(rest, r, normalize(loadMapleConfig(r)), { pruneCmd: `node "${join(HERE, "run.mjs")}" prune --all` });
   }
-  const args = parseArgs(argv);
+  const preflightOnly = argv[0] === "preflight";
+  const args = parseArgs(preflightOnly ? argv.slice(1) : argv);
   const root = args.root ? findProjectRoot(args.root) : findProjectRoot(process.env.CLAUDE_PROJECT_DIR || process.cwd());
   if (!root) { console.error("no maple.config.json found"); return 2; }
-  if (args.live) {
+  if (args.live && !preflightOnly) {
     const { main: live } = await import("./livescan.mjs");
     return live(["--root", root, ...(args.pull ? ["--pull"] : []), ...(args.json ? ["--json"] : [])]);
   }
@@ -210,20 +157,39 @@ export async function main(argv, opts = {}) {
   const subset = args.checks.length > 0;
   for (const id of args.checks) if (!pd.checks.some((c) => c.id === id)) { console.error(`no such check: ${id}`); return 2; }
   const dirty = trackedDirty(root);
-  if (dirty && !args.allowDirty) { console.error("tracked files differ from HEAD. The gate certifies a commit — commit (or stash) first. (--allow-dirty runs without issuing a stamp.)"); return 2; }
+  if (dirty && !args.allowDirty && !preflightOnly) { console.error("tracked files differ from HEAD. The gate certifies a commit — commit (or stash) first. (--allow-dirty runs without issuing a stamp.)"); return 2; }
   const sha = headSha(root);
   const al = loadAllowlist(root, pd.allowlist);
-  const committed = allowlistCommitted(root, al);
   const dl = loadDecisions(root, pd.decisions);
-  const dCommitted = decisionsCommitted(root, dl);
   const idl = pd.imageDebt ? loadImageDebt(root, pd.imageDebt.file) : null;
+
+  // Fast verdicts first (seconds): the same ones the full run would reach only after every scanner (gate-preflight.mjs).
+  const selected = pd.checks.filter((c) => !subset || args.checks.includes(c.id));
+  const pf = await gatePreflight({ root, pd, sha, selected, subset, rebaseline: args.rebaseline, allowDirty: args.allowDirty, today, pull: args.pull || process.env.PREDEPLOY_PULL === "1", al, dl, idl, ...(opts.preflightSeams || {}) });
+  const stamping = !subset && !dirty;
+  if (preflightOnly || !pf.ok) {
+    const head = `preflight — ${pf.ok ? "ok" : pf.failures.length + " failure(s)"} in ${(pf.ms / 1000).toFixed(1)}s on ${sha.slice(0, 8)} (${selected.length} check(s))`;
+    if (args.json && preflightOnly) console.log(JSON.stringify({ sha, ...pf }, null, 2));
+    else {
+      console.log(head);
+      for (const l of preflightLines(pf)) console.log(l);
+      for (const n of pf.notes) console.log(`  preflight note: ${n}`);
+    }
+    if (preflightOnly) return pf.ok ? 0 : 1;
+    if (stamping) {
+      writeJson(reportPath(root, sha), { version: GATE_VERSION, sha, ts: nowIso(), stage: "preflight", status: "fail", subset, dirty, policyRef: pd.policyRef || null, configHash: configHash(pd), totals: { blocking: pf.failures.length }, checks: [], blocking: pf.failures, preflight: pf });
+      console.log(`\nGATE FAILED IN PREFLIGHT: ${pf.failures.length} blocking finding(s); no scanner was started. No stamp.\nreport: ${reportPath(root, sha)}`);
+      return 1;
+    }
+    console.log("  (this run cannot issue a stamp: preflight failures are advisory; the run continues)");
+  }
 
   const pre = preflight(root, pd, { pruneCmd: `node "${join(HERE, "run.mjs")}" prune --all`, log: (m) => console.log(m), free: opts.free });
   if (!pre.ok) { console.error(pre.message); return 2; }
   const run = beginRun(root, sha.slice(0, 12));
   let code = 2;
   try {
-    code = await gateBody({ args, today, root, pd, subset, dirty, sha, al, committed, dl, dCommitted, idl, runDir: run.dir });
+    code = await gateBody({ args, today, root, pd, subset, dirty, sha, al, dl, idl, selected, pf, runDir: run.dir });
     return code;
   } finally {
     const done = finishRun(run, { sha, exit: code });
@@ -232,7 +198,7 @@ export async function main(argv, opts = {}) {
   }
 }
 
-async function gateBody({ args, today, root, pd, subset, dirty, sha, al, committed, dl, dCommitted, idl, runDir }) {
+async function gateBody({ args, today, root, pd, subset, dirty, sha, al, dl, idl, selected, pf, runDir }) {
   const outDir = join(runDir, "out");
   mkdirSync(outDir, { recursive: true });
   const scanRoot = join(runDir, "tree");
@@ -245,12 +211,9 @@ async function gateBody({ args, today, root, pd, subset, dirty, sha, al, committ
   // still flags the tracked originals.
   for (const f of ctx.listFiles(SCANNER_IGNORE_FILES)) rmSync(join(scanRoot, f), { force: true });
 
-  const selected = pd.checks.filter((c) => !subset || args.checks.includes(c.id));
-  console.log(`predeploy gate — ${pd.policyRef ? "policy " + pd.policyRef + " — " : ""}${selected.length} check(s) on ${sha.slice(0, 8)}${dirty ? " (DIRTY — no stamp)" : ""}`);
-  const results = await pool(selected, pd.concurrency, async (c) => {
-    const r = await runCheck(c, pd, ctx);
-    console.log(`  ${r.findings.length ? "FAIL" : " ok "}  ${c.id}  (${r.findings.length} raw finding(s), ${(r.ms / 1000).toFixed(1)}s)`);
-    return r;
+  console.log(`predeploy gate — ${pd.policyRef ? "policy " + pd.policyRef + " — " : ""}${selected.length} check(s) on ${sha.slice(0, 8)}${dirty ? " (DIRTY — no stamp)" : ""}, ${pd.concurrency} at a time (lines print as checks finish)`);
+  const { results, timing } = await runChecks(selected, pd, ctx, {
+    log: (r) => console.log(`  ${r.findings.length ? "FAIL" : " ok "}  ${r.id}  (${r.findings.length} raw finding(s), ${(r.ms / 1000).toFixed(1)}s${r.queuedMs >= 1000 ? `, queued ${(r.queuedMs / 1000).toFixed(0)}s` : ""})`),
   });
 
   // minSeverity floors, then the allowlist
@@ -268,7 +231,6 @@ async function gateBody({ args, today, root, pd, subset, dirty, sha, al, committ
   const INFRA_FAILURE = /^(tool-missing|tool-blocked|no-report|unparseable-report|check-crashed|spawn-failed|timeout|misconfigured|token-missing|secret-missing)$/;
   const ranChecks = results.map((r) => r.id);
   const decisionRanChecks = results.filter((r) => !r.findings.some((f) => INFRA_FAILURE.test(f.id))).map((r) => r.id);
-  const allCheckIds = [...pd.checks.map((c) => c.id), "live-scan"];
   let imageDebt = null;
   if (pd.imageDebt) {
     const pins = trivyPins(pd);
@@ -277,18 +239,8 @@ async function gateBody({ args, today, root, pd, subset, dirty, sha, al, committ
     imageDebt = evaluateImageDebt(allFindings, idl, { pins, ownImages: pd.imageDebt.ownImages, ranImages, today, maxDays: pd.imageDebt.maxDays });
     allFindings = imageDebt.remaining;
   }
-  const idCommitted = idl ? imageDebtCommitted(root, idl) : true;
   const decided = applyDecisions(allFindings, dl, { ranChecks: decisionRanChecks, today });
-  const structural = [
-    ...validateEntries(al, { checkIds: allCheckIds, maxDays: pd.allowlistMaxDays }),
-    ...validateDecisions(dl, { checkIds: allCheckIds, maxAgeDays: pd.decisionsMaxAgeDays, today, ledger: dl.entries.length ? ledgerDecisionIds(root) : { ids: new Set(), error: null, file: "" } }),
-    ...decided.stale,
-    ...exposureCoverage(pd, pd.exposure?.optOut?.bundle ? ledgerDecisionIds(root) : { ids: new Set(), error: null }),
-    ...(imageDebt ? imageDebt.blocking : []),
-    ...(idCommitted ? [] : [{ check: "image-debt", id: "image-debt-uncommitted", severity: "high", message: "third-party image debt file is untracked or modified - the snapshot and due dates must be committed and reviewed", location: idl.path }]),
-    ...(dCommitted ? [] : [{ check: "decisions", id: "decision-uncommitted", severity: "high", message: "decision-backed exceptions file is untracked or modified — permanent exceptions must be committed and reviewed", location: dl.path }]),
-    ...(committed ? [] : [{ check: "allowlist", id: "allowlist-uncommitted", severity: "high", message: "allowlist file is untracked or modified — exceptions must be committed and reviewed", location: al.path }]),
-  ];
+  const structural = structuralFindings(root, pd, { al, dl, idl, today, stale: decided.stale, imageDebtBlocking: imageDebt ? imageDebt.blocking : [] });
   const { blocking, allowed, unused } = applyAllowlist(decided.blocking, al, { ranChecks });
   const debt = !subset ? liveScanDebt(root, pd) : { ok: true, reason: "skipped (subset run)" };
   const debtFindings = debt.ok ? [] : [{ check: "live-scan", id: "live-scan-debt", severity: "high", message: debt.reason, location: "" }];
@@ -300,7 +252,7 @@ async function gateBody({ args, today, root, pd, subset, dirty, sha, al, committ
   const unusedNote = unusedWarn && unused.length ? [`${unused.length} allowlist entr${unused.length === 1 ? "y" : "ies"} matched nothing this run (fixed or flaky) — prune them (predeploy.allowlistUnused=warn)`] : [];
 
   const perCheck = results.map((r) => ({
-    id: r.id, kind: r.kind, ms: r.ms,
+    id: r.id, kind: r.kind, ms: r.ms, startedAt: r.startedAt, endedAt: r.endedAt, queuedMs: r.queuedMs,
     raw: r.findings.length, estimated: r.estimated, belowFloor: belowFloor[r.id],
     blocking: allBlocking.filter((f) => f.check === r.id).length,
     allowlisted: allowed.filter((f) => f.check === r.id).length,
@@ -319,6 +271,7 @@ async function gateBody({ args, today, root, pd, subset, dirty, sha, al, committ
     totals: { blocking: allBlocking.length, allowlisted: allowed.length, decisionBacked: decided.backed.length, imageDebt: imageDebt ? imageDebt.total : 0 },
     checks: perCheck, blocking: allBlocking, allowlisted: allowed, decisionBacked: decided.backed,
     liveScan: debt,
+    timing, preflight: { ok: pf.ok, ms: pf.ms, failures: pf.failures, warnings: pf.warnings, notes: pf.notes },
   };
   writeJson(reportPath(root, sha), report);
 
@@ -339,7 +292,8 @@ async function gateBody({ args, today, root, pd, subset, dirty, sha, al, committ
     console.log("");
     for (const f of allBlocking.slice(0, 400)) console.log(`  [${f.check}] ${f.id} ${f.location || ""} — ${String(f.message).split("\n")[0].slice(0, 160)}`);
     if (allBlocking.length > 400) console.log(`  ... ${allBlocking.length - 400} more (see report)`);
-    console.log(`\nreport: ${reportPath(root, sha)}`);
+    console.log(`\nchecks took ${(timing.wallMs / 60000).toFixed(1)} min wall clock (${(timing.checkMsSum / 60000).toFixed(1)} min of check time, ${timing.concurrency} at a time; preflight ${(pf.ms / 1000).toFixed(1)}s)`);
+    console.log(`report: ${reportPath(root, sha)}`);
   }
 
   if (allBlocking.length === 0 && !subset && !dirty) {

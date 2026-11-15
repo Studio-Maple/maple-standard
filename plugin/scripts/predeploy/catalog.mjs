@@ -204,6 +204,16 @@ export function presetTools(name) {
   return p ? p.tools || [] : [];
 }
 
+/**
+ * What one configured check needs to run: tool names (TOOLS keys) and credential-store targets its preset reads.
+ * Shared by `doctor` and the preflight so both report the same needs.
+ */
+export function checkNeeds(c) {
+  const tools = c.github ? ["gh"] : c.preset ? PRESETS[c.preset]?.tools || [] : c.tools || [];
+  const credentials = c.preset && PRESETS[c.preset]?.credentials ? PRESETS[c.preset].credentials(c.options || {}) : [];
+  return { tools, credentials };
+}
+
 export function describePreset(name) {
   return PRESETS[name]?.describe || "";
 }

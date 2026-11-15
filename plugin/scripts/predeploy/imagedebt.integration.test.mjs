@@ -125,10 +125,12 @@ const commit = (cfg, files = {}) => {
 };
 let scan = [];
 PRESETS["trivy-image"].run = async () => ({ findings: scan });
-const run = async (args, opts) => {
+// The preflight would probe the real trivy/docker binaries; this suite fakes the scanner, so it fakes the probes too.
+const NO_TOOL_PROBES = { resolve: (name) => ({ name, mode: "native", version: "fake", bin: name }), docker: () => ({ ok: true, detail: "fake" }), credExists: () => true };
+const run =async (args, opts) => {
   const lines = []; const log = console.log; console.log = (...a) => lines.push(a.join(" "));
   const err = console.error; console.error = (...a) => lines.push(a.join(" "));
-  try { return { code: await runGate(["--root", repo, ...args], opts), text: lines.join("\n") }; } finally { console.log = log; console.error = err; }
+  try { return { code: await runGate(["--root", repo, ...args], { preflightSeams: NO_TOOL_PROBES, ...opts }), text: lines.join("\n") }; } finally { console.log = log; console.error = err; }
 };
 const report = () => JSON.parse(readFileSync(reportPath(repo, headSha(repo)), "utf8"));
 const blockIds = () => report().blocking.map((f) => `${f.check}:${f.id}`);
@@ -138,7 +140,11 @@ const SCAN3 = [fnd("mysql", "CVE-1"), fnd("mysql", "CVE-2"), fnd("redis", "CVE-3
 await t("no file: every third-party image is unlisted and its findings block", async () => {
   scan = SCAN3; commit(cfgOf());
   const r = await run([], { today: TODAY });
-  assert.equal(r.code, 1); const b = blockIds();
+  // A stamping run stops in the preflight (the unlisted images are known before any scan) ...
+  assert.equal(r.code, 1); assert.equal(report().stage, "preflight"); assert.ok(blockIds().includes("image-debt:image-debt-unlisted"), blockIds().join());
+  // ... a run that cannot stamp keeps going (preflight is advisory there) and also shows the scan's findings.
+  const s = await run(["--check", "trivy-images"], { today: TODAY });
+  assert.equal(s.code, 1); assert.match(s.text, /advisory/); const b = blockIds();
   assert.ok(b.includes("image-debt:image-debt-unlisted") && b.includes("trivy-images:CVE-1"), b.join());
 });
 await t("--rebaseline-image-debt without flags fails; with flags writes the file (never a stamp)", async () => {
@@ -207,6 +213,8 @@ await t("our own image: findings block, and listing it as debt is rejected", asy
   f.entries.push({ name: "call-plane", ref: "context:services/call-plane", owner: "x", plan: "list our own image", due: flags.due, baselined: isoDay(TODAY), findings: [findingKey(fnd("call-plane", "CVE-OWN"))] });
   commit(cfgOf("mysql:8@sha256:cc"), { "predeploy-image-debt.json": JSON.stringify(f) });
   assert.equal((await run([], { today: TODAY })).code, 1);
+  assert.equal(report().stage, "preflight"); assert.ok(blockIds().includes("image-debt:image-debt-own-image"));
+  assert.equal((await run(["--check", "trivy-images"], { today: TODAY })).code, 1);
   assert.ok(blockIds().includes("image-debt:image-debt-own-image") && blockIds().includes("trivy-images:CVE-OWN"));
 });
 await t("--rebaseline-image-debt refuses when a scan did not complete", async () => {

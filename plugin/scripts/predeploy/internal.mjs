@@ -5,18 +5,17 @@
  * `{ findings, notes? }` and NEVER reports clean for something it could not
  * evaluate (missing tool / token / network => a finding).
  */
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { resolveTool, dockerRunCmd, shq, nativePath } from "./tools.mjs";
+import { resolveTool, shq, nativePath } from "./tools.mjs";
 import { parseOutput, sevFromWord } from "./parsers.mjs";
 import { getCredential, credentialExists } from "./credentials.mjs";
-import { git, runShell } from "./lib.mjs";
+import { git, runShellAsync } from "./lib.mjs";
+import { pool, spawnAsync } from "./proc.mjs";
 import { stackExposure } from "./exposure.mjs";
-import { imageFindingLocation } from "./imagedebt.mjs";
+import { trivyImage } from "./trivy-image.mjs";
 
 const F = (id, message, location = "", severity = "high") => ({ id, severity, message, location });
-const IMAGE_INFRA_ID = /^(no-report|unparseable-report)$/;
 
 function tool(ctx, name) {
   const t = resolveTool(name, { allowDocker: ctx.docker, pull: ctx.pull });
@@ -24,8 +23,9 @@ function tool(ctx, name) {
   return { t };
 }
 
+/** Every tool call inside a check is non-blocking, so the gate's other checks keep running meanwhile. */
 function capture(command, opts = {}) {
-  return runShell(command, { timeoutSec: 1800, ...opts });
+  return runShellAsync(command, { timeoutSec: 1800, ...opts });
 }
 
 // ── terraform ───────────────────────────────────────────────────────────────
@@ -40,12 +40,12 @@ async function terraform(o, ctx) {
   const findings = [];
   for (const d of dirs) {
     const cwd = join(ctx.scanRoot, d);
-    const init = capture(`terraform init -backend=false -input=false -no-color`, { cwd, env });
+    const init = await capture(`terraform init -backend=false -input=false -no-color`, { cwd, env });
     if (init.status !== 0) {
       findings.push(F("terraform-init", `terraform init failed: ${(init.stderr || init.stdout).trim().split(/\r?\n/).slice(-3).join(" | ")}`, d));
       continue;
     }
-    const val = capture(`terraform validate -json -no-color`, { cwd, env });
+    const val = await capture(`terraform validate -json -no-color`, { cwd, env });
     try {
       const j = JSON.parse(val.stdout);
       for (const dg of j.diagnostics || []) findings.push(F(`terraform-validate-${dg.severity}`, `${dg.summary}: ${dg.detail || ""}`.slice(0, 300), `${d}/${dg.range?.filename || ""}:${dg.range?.start?.line || ""}`, dg.severity === "error" ? "high" : "medium"));
@@ -53,7 +53,7 @@ async function terraform(o, ctx) {
       findings.push(F("terraform-validate", "validate produced no JSON", d));
     }
   }
-  const fmt = capture(`terraform fmt -check -recursive -no-color ${shq(ctx.scanRootPosix + "/" + (o.fmtDir || "."))}`);
+  const fmt = await capture(`terraform fmt -check -recursive -no-color ${shq(ctx.scanRootPosix + "/" + (o.fmtDir || "."))}`);
   if (fmt.status !== 0) for (const l of fmt.stdout.split(/\r?\n/).filter(Boolean)) findings.push(F("terraform-fmt", "file is not canonically formatted", l.replace(ctx.scanRootPosix + "/", ""), "low"));
   return { findings, notes: [`terraform ${t.version}`] };
 }
@@ -69,80 +69,13 @@ async function hadolint(o, ctx) {
     const content = readFileSync(abs);
     const args = ["--format", "json", "--no-color", "-t", "style", "-"];
     const r = t.mode === "native"
-      ? spawnSync(t.bin, args, { input: content, encoding: "utf8", cwd: ctx.outDir })
-      : spawnSync("docker", ["run", "--rm", "-i", t.image, "hadolint", ...args], { input: content, encoding: "utf8" });
+      ? await spawnAsync(t.bin, args, { input: content, cwd: ctx.outDir })
+      : await spawnAsync("docker", ["run", "--rm", "-i", t.image, "hadolint", ...args], { input: content });
     let items;
     try { items = JSON.parse(r.stdout || "[]"); } catch { return { findings: [F("hadolint-crash", `hadolint output for ${f} was not JSON: ${(r.stderr || "").slice(0, 200)}`, f)] }; }
     results.push({ file: f, items });
   }
   return { findings: parseOutput("hadolint-json", { stdout: JSON.stringify(results), reports: [], readReport: () => null }), notes: [`${files.length} Dockerfile(s)`] };
-}
-
-// ── trivy-image ─────────────────────────────────────────────────────────────
-async function trivyImage(o, ctx) {
-  const { t, missing } = tool(ctx, "trivy");
-  if (missing) return { findings: [missing] };
-  if (!resolveTool("docker").mode.startsWith("native")) return { findings: [F("tool-missing", "docker is required to build images for trivy-image")] };
-  const images = (o.images || []).filter((im) => !ctx.onlyImages || ctx.onlyImages.has(im.name));
-  if (!images.length) return { findings: [F("misconfigured", "trivy-image needs options.images [{name, context, dockerfile?, buildArgs?} | {name, ref, platform?} (+ timeoutSec? for slow builds)]")] };
-  const findings = [];
-  // Every per-image finding carries { image }: the image-debt ledger (imagedebt.mjs) keys on it.
-  const FI = (im, ...a) => ({ ...F(...a), image: im.name });
-  for (const im of images) {
-    // { name, ref } = a THIRD-PARTY image run as-is (pulled by the exact ref that is deployed, tag or digest);
-    // { name, context } = an image we build from the candidate tree.
-    const tag = im.ref ? im.ref : `predeploy/${im.name}:${ctx.sha.slice(0, 12)}`;
-    let pulledHere = false;
-    const dockerfile = im.dockerfile ? `-f ${shq(join(ctx.scanRoot, im.dockerfile))}` : "";
-    const args = (im.buildArgs || []).map((a) => `--build-arg ${shq(a)}`).join(" ");
-    const secretEnv = {};
-    const secretFlags = [];
-    for (const sec of im.secrets || []) {
-      // { id, from: "gh-auth-token" | { credential: "<store target>" } } -> BuildKit --secret, value only in env of this one command
-      const value = sec.from === "gh-auth-token" ? (capture("gh auth token").stdout || "").trim() : getCredential(sec.from?.credential);
-      if (!value) { findings.push(FI(im, "secret-missing", `build secret ${sec.id} for image ${im.name} could not be resolved`, im.name)); continue; }
-      secretEnv[`PREDEPLOY_SECRET_${sec.id}`] = value;
-      secretFlags.push(`--secret id=${sec.id},env=PREDEPLOY_SECRET_${sec.id}`);
-    }
-    const platform = im.platform ? `--platform ${shq(im.platform)}` : "";
-    if (im.ref) {
-      if (im.context || im.dockerfile) { findings.push(FI(im, "misconfigured", `image ${im.name}: ref and context are mutually exclusive`, im.name)); continue; }
-      pulledHere = capture(`docker image inspect ${shq(im.ref)}`).status !== 0;
-      const pull = capture(`docker pull -q ${platform} ${shq(im.ref)}`);
-      if (pull.status !== 0) { findings.push(FI(im, "image-pull-failed", `docker pull ${im.ref} failed: ${(pull.stderr || pull.stdout).trim().split(/\r?\n/).slice(-2).join(" | ")}`, im.name)); continue; }
-    }
-    const build = im.ref ? { status: 0 } : capture(`docker build -q ${platform} ${secretFlags.join(" ")} -t ${shq(tag)} ${dockerfile} ${args} ${shq(join(ctx.scanRoot, im.context || "."))}`, { env: secretEnv, timeoutSec: im.timeoutSec || 7200 });
-    if (build.status !== 0) { findings.push(FI(im, "image-build-failed", `docker build ${im.name} failed${build.timedOut ? ` (timed out; raise images[].timeoutSec, default 7200)` : ""}: ${(build.stderr || build.stdout).trim().split(/\r?\n/).slice(-3).join(" | ")}`, im.name)); continue; }
-    const tar = join(ctx.outDir, `image-${im.name}.tar`);
-    // trivy's own default timeout is 5 minutes, which a large image (CUDA/torch) or a busy machine exceeds and
-    // then leaves NO report; scans get the same generous budget as builds.
-    const scanSec = im.timeoutSec || 7200;
-    const trivyTimeout = `${Math.round(scanSec / 60)}m`;
-    const save = capture(`docker save -o ${shq(tar)} ${shq(tag)}`, { timeoutSec: scanSec });
-    if (save.status !== 0) { findings.push(FI(im, "image-save-failed", `docker save ${im.name} failed`, im.name)); continue; }
-    const report = `trivy-image-${im.name}.json`;
-    const cmd = t.mode === "native"
-      ? `trivy image --input ${shq(tar)} --scanners vuln,secret --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --ignorefile ${shq(join(ctx.outDir, "empty.ignore"))} --exit-code 0 --timeout ${trivyTimeout} --quiet --format json -o ${shq(join(ctx.outDir, report))}`
-      : dockerRunCmd(t.image, { mounts: [[ctx.outDir, "/out", "rw"]], args: `image --input /out/image-${im.name}.tar --scanners vuln,secret --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL --ignorefile /out/empty.ignore --exit-code 0 --timeout ${trivyTimeout} --quiet --format json -o /out/${report}` });
-    writeFileSync(join(ctx.outDir, "empty.ignore"), "");
-    let scan = capture(cmd, { timeoutSec: scanSec });
-    // trivy's cache is a single-writer bolt DB: another gate/trivy on this machine holds the lock for a while. Wait and retry
-    // instead of reporting an image as unscannable (a false failure that wastes a multi-minute scan cycle).
-    for (let attempt = 0; attempt < 12 && !existsSync(join(ctx.outDir, report)) && /cache may be in use by another process/.test(scan.stderr + scan.stdout); attempt++) {
-      spawnSync(process.execPath, ["-e", "setTimeout(()=>{},15000)"]);
-      scan = capture(cmd, { timeoutSec: scanSec });
-    }
-    if (!existsSync(join(ctx.outDir, report))) {
-      findings.push(FI(im, "image-scan-failed", `trivy produced no report for ${im.name}${scan.timedOut ? " (timed out)" : ""}: ${(scan.stderr || scan.stdout).trim().split(/\r?\n/).slice(-2).join(" | ").slice(0, 300)}`, im.name));
-      if (!im.ref || pulledHere) capture(`docker image rm ${shq(tag)}`);
-      continue;
-    }
-    const text = readFileSync(join(ctx.outDir, report), "utf8");
-    for (const f of parseOutput("trivy-json", { reports: [report], readReport: () => text })) findings.push({ ...f, image: im.name, location: imageFindingLocation(im.name, f.location), imageFinding: !IMAGE_INFRA_ID.test(f.id) });
-    // built images are always ours to remove; a pulled ref only if it was not on this machine already
-    if (!im.ref || pulledHere) capture(`docker image rm ${shq(tag)}`);
-  }
-  return { findings };
 }
 
 // ── snyk ────────────────────────────────────────────────────────────────────
@@ -160,8 +93,8 @@ async function snyk(o, ctx) {
   const target = o.tokenCredential || "Snyk-Token";
   const token = getCredential(target);
   if (!token) return { findings: [F("token-missing", `no Snyk token: store credential "${target}" (credential-manager skill) — the gate reads it just-in-time, never from a file`, target)] };
-  const r = spawnSync(t.bin, ["test", "--all-projects", "--dev", "--severity-threshold=low", "--json"], {
-    cwd: ctx.scanRoot, encoding: "utf8", timeout: (o.timeoutSec || 1800) * 1000, maxBuffer: 512 * 1024 * 1024,
+  const r = await spawnAsync(t.bin, ["test", "--all-projects", "--dev", "--severity-threshold=low", "--json"], {
+    cwd: ctx.scanRoot, timeout: (o.timeoutSec || 1800) * 1000, maxBuffer: 512 * 1024 * 1024,
     shell: process.platform === "win32", env: { ...process.env, SNYK_TOKEN: token, SNYK_DISABLE_ANALYTICS: "1" },
   });
   const scrub = (x) => String(x || "").split(token).join("***");
@@ -191,15 +124,6 @@ async function snyk(o, ctx) {
 // ── deps-freshness ──────────────────────────────────────────────────────────
 const majorOf = (v) => parseInt(String(v).split(".")[0], 10);
 const monthsBetween = (a, b) => (b - a) / (1000 * 60 * 60 * 24 * 30.44);
-
-async function pool(items, n, fn) {
-  const out = [];
-  let i = 0;
-  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
-    while (i < items.length) { const k = i++; out[k] = await fn(items[k]); }
-  }));
-  return out;
-}
 
 async function registryDoc(name, cache) {
   if (cache.has(name)) return cache.get(name);
@@ -292,13 +216,13 @@ async function supabaseAdvisors(o, ctx) {
 async function ghAlerts(o, ctx) {
   const gh = resolveTool("gh");
   if (gh.mode === "missing") return { findings: [F("tool-missing", `gh: ${gh.reason}`)] };
-  const repo = o.repo || (capture("gh repo view --json nameWithOwner --jq .nameWithOwner", { cwd: ctx.root }).stdout || "").trim();
+  const repo = o.repo || ((await capture("gh repo view --json nameWithOwner --jq .nameWithOwner", { cwd: ctx.root })).stdout || "").trim();
   if (!repo) return { findings: [F("gh-repo-unknown", "could not determine the GitHub repo (gh auth / remote)")] };
   const kinds = o.kinds || ["code-scanning", "dependabot", "secret-scanning"];
   const findings = [];
   const notes = [];
   for (const k of kinds) {
-    const r = capture(`gh api --paginate "repos/${repo}/${k}/alerts?state=open&per_page=100"`, { cwd: ctx.root });
+    const r = await capture(`gh api --paginate "repos/${repo}/${k}/alerts?state=open&per_page=100"`, { cwd: ctx.root });
     const text = (r.stdout + r.stderr).toLowerCase();
     if (r.status !== 0) {
       if (/disabled|not enabled|advanced security|not available/.test(text)) {

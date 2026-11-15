@@ -276,7 +276,10 @@ await t("a stale entry (scope matches nothing) fails the gate", async () => {
 
 await t("a wildcard scope fails and excepts nothing", async () => {
   commit(cfgOf([SUP]), withDecisions([dEntry("suppression:eslint-disable", "src/*.ts"), ...ALL_ENTRIES.slice(1)]));
+  // A stamping run stops in the preflight on the invalid entry; a subset run (no stamp) also shows the unexcepted finding.
   assert.equal(await gate(), 1);
+  assert.equal(report().stage, "preflight"); assert.ok(blockingIds().includes("decisions:decision-invalid"));
+  assert.equal(await gate("--check", "suppress"), 1);
   const ids = blockingIds();
   assert.ok(ids.includes("decisions:decision-invalid") && ids.includes("suppress:suppression:eslint-disable"));
 });
@@ -313,6 +316,8 @@ await t("a check that could not run neither confirms nor stales decision entries
 await t("a decision entry past its expires blocks the gate (decision-expired) and no longer excepts its finding", async () => {
   commit(cfgOf([SUP]), withDecisions([...ALL_ENTRIES.slice(0, 3), dEntry("suppression-file:osv-scanner.toml", "osv-scanner.toml", { expires: daysAgo(1) })]));
   assert.equal(await gate(), 1);
+  assert.equal(report().stage, "preflight"); assert.ok(blockingIds().includes("decisions:decision-expired"));
+  assert.equal(await gate("--check", "suppress"), 1);
   const ids = blockingIds();
   assert.ok(ids.includes("decisions:decision-expired") && ids.includes("suppress:suppression-file:osv-scanner.toml"), ids.join());
   commit(cfgOf([SUP]), withDecisions([...ALL_ENTRIES.slice(0, 3), dEntry("suppression-file:osv-scanner.toml", "osv-scanner.toml", { expires: inDays(5) })]));
