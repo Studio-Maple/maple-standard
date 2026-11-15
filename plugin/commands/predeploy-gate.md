@@ -12,6 +12,7 @@ without that stamp. Full rules: `docs/predeploy-gate.md` (D060).
 
 `$ARGUMENTS`:
 - *(none)* — run the full gate. Needs a clean tree and the candidate branch pushed (the remote workflow runs on GitHub).
+- `preflight [--check <id>] [--allow-dirty] [--json]` — only the fast verdicts (seconds): clean tree, exception files (expired / invalid / uncommitted rows, image-debt pins), unpaid live-scan debt, candidate branch pushed + a self-hosted runner online (remote check), tools / Docker / credentials. One line per failure; exit 1 on any. Every full gate run starts with the same preflight and stops there (exit 1, no scanner started) when it fails. Unused allowlist rows and stale decisions need the scan, so only the full run judges them.
 - `doctor` — list missing tools/images/credentials with install commands, plus `runs/` size, tf cache size and free space (`doctor --pull` fetches Docker images).
 - `prune [--all]` — delete the disposable run workspaces under `maple/predeploy/runs` (D068; a live run is never touched; stamps/reports/ledger are never touched). The gate also prunes at run end and at start, and refuses to start below `predeploy.minFreeGB` free.
 - `--live` — AFTER a deploy: aggressive full active ZAP scan of the configured live targets; blocks the next deploy until clean.
