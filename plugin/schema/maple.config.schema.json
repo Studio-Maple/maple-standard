@@ -315,6 +315,18 @@
           }
         },
         "minFreeGB": { "type": "number", "minimum": 1, "maximum": 1000, "description": "A gate or live scan refuses to start when the repo drive has less free space (after the pre-start prune). Default 20." },
+        "fastLane": {
+          "type": "object", "additionalProperties": false, "required": ["enabled"],
+          "description": "Opt-in FAST LANE (deploy first, enforce after): a change whose diff from the last fully stamped commit touches only `allow`ed, non-denied paths may deploy on a permit before its heavy + predeploy run; that records one debt payable within deadlineHours. Not part of the stamp's config hash. Authoritative validation: plugin/scripts/predeploy/fastlane-rules.mjs.",
+          "properties": {
+            "enabled": { "type": "boolean", "description": "Off unless true." },
+            "allow": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Globs (`**`, `*`, `?`, `{a,b}`; a pattern without `/` matches the file name at any depth) of paths that may ship ahead of the full run. Required and non-empty when enabled; a match-everything pattern is rejected; a path that matches nothing is never eligible." },
+            "deny": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Extra deny globs. They only ADD to the built-in baseline (migrations, infra/deploy, auth/RLS, edge functions, dependency manifests, CI/gate config, secrets) and always beat `allow`." },
+            "deadlineHours": { "type": "integer", "minimum": 1, "maximum": 48, "description": "Hours the full heavy + predeploy run may trail a fast deploy. Default 12." },
+            "permitMinutes": { "type": "integer", "minimum": 5, "maximum": 240, "description": "How long a permit (and a multi-step deploy under it) stays valid. Default 60." },
+            "gateTiers": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" }, "description": "Gate tier names whose tree-bound pass stamp counts as \"gate green\". Default [\"gate\"]." }
+          }
+        },
         "stampTtlHours": { "type": "integer", "minimum": 1 },
         "minSeverity": { "enum": ["info", "low", "medium", "high", "critical"] },
         "concurrency": { "type": "integer", "minimum": 1 },

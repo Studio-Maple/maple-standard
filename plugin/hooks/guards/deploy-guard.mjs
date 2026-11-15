@@ -11,6 +11,10 @@
 //  2. The gate's own state (stamps, ledger, live-scan records, the emergency override) cannot be written
 //     by tool commands — a stamp is only ever produced by the gate runner.
 //  3. Editing the allowlist or maple.config.json forces an `ask` (owner approval).
+//  4. FAST LANE (opt-in, predeploy.fastLane): a commit whose diff from the last fully stamped commit is provably
+//     low-risk may deploy on a permit BEFORE its heavy + predeploy run. That records one fast-lane debt; while it is
+//     open every other deploy is refused except a fully stamped commit containing it, or a rollback to its base.
+//     The decision lives in scripts/predeploy/fastlane.mjs (verifyDeploy); its state sits under maple/predeploy too.
 //
 // No bypass flag. The only override is the owner's interactive emergency override (needs a TTY and a typed
 // phrase; default off; logged). Fails open only on malformed hook input; a missing/invalid stamp, and an
@@ -213,8 +217,9 @@ export async function check(ctx) {
   const hit = matchDeploy(ctx.command, effectivePatterns(pd.deployGuard?.patterns), ctx.shell) || prodPushHit(ctx, root, cfg, pd);
   if (!hit) return undefined;
 
-  const { verifyStamp, appendLedger } = await import(pathToFileURL(join(PD, "state.mjs")).href);
-  const v = verifyStamp(root);
+  const { appendLedger } = await import(pathToFileURL(join(PD, "state.mjs")).href);
+  const { verifyDeploy, applyDeploy } = await import(pathToFileURL(join(PD, "fastlane.mjs")).href);
+  const v = verifyDeploy(root);
   if (!v.ok) {
     return {
       deny:
@@ -223,10 +228,16 @@ export async function check(ctx) {
         `  There is no bypass flag. The owner's emergency override is documented in docs/predeploy-gate.md (default off).`,
     };
   }
+  // Fast lane (deploy first, enforce after): the debt is recorded BEFORE the deploy runs; if it cannot be, no deploy.
+  try { applyDeploy(root, v); } catch (e) {
+    return { deny: `BLOCKED (predeploy-guard): the fast-lane ledger could not be written (${e.message}); a deploy ahead of its verification is never allowed unrecorded.` };
+  }
   try {
-    appendLedger(root, { sha: v.sha, patternId: hit.id, command: ctx.command.slice(0, 200).replace(/(token|secret|password|key)[=:\s]+\S+/gi, "$1=<redacted>"), emergency: Boolean(v.emergency) });
+    appendLedger(root, { sha: v.sha, patternId: hit.id, lane: v.lane, command: ctx.command.slice(0, 200).replace(/(token|secret|password|key)[=:\s]+\S+/gi, "$1=<redacted>"), emergency: Boolean(v.emergency) });
   } catch { /* ledger failure must not wedge a legitimately stamped deploy */ }
-  return v.emergency ? { warn: `WARNING (predeploy-guard): EMERGENCY OVERRIDE in effect — ${v.reason}` } : undefined;
+  if (v.emergency) return { warn: `WARNING (predeploy-guard): EMERGENCY OVERRIDE in effect — ${v.reason}` };
+  if (v.lane === "fast" || v.lane === "rollback") return { warn: `WARNING (predeploy-guard): ${v.reason}. Status: node "<plugin>/scripts/predeploy/fastlane-cli.mjs" status` };
+  return undefined;
 }
 
 /** Used by the dispatcher on internal error/deadline: deny only when the command LOOKS like a deploy. */

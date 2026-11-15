@@ -14,6 +14,7 @@ import { PRESET_NAMES } from "./catalog.mjs";
 import { IMAGE_DEBT_DEFAULT_PATH, IMAGE_DEBT_MAX_DAYS_DEFAULT } from "./imagedebt.mjs";
 import { MIN_FREE_GB_DEFAULT, RUNS_DEFAULTS } from "./runs.mjs";
 import { validateExposure } from "./exposure-config.mjs";
+import { validateFastLane } from "./fastlane-rules.mjs";
 
 export const DEFAULTS = {
   enabled: true,
@@ -60,7 +61,8 @@ export function normalize(cfg) {
 export function configHash(pd) {
   // `runs` and `minFreeGB` only govern disk hygiene of the run workspaces; they change nothing a stamp certifies, so
   // retuning them must not invalidate stamps.
-  const { runs: _runs, minFreeGB: _minFreeGB, ...certified } = pd;
+  // `fastLane` decides WHEN the full run happens relative to a deploy, never what a stamp certifies: same rule.
+  const { runs: _runs, minFreeGB: _minFreeGB, fastLane: _fastLane, ...certified } = pd;
   return sha256(canonicalJson(certified));
 }
 
@@ -69,7 +71,7 @@ export function validatePredeploy(cfg) {
   const p = cfg?.predeploy;
   if (p === undefined) return e;
   if (!isObj(p)) return ["predeploy: must be an object"];
-  const known = ["enabled", "policyRef", "allowlist", "allowlistMaxDays", "decisions", "decisionsMaxAgeDays", "stampTtlHours", "minSeverity", "concurrency", "allowlistUnused", "docker", "checks", "remote", "deployGuard", "emergency", "liveScan", "imageDebt", "runs", "minFreeGB", "exposure"];
+  const known = ["enabled", "policyRef", "allowlist", "allowlistMaxDays", "decisions", "decisionsMaxAgeDays", "stampTtlHours", "minSeverity", "concurrency", "allowlistUnused", "docker", "checks", "remote", "deployGuard", "emergency", "liveScan", "imageDebt", "runs", "minFreeGB", "exposure", "fastLane"];
   for (const k of Object.keys(p)) if (!known.includes(k)) e.push(`predeploy.${k}: unknown key`);
   if (p.enabled !== undefined && typeof p.enabled !== "boolean") e.push("predeploy.enabled: must be a boolean");
   if (p.policyRef !== undefined && !isStr(p.policyRef)) e.push("predeploy.policyRef: must be a non-empty string (e.g. a decision id)");
@@ -93,6 +95,7 @@ export function validatePredeploy(cfg) {
   }
 
   e.push(...validateExposure(p));
+  e.push(...validateFastLane(p));
 
   const idb = p.imageDebt;
   if (idb !== undefined) {
