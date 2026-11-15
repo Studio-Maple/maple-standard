@@ -95,17 +95,20 @@ export function liveScans(root) {
  * Debt = deploys (not marked failed) newer than the last CLEAN live scan's coverage,
  * minus deploys of the stamp's own SHA after the stamp was issued.
  */
+// The remedy every live-scan-debt block names: the documented /predeploy-gate command, run AFTER the previous deploy.
+const RUN_LIVE = "run `node \"$CLAUDE_PLUGIN_ROOT/scripts/predeploy/run.mjs\" --live` (the /predeploy-gate --live command) against the live deployment AFTER the previous deploy has finished";
+
 export function liveScanDebt(root, pd, { stampSha, stampIssuedAt } = {}) {
   const ls = pd.liveScan;
   if (!ls || ls.enabled === false || ls.requireAfterDeploy === false) return { ok: true, reason: "live scan not required" };
   const scans = liveScans(root);
-  if (!scans.length) return { ok: false, reason: "no live scan has ever been recorded — run `predeploy-gate --live` once against the current deployment before the first stamp" };
+  if (!scans.length) return { ok: false, reason: `no live scan has ever been recorded — ${RUN_LIVE}, once, before the first stamp` };
   const latest = scans[scans.length - 1];
-  if (latest.status !== "pass" && latest.outcome === "target-down") return { ok: false, reason: `latest live scan (${latest.ts}) did not run: a target was down (scan not meaningful) - bring it up and re-run predeploy-gate --live` };
-  if (latest.status !== "pass") return { ok: false, reason: `latest live scan (${latest.ts}) failed with ${latest.blocking} blocking finding(s) — fix, redeploy if needed, and re-run \`predeploy-gate --live\`` };
+  if (latest.status !== "pass" && latest.outcome === "target-down") return { ok: false, reason: `latest live scan (${latest.ts}) did not run: a target was down (scan not meaningful) - bring it up, then ${RUN_LIVE}` };
+  if (latest.status !== "pass") return { ok: false, reason: `latest live scan (${latest.ts}) failed with ${latest.blocking} blocking finding(s) — fix, redeploy if needed, then ${RUN_LIVE}` };
   const covered = latest.coversSeq ?? 0;
   const pending = effectiveDeploys(root).filter((d) => d.status !== "failed" && d.seq > covered && !(stampSha && d.sha === stampSha && stampIssuedAt && d.ts >= stampIssuedAt));
-  if (pending.length) return { ok: false, reason: `${pending.length} deploy(s) since the last clean live scan (latest: ${pending[pending.length - 1].sha.slice(0, 8)} ${pending[pending.length - 1].patternId}) — run \`predeploy-gate --live\` against the live deployment first` };
+  if (pending.length) return { ok: false, reason: `${pending.length} deploy(s) since the last clean live scan (latest: ${pending[pending.length - 1].sha.slice(0, 8)} ${pending[pending.length - 1].patternId}) — ${RUN_LIVE}, then deploy again` };
   return { ok: true, reason: `live scan ${latest.ts} clean and covers all deploys` };
 }
 
