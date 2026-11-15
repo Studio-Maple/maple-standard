@@ -57,12 +57,14 @@ const spans = (events, kind) => {
 const anyOverlap = (xs) => xs.some((a, i) => xs.some((b, j) => i < j && a.s < b.e && b.s < a.e));
 const IMGS = (tags) => tags.map((tag, i) => ({ name: "img" + "abcd"[i], ref: `fake/img${"abcd"[i]}:${tag}` }));
 
-await t("default: images are prepared 3 at a time (pulls overlap), well under the serial time", async () => {
+await t("default: images are prepared 3 at a time (pulls overlap)", async () => {
   assert.equal(IMAGE_CONCURRENCY_DEFAULT, 3);
   const r = await run(IMGS([2, 2, 2]));
   assert.deepEqual(r.findings.filter((f) => !f.imageFinding), [], JSON.stringify(r.findings));
   assert.ok(anyOverlap(spans(r.events, "pull")), "pulls overlap");
-  assert.ok(r.wall < 5500, `wall ${r.wall}ms; serial pulls alone would take >= 6000ms`);
+  // Width, not wall clock: a wall-time bound failed on a loaded machine (9.3 s for three 2 s pulls).
+  const p = spans(r.events, "pull");
+  assert.equal(Math.max(...p.map((a) => p.filter((b) => b.s <= a.s && a.s < b.e).length)), 3, "all three pulls were live at once");
 });
 
 await t("trivy scans never overlap (single-writer cache), and findings keep the configured image order", async () => {
