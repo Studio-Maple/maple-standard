@@ -83,8 +83,12 @@ export function applyAllowlist(findings, al, { today = new Date(), ranChecks }) 
   const blocking = [];
   const allowed = [];
   for (const f of findings) {
-    const hit = live.find((e) => matches(e, f));
-    if (hit) { used.add(hit); allowed.push({ ...f, allowlist: { reason: hit.reason, owner: hit.owner, expires: hit.expires } }); }
+    // Every matching row counts as used (a row is "unused" only when it matches nothing). The finding is attributed to the
+    // MOST SPECIFIC match: longest location wins, a row with no location is the broadest, first in file order on a tie.
+    const all = live.filter((e) => matches(e, f));
+    for (const e of all) used.add(e);
+    const hit = all.reduce((best, e) => (!best || String(e.location || "").length > String(best.location || "").length ? e : best), null);
+    if (hit) { allowed.push({ ...f, allowlist: { reason: hit.reason, owner: hit.owner, expires: hit.expires } }); }
     else blocking.push(f);
   }
   const unused = live.filter((e) => ranChecks.includes(e.check) && !used.has(e)).map((e) => ({ check: "allowlist", id: "allowlist-unused", severity: "medium", message: `entry ${e.check}/${e.id} matches no finding — remove it`, location: al.path }));

@@ -47,6 +47,17 @@ t("valid entry passes validation and excepts the finding", () => {
   const r = applyAllowlist([{ check: "semgrep", id: "r1", location: "a.ts:1" }, { check: "semgrep", id: "r2" }], al([good]), { today, ranChecks: ["semgrep"] });
   assert.equal(r.blocking.length, 1); assert.equal(r.allowed.length, 1);
 });
+t("overlapping rows: every matching row counts as used, the most specific is attributed", () => {
+  const broad = { ...good, reason: "broad row, whole directory" };
+  const narrow = { ...good, location: "a.ts:1", reason: "narrow row, one line" };
+  const r = applyAllowlist([{ check: "semgrep", id: "r1", location: "a.ts:1" }], al([broad, narrow]), { today, ranChecks: ["semgrep"] });
+  assert.equal(r.blocking.length, 0);
+  assert.equal(r.allowed[0].allowlist.reason, "narrow row, one line");
+  assert.equal(r.unused.length, 0, "the broad row must not be reported unused just because a narrower row took the finding");
+  const r2 = applyAllowlist([{ check: "semgrep", id: "r1", location: "a.ts:1" }], al([narrow, broad]), { today, ranChecks: ["semgrep"] });
+  assert.equal(r2.allowed[0].allowlist.reason, "narrow row, one line", "file order must not decide");
+  assert.equal(r2.unused.length, 0);
+});
 t("expired entry fails and no longer excepts", () => {
   const e = { ...good, expires: "2026-09-30" };
   assert.equal(validateEntries(al([e]), { checkIds: ["semgrep"], today })[0].id, "allowlist-expired");
