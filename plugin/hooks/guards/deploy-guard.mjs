@@ -78,7 +78,10 @@ const STATE_WRITE_RE = /maple[\\/](predeploy|heavy-pass|heavy-runs)|gate-debt\.j
 const GATE_CLI_WRITE_RE = /gate-cli(\.mjs)?["']?\s+["']?(stamp|pay)\b/i;
 // D073: `gate-cli attest` is the second, VERIFIED path to a heavy / predeploy stamp (an OfficeCI job re-checked against the
 // coordinator). It stays allowed, but not with the coordinator redirected by an inline OFFICECI_URL / OFFICECI_TOKEN.
-const GATE_CLI_ATTEST_RE = /gate-cli(\.mjs)?["']?\s+["']?attest\b/i;
+// `gate-cli carry` (opt-in gate.heavyCarryOver) is allowed on purpose: it writes a via=carry record that NO reader trusts
+// as written - verifyPromotion / the fast lane re-derive it from git objects in their own process (heavy-carry.mjs). A
+// hand-written heavy-pass record, carry or not, stays denied by the state-path rules above.
+const GATE_CLI_ATTEST_RE =/gate-cli(\.mjs)?["']?\s+["']?attest\b/i;
 const OFFICECI_OVERRIDE_RE = /\bOFFICECI_(URL|TOKEN)\b/i;
 const PURE_READ_VERBS = new Set(["cat", "ls", "dir", "type", "head", "tail", "grep", "egrep", "rg", "get-content", "select-string", "gc", "sls", "wc", "findstr"]);
 
