@@ -113,6 +113,22 @@
       }
     },
 
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Production-gate options (D066 family).",
+      "properties": {
+        "heavyCarryOver": {
+          "type": "object", "additionalProperties": false, "required": ["enabled"],
+          "description": "Opt-in HEAVY STAMP CARRY-OVER (D###): `gate-cli carry` may give HEAD a heavy-pass record carried from the nearest first-parent ancestor with a real green heavy run when the diff between them is only in-place edits of the listed top-level .json files (and, for maple.config.json, scalar changes at listed keys). Every reader re-verifies the carry from git; the predeploy gate still runs on HEAD; no gate debt is paid. Authoritative validation: plugin/scripts/gate/heavy-carry-rules.mjs.",
+          "properties": {
+            "enabled": { "type": "boolean", "description": "Off unless true." },
+            "paths": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[^/\\*?\\[\\]{}!]+\\.json$" }, "description": "Exact top-level .json file names (no directory, glob, `..` or absolute path; tool manifests such as package.json / tsconfig*.json are refused). Required and non-empty when enabled." },
+            "configKeys": { "type": "array", "items": { "type": "string", "pattern": "^predeploy(\\.[A-Za-z_$][A-Za-z0-9_$-]*|\\[(\\*|\\d+|id=[A-Za-z0-9_.:-]+)\\])+$" }, "description": "Key paths in maple.config.json whose scalar value may change: dot-separated keys with array selectors [*], [id=<id>] or [<n>]; exact whole-path match; only under predeploy, never enabled/fastLane/deployGuard/emergency/allowlist/decisions/imageDebt.file, never a command/preset/github/parse/regex/workflow/enabled leaf. Required iff maple.config.json is in paths." }
+          }
+        }
+      }
+    },
     "lint": {
       "type": "object",
       "additionalProperties": false,

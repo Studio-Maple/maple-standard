@@ -29,6 +29,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { validatePredeploy } from "./predeploy/config.mjs";
+import { validateGate } from "./gate/heavy-carry-rules.mjs";
 
 const ERROR_TRACKER_PROVIDERS = ["sentry", "maplelens"];
 const LOOP_NAMES = ["sweep-errors", "burn-backlog", "sweep-quality", "detect-drift"];
@@ -124,7 +125,7 @@ export function validateConfig(config) {
   }
   checkNoExtraKeys(
     config,
-    ["$schema", "project", "repo", "worktrees", "docs", "ci", "lint", "sizeCaps", "errorTracker", "loops", "hooks", "jev", "quality", "predeploy", "deps", "supabase", "officeci"],
+    ["$schema", "project", "repo", "worktrees", "docs", "ci", "lint", "sizeCaps", "errorTracker", "loops", "hooks", "jev", "quality", "predeploy", "deps", "supabase", "officeci", "gate"],
     "root",
     errors
   );
@@ -420,6 +421,9 @@ export function validateConfig(config) {
 
   // ---- predeploy (D060) ----------------------------------------------------------------
   errors.push(...validatePredeploy(config));
+
+  // ---- gate (heavy stamp carry-over, D###; authoritative rules: gate/heavy-carry-rules.mjs) ----
+  errors.push(...validateGate(config.gate));
 
   // ---- deps (D064) ------------------------------------------------------------------
   // Shape only; that each `decision` exists in the ledger is verified at run time by

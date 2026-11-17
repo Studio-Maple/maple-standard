@@ -6,7 +6,9 @@
  *                        (debt lines {sha, branch, step, reason, at, who, ref?}) and of the green
  *                        heavy runs that paid them (paid lines {paid:true, sha, step, by, at})
  *   heavy-pass/<sha>.json  "the full heavy tier was green on exactly this commit" (production
- *                        promotion requires it for HEAD)
+ *                        promotion requires it for HEAD); with `via: "carry"` (opt-in gate.heavyCarryOver,
+ *                        heavy-carry.mjs) "HEAD differs from such a commit only in allow-listed data": re-verified
+ *                        on every read that lets it count (heavyPassFor), never pays debt, never a baseline
  *   heavy-runs/          reports + logs of scheduled heavy runs (heavy-run.mjs)
  *
  * Zero dependencies. A skip is only ever a record of work NOT done, so the ledger is
@@ -18,6 +20,9 @@ import net from "node:net";
 import os from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { readCiStackConfig } from "./ci-stack-config.mjs";
+import { isRealHeavyPass, verifyCarryRecord } from "./heavy-carry.mjs";
+
+export { isRealHeavyPass };
 
 /** Listed skip reasons: the only values MAPLE_GATE_SKIP accepts, with the step each may skip. */
 export const SKIP_REASONS = {
@@ -210,31 +215,46 @@ export function readHeavyStamp(root, sha) {
   }
 }
 
-/** Most recent heavy-stamped ancestor of `head` (the baseline of "what changed since the last heavy"). */
+/** Most recent REAL heavy-stamped ancestor of `head` (the baseline of "what changed since the last heavy"; a carry never is one). */
 export function lastHeavyBase(root, head) {
   const dir = sub(root, "heavy-pass");
   const out = git(root, ["rev-list", "--max-count=2000", head]);
   if (!out) return null;
-  for (const sha of out.split(/\r?\n/)) if (existsSync(join(dir, `${sha}.json`))) return sha;
+  for (const sha of out.split(/\r?\n/)) if (existsSync(join(dir, `${sha}.json`)) && isRealHeavyPass(readHeavyStamp(root, sha), sha)) return sha;
   return null;
 }
 
 /**
- * Production promotion requirement (D066): a green heavy run on exactly `sha`, and zero unpaid gate
- * debt among the commits `sha` contains.
+ * Does `sha` hold a heavy pass that counts? A real record counts as written; a carry record only if carryEligibility
+ * still holds NOW (feature on, origin real and on the first-parent chain, diff recomputed from git objects).
+ * @returns {{ok:boolean, stamp?:object, carry?:object, reason:string}}
+ */
+export function heavyPassFor(root, sha) {
+  const stamp = readHeavyStamp(root, sha);
+  if (!stamp || stamp.sha !== sha) return { ok: false, reason: "no heavy record for this commit" };
+  if (isRealHeavyPass(stamp, sha)) return { ok: true, stamp, reason: `green heavy run at ${stamp.at}` };
+  const c = verifyCarryRecord(root, sha, stamp, { readStamp: readHeavyStamp });
+  if (!c.ok) return { ok: false, stamp, reason: `its carried heavy pass is refused (${c.code}): ${c.reason}` };
+  const what = [...c.paths, ...c.configKeys.map((k) => "maple.config.json:" + k)].join(", ") || "nothing";
+  return { ok: true, stamp, carry: c, reason: `heavy pass carried from ${c.from.slice(0, 8)} (green heavy run at ${c.originAt}; changed since: ${what})` };
+}
+
+/**
+ * Production promotion requirement (D066): a green heavy run on exactly `sha` (or, opt-in, a carry of one that
+ * re-verifies now: heavyPassFor), and zero unpaid gate debt among the commits `sha` contains.
  * @returns {{ok:boolean, reason:string}}
  */
 export function verifyPromotion(root, sha) {
-  const stamp = readHeavyStamp(root, sha);
-  if (!stamp || stamp.sha !== sha) {
-    return { ok: false, reason: `no green heavy run for HEAD ${sha.slice(0, 8)} - run \`pnpm ci:heavy\` (or wait for the scheduled heavy run, node <plugin>/scripts/gate/heavy-run.mjs) on this exact commit` };
+  const pass = heavyPassFor(root, sha);
+  if (!pass.ok) {
+    return { ok: false, reason: `no green heavy run for HEAD ${sha.slice(0, 8)}${pass.stamp ? ` (${pass.reason})` : ""} - run \`pnpm ci:heavy\` (or wait for the scheduled heavy run, node <plugin>/scripts/gate/heavy-run.mjs) on this exact commit` };
   }
   const debt = unpaidDebt(root, { head: sha });
   if (debt.length) {
     const d = debt[0];
     return { ok: false, reason: `${debt.length} unpaid gate debt entr${debt.length === 1 ? "y" : "ies"} in HEAD's history (first: ${d.sha.slice(0, 8)} step ${d.step}, ${d.reason}${d.ref ? ", " + d.ref : ""}) - a green full heavy run on a commit containing ${debt.length === 1 ? "it" : "them"} pays the debt` };
   }
-  return { ok: true, reason: `green heavy run for ${sha.slice(0, 8)} at ${stamp.at}, no unpaid gate debt` };
+  return { ok: true, reason: pass.carry ? `${pass.reason}, no unpaid gate debt` : `green heavy run for ${sha.slice(0, 8)} at ${pass.stamp.at}, no unpaid gate debt` };
 }
 
 export { resolveSha, nowIso };

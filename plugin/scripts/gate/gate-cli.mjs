@@ -20,6 +20,13 @@
  *                                               import a tier pass verified on OfficeCI (D073): job passed, same origin repo,
  *                                               success line + `officeci-sha SHA` in the log; writes who=officeci:J via=attest.
  *                                               Any failed check exits 1 and writes nothing. Never --live (see attest.mjs)
+ *   carry  [--check]                            opt-in heavy carry-over (gate.heavyCarryOver, heavy-carry.mjs): HEAD differs from
+ *                                               the nearest first-parent ancestor with a REAL green heavy run only in in-place
+ *                                               edits of listed data files / listed maple.config.json keys -> write
+ *                                               heavy-pass/<HEAD>.json {via:"carry", carriedFrom, paths, configKeys, at: the
+ *                                               ORIGIN's time, carriedAt}. Never pays debt. Refuses on a dirty tracked tree,
+ *                                               unpaid debt, a real record already on HEAD, or any eligibility failure (exit 1).
+ *                                               --check prints the verdict and writes nothing. Readers re-verify the record.
  *   verify [--sha SHA]                      promotion requirement: heavy stamp for sha + no unpaid debt
  *   base   [--head SHA]                         last heavy-stamped ancestor of head (empty when none)
  *
@@ -27,7 +34,8 @@
  * (honoured only when docker really is unavailable - the same verification as any skip).
  */
 import { pathToFileURL } from "node:url";
-import { git, lastHeavyBase, payDebt, readHeavyStamp, recordDebt, resolveSha, unpaidDebt, validateSkip, verifyPromotion, verifyReason, writeHeavyStamp } from "./gate-state.mjs";
+import { git, isRealHeavyPass, lastHeavyBase, nowIso, payDebt, readHeavyStamp, recordDebt, resolveSha, unpaidDebt, validateSkip, verifyPromotion, verifyReason, who, writeHeavyStamp } from "./gate-state.mjs";
+import { carryEligibility } from "./heavy-carry.mjs";
 
 function parse(argv) {
   const a = { _: [], flags: {} };
@@ -118,6 +126,23 @@ export async function main(argv, { root = process.cwd(), env = process.env, out 
         return 1;
       }
     }
+    case "carry": {
+      for (const k of Object.keys(flags)) if (!["check", "root"].includes(k)) { err(`carry refused: unknown flag --${k} (carry always targets HEAD and computes its origin itself)`); return 2; }
+      const sha = head();
+      if (!sha) { err("carry refused: no HEAD"); return 2; }
+      const dirty = git(R, ["status", "--porcelain", "--untracked-files=no"]);
+      if (dirty === null || dirty.length) { err("carry refused: tracked files differ from HEAD"); return 1; }
+      if (isRealHeavyPass(readHeavyStamp(R, sha), sha)) { err(`carry refused: ${sha.slice(0, 10)} already has a real green heavy run`); return 1; }
+      const debt = unpaidDebt(R, { head: sha });
+      if (debt.length) { err(`carry refused: ${debt.length} unpaid gate debt entr${debt.length === 1 ? "y" : "ies"} in HEAD's history - only a green full heavy run pays it`); return 1; }
+      const c = carryEligibility(R, sha, { readStamp: readHeavyStamp });
+      if (!c.ok) { err(`carry refused (${c.code}): ${c.reason}`); return 1; }
+      const what = [...c.paths, ...c.configKeys.map((k) => "maple.config.json:" + k)].join(", ") || "nothing";
+      if (flags.check) { out(`carry eligible: ${sha.slice(0, 10)} from ${c.from.slice(0, 10)} (green heavy run at ${c.originAt}); changed: ${what}`); return 0; }
+      writeHeavyStamp(R, sha, { at: c.originAt, who: who(), via: "carry", carriedFrom: c.from, carriedFromTree: c.fromTree, carriedAt: nowIso(), paths: c.paths, configKeys: c.configKeys, origin: { who: c.originWho ?? null, via: c.originVia ?? null } });
+      out(`heavy pass carried to ${sha.slice(0, 10)} from ${c.from.slice(0, 10)} (green heavy run at ${c.originAt}); changed: ${what}. No gate debt paid. The predeploy gate must still run on this commit.`);
+      return 0;
+    }
     case "verify": {
       const sha = resolveSha(R, flags.sha || "HEAD");
       if (!sha) { err("unknown --sha"); return 2; }
@@ -132,10 +157,10 @@ export async function main(argv, { root = process.cwd(), env = process.env, out 
     }
     case "has-stamp": {
       const sha = resolveSha(R, flags.sha || "HEAD");
-      return sha && readHeavyStamp(R, sha) ? 0 : 1;
+      return sha && isRealHeavyPass(readHeavyStamp(R, sha), sha) ? 0 : 1; // a carry is not a heavy RUN
     }
     default:
-      err("usage: gate-cli.mjs skip|record|list|pay|stamp|attest|verify|base|has-stamp (see the file header)");
+      err("usage: gate-cli.mjs skip|record|list|pay|stamp|attest|carry|verify|base|has-stamp (see the file header)");
       return 2;
   }
 }

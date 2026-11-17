@@ -23,7 +23,7 @@ import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, re
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { findBash, toPosix } from "./find-bash.mjs";
-import { git, mapleDir, readHeavyStamp, sub } from "./gate-state.mjs";
+import { git, isRealHeavyPass, mapleDir, readHeavyStamp, sub } from "./gate-state.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MAPLE_LIB = join(HERE, "..", "agent-wt", "maple-lib.sh");
@@ -132,7 +132,7 @@ export async function main(argv, log = console.log) {
   if (f.status !== 0) { console.error(`heavy-run: fetch of ${remote}/${target} failed: ${(f.stderr || "").trim()}`); return 2; }
   const sha = git(root, ["rev-parse", `${remote}/${target}`]);
   if (!sha) { console.error(`heavy-run: ${remote}/${target} does not resolve`); return 2; }
-  if (!args.force && readHeavyStamp(root, sha)) { log(`heavy-run: ${sha.slice(0, 10)} already has a green heavy stamp - nothing to do`); return 0; }
+  if (!args.force && isRealHeavyPass(readHeavyStamp(root, sha), sha)) { log(`heavy-run: ${sha.slice(0, 10)} already has a green heavy stamp - nothing to do`); return 0; }
 
   const lock = takeLock(root);
   if (!lock.ok) { log(`heavy-run: ${lock.reason} - not starting a second one`); return 0; }
@@ -163,9 +163,10 @@ export async function main(argv, log = console.log) {
     report.exit = exit;
     report.endedAt = new Date().toISOString();
     const stampRec = readHeavyStamp(root, sha);
+    const realStamp = isRealHeavyPass(stampRec, sha); // a pre-existing carry record is not this run's green stamp
     if (timedOut) { report.status = "timeout"; code = 1; }
     else if (exit !== 0) { report.status = "red"; code = 1; }
-    else if (!stampRec) { report.status = "partial"; code = 1; } // exit 0 without a stamp: a step was skipped (gate debt recorded)
+    else if (!realStamp) { report.status = "partial"; code = 1; } // exit 0 without a stamp: a step was skipped (gate debt recorded)
     else { report.status = "green"; report.stamp = stampRec.at; code = 0; }
     if (report.status !== "green") report.tail = tailOf(logFile, 40);
   } catch (e) {

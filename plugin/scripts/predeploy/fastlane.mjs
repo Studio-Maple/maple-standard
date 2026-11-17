@@ -22,7 +22,7 @@ import { normalize } from "./config.mjs";
 import { classify, normalizeFastLane, rulesHash } from "./fastlane-rules.mjs";
 import { git, headSha, loadMapleConfig, stateDir, trackedDirty, which } from "./lib.mjs";
 import { readJson, stampPath, verifyStamp, writeJson } from "./state.mjs";
-import { isAncestorOrSame, readHeavyStamp, sub as gateSub, unpaidDebt, who } from "../gate/gate-state.mjs";
+import { heavyPassFor, isAncestorOrSame, sub as gateSub, unpaidDebt, who } from "../gate/gate-state.mjs";
 
 const short = (s) => String(s || "").slice(0, 8);
 const iso = (d) => new Date(d).toISOString();
@@ -42,7 +42,8 @@ function readLines(file) {
 
 // ── stamps ──────────────────────────────────────────────────────────────────
 const predeployPass = (root, sha) => { const s = readJson(stampPath(root, sha)); return Boolean(s && s.status === "pass" && s.sha === sha); };
-const heavyPass = (root, sha) => readHeavyStamp(root, sha)?.sha === sha;
+// A carry record (gate.heavyCarryOver) counts only while it re-verifies (heavyPassFor), exactly as at promotion.
+const heavyPass = (root, sha) => heavyPassFor(root, sha).ok;
 /** A green heavy run AND a predeploy pass were recorded for exactly this commit. */
 export const fullyStamped = (root, sha) => heavyPass(root, sha) && predeployPass(root, sha);
 
