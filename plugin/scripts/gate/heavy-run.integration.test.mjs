@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { main as heavyRun, releaseLock, removeWorktree, takeLock } from "./heavy-run.mjs";
-import { mapleDir, readHeavyStamp, recordDebt, unpaidDebt } from "./gate-state.mjs";
+import { mapleDir, readHeavyStamp, recordDebt, unpaidDebt, writeHeavyStamp } from "./gate-state.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CLI = join(HERE, "gate-cli.mjs").replace(/\\/g, "/");
@@ -82,6 +82,16 @@ await t("partial: exit 0 without a stamp (a step was skipped) is NOT green", asy
   const r = await quiet([]);
   assert.equal(r.code, 1);
   assert.equal(readHeavyStamp(repo, tip), null);
+  assert.equal(reports().at(-1).status, "partial");
+});
+
+await t("a carried record (via=carry) neither skips the scheduled run nor makes a stampless run green", async () => {
+  setHeavy(`echo "skipped live (MAPLE_GATE_SKIP honoured)"; exit 0`);
+  const tip = commit("carried");
+  writeHeavyStamp(repo, tip, { via: "carry", carriedFrom: first });
+  const r = await quiet([]);
+  assert.doesNotMatch(r.out, /already has a green heavy stamp/, "the real heavy run still happens");
+  assert.equal(r.code, 1);
   assert.equal(reports().at(-1).status, "partial");
 });
 
