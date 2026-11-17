@@ -14,6 +14,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D077 | 2026-11-17 | Heavy stamp carry-over for data-only commits
+Amends D060/D066. With gate.heavyCarryOver on, gate-cli carry gives HEAD a heavy pass carried from the nearest first-parent ancestor with a real green heavy run, only if the diff is in-place edits of listed top-level .json ledger files plus scalar maple.config.json changes at listed predeploy keys; the gate block must be unchanged. Readers re-verify it from git at every check. Predeploy is never carried; carry pays no debt. Owner approved 2026-11-17.
+
 ## D076 | 2026-11-15 | Fast lane: eligible changes deploy first, heavy + predeploy are owed after
 Amends D066/D060. With predeploy.fastLane on, a commit whose diff from the nearest fully stamped commit touches only allow-listed paths (deny list wins, unclassified refused) may deploy on a time-limited permit after a green gate tier, clean pushed tree and clean gitleaks diff scan. The guard records one debt (heavy + predeploy owed within deadlineHours); until paid only a fully stamped descendant or a rollback to the base deploys. No auto-rollback. Owner approved 2026-11-15.
 

@@ -200,6 +200,8 @@ There is no knob to turn this off. A repo adopting the standard must configure `
 
 Opt-in exception (D076): with `predeploy.fastLane` on, a change that touches only allow-listed, non-denied paths may deploy before its heavy + predeploy run on a time-limited permit; the pair is then owed within `deadlineHours` and blocks other deploys until paid. See [[predeploy-gate]].
 
+Opt-in exception (D077): with `gate.heavyCarryOver` on, `gate-cli carry` carries a real green heavy run forward to a commit that differs from it only by in-place edits of listed top-level `.json` ledger files and scalar `maple.config.json` changes at listed `predeploy.` keys; the carry is re-verified from git at every check, and the predeploy gate still runs on the new commit.
+
 
 ## Cloud CI (`.github/workflows/`)
 

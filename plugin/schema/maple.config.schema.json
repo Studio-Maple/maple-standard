@@ -120,7 +120,7 @@
       "properties": {
         "heavyCarryOver": {
           "type": "object", "additionalProperties": false, "required": ["enabled"],
-          "description": "Opt-in HEAVY STAMP CARRY-OVER (D###): `gate-cli carry` may give HEAD a heavy-pass record carried from the nearest first-parent ancestor with a real green heavy run when the diff between them is only in-place edits of the listed top-level .json files (and, for maple.config.json, scalar changes at listed keys). Every reader re-verifies the carry from git; the predeploy gate still runs on HEAD; no gate debt is paid. Authoritative validation: plugin/scripts/gate/heavy-carry-rules.mjs.",
+          "description": "Opt-in HEAVY STAMP CARRY-OVER (D077): `gate-cli carry` may give HEAD a heavy-pass record carried from the nearest first-parent ancestor with a real green heavy run when the diff between them is only in-place edits of the listed top-level .json files (and, for maple.config.json, scalar changes at listed keys). Every reader re-verifies the carry from git; the predeploy gate still runs on HEAD; no gate debt is paid. Authoritative validation: plugin/scripts/gate/heavy-carry-rules.mjs.",
           "properties": {
             "enabled": { "type": "boolean", "description": "Off unless true." },
             "paths": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[^/\\*?\\[\\]{}!]+\\.json$" }, "description": "Exact top-level .json file names (no directory, glob, `..` or absolute path; tool manifests such as package.json / tsconfig*.json are refused). Required and non-empty when enabled." },
