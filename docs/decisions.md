@@ -14,6 +14,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D078 | 2026-11-17 | A push to the production branch is not a deploy for live-scan debt when the project says it deploys nothing
+predeploy.deployGuard.prodPushIsDeploy=false (default true) stops the prod-branch-push guard hit from creating a deploy-ledger record, so it creates no live-scan debt; the push is still verified against the stamp and real deploy commands are always recorded. Owner-approved 2026-11-17 for EasyCaller (all Pages projects direct-upload, no git integration). Amends D060/D066.
+
 ## D077 | 2026-11-17 | Heavy stamp carry-over for data-only commits
 Amends D060/D066. With gate.heavyCarryOver on, gate-cli carry gives HEAD a heavy pass carried from the nearest first-parent ancestor with a real green heavy run, only if the diff is in-place edits of listed top-level .json ledger files plus scalar maple.config.json changes at listed predeploy keys; the gate block must be unchanged. Readers re-verify it from git at every check. Predeploy is never carried; carry pays no debt. Owner approved 2026-11-17.
 

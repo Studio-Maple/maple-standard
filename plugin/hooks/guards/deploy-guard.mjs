@@ -167,6 +167,16 @@ function prodPushHit(ctx, root, cfg, pd) {
   return null;
 }
 
+/**
+ * Whether a matched deploy counts as a deploy in the ledger (which is what creates live-scan debt). A push to the
+ * production branch is verified like any deploy, but when the project says it deploys nothing by itself
+ * (`predeploy.deployGuard.prodPushIsDeploy: false`, e.g. every target is direct-upload with no git integration) it is
+ * not recorded: the real deploy command is. Default true: every other project keeps today's behaviour.
+ */
+export function recordsDeploy(hit, pd) {
+  return !(hit?.id === "prod-branch-push" && pd?.deployGuard?.prodPushIsDeploy === false);
+}
+
 function stateWriteDenied() {
   return "BLOCKED (predeploy-guard): the gate's state (stamps, deploy ledger, live-scan records, emergency override) is written only by the gate runner.";
 }
@@ -236,7 +246,7 @@ export async function check(ctx) {
     return { deny: `BLOCKED (predeploy-guard): the fast-lane ledger could not be written (${e.message}); a deploy ahead of its verification is never allowed unrecorded.` };
   }
   try {
-    appendLedger(root, { sha: v.sha, patternId: hit.id, lane: v.lane, command: ctx.command.slice(0, 200).replace(/(token|secret|password|key)[=:\s]+\S+/gi, "$1=<redacted>"), emergency: Boolean(v.emergency) });
+    if (recordsDeploy(hit, pd)) appendLedger(root, { sha: v.sha, patternId: hit.id, lane: v.lane, command: ctx.command.slice(0, 200).replace(/(token|secret|password|key)[=:\s]+\S+/gi, "$1=<redacted>"), emergency: Boolean(v.emergency) });
   } catch { /* ledger failure must not wedge a legitimately stamped deploy */ }
   if (v.emergency) return { warn: `WARNING (predeploy-guard): EMERGENCY OVERRIDE in effect — ${v.reason}` };
   if (v.lane === "fast" || v.lane === "rollback") return { warn: `WARNING (predeploy-guard): ${v.reason}. Status: node "<plugin>/scripts/predeploy/fastlane-cli.mjs" status` };

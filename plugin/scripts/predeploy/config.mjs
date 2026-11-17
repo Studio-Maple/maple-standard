@@ -161,7 +161,8 @@ export function validatePredeploy(cfg) {
   if (g !== undefined) {
     if (!isObj(g)) e.push("predeploy.deployGuard: must be an object");
     else {
-      for (const k of Object.keys(g)) if (!["enabled", "patterns"].includes(k)) e.push(`predeploy.deployGuard.${k}: unknown key`);
+      for (const k of Object.keys(g)) if (!["enabled", "patterns", "prodPushIsDeploy"].includes(k)) e.push(`predeploy.deployGuard.${k}: unknown key`);
+      if (g.prodPushIsDeploy !== undefined && typeof g.prodPushIsDeploy !== "boolean") e.push("predeploy.deployGuard.prodPushIsDeploy: must be a boolean");
       if (g.enabled === false) e.push("predeploy.deployGuard.enabled: false is not allowed — the gate is enforced, not advisory");
       if (g.patterns !== undefined && !(Array.isArray(g.patterns) && g.patterns.length > 0)) e.push("predeploy.deployGuard.patterns: an explicitly empty list is an error — built-in baseline patterns always apply (wrangler/supabase/terraform/vercel); omit the key, or list ADDITIONAL { id, regex } patterns");
       (g.patterns || []).forEach((pt, i) => {
