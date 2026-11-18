@@ -197,9 +197,10 @@ export function validatePredeploy(cfg) {
           ls.targets.forEach((t, i) => {
             const at = `predeploy.liveScan.targets[${i}]`;
             if (!isObj(t)) return e.push(`${at}: object`);
-            for (const k of Object.keys(t)) if (!["id", "url", "openapi", "excludeRegexes", "headers", "schedule"].includes(k)) e.push(`${at}.${k}: unknown key`);
+            for (const k of Object.keys(t)) if (!["id", "url", "openapi", "excludeRegexes", "headers", "schedule", "readyPath"].includes(k)) e.push(`${at}.${k}: unknown key`);
             if (!isStr(t.id) || !/^[a-z0-9][a-z0-9-]*$/.test(t.id)) e.push(`${at}.id: kebab-case`); else if (tids.has(t.id)) e.push(`${at}.id: duplicate`); else tids.add(t.id);
             if (!/^https?:\/\/[^\s/]+/.test(String(t.url))) e.push(`${at}.url: http(s) URL`);
+            if (t.readyPath !== undefined && !(isStr(t.readyPath) && /^\/[^\s?#]*$/.test(t.readyPath))) e.push(`${at}.readyPath: a path starting with "/" (no scheme, query or fragment), e.g. "/readyz"`);
             if (t.schedule !== undefined) e.push(...validateSchedule(t.schedule, `${at}.schedule`));
             for (const rx of t.excludeRegexes || []) try { new RegExp(rx); } catch (x) { e.push(`${at}.excludeRegexes: ${x.message}`); }
             (t.headers || []).forEach((h, j) => {

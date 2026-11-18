@@ -40,7 +40,8 @@ import { beginRun, finishRun, fmtGB, preflight } from "./runs.mjs";
 import { checkTargets } from "./targetcheck.mjs";
 import { dockerPull, dockerImagePresent, dockerUsable, nativePath } from "./tools.mjs";
 import { liveExposure, probePlan } from "./exposure-live.mjs";
-import { scrubSecrets } from "./scrub.mjs";
+import { scrubSecrets, scrubUri } from "./scrub.mjs";
+import { waitForReady } from "./readiness.mjs";
 
 const stripCaret = (re) => re.replace(/^\^/, "");
 const HOST_ANY = "https?://[^/]+";
@@ -240,6 +241,12 @@ async function scan({ args, root, pd, ls, runDir, runName }) {
   const coversSeq = readLedger(root).reduce((m, e) => Math.max(m, e.seq || 0), 0);
   const env = { ...process.env };
   for (const e of envNames) env[e.env] = getCredential(e.ref) || "";
+  // A target with a readyPath must answer HTTP 200 there, stably, before the active scan starts (a booting origin makes ZAP scan edge error pages).
+  if (ls.targets.some((t) => t.readyPath)) {
+    console.log("waiting for origin readiness (targets with readyPath)...");
+    const ready = await waitForReady(ls, { headersFor: (t) => Object.fromEntries(envNames.filter((e) => e.target === t.id).map((e) => [e.name, env[e.env]])), log: console.log });
+    if (ready.findings.length) return recordTargetDown({ args, root, sha, coversSeq, ls, findings: ready.findings });
+  }
   const dargs = dockerArgs({ runDirNative: nativePath(runDir), image, ls, envNames });
   console.log(`live scan: ${ls.targets.length} target(s), FULL ACTIVE policy (strength High / threshold Low); excluded call-origination routes: ${(ls.callOriginationExcludes || []).length}`);
   // Stack-exposure probes (anonymous, D072) run BEFORE the active scan, so a WAF reacting to ZAP cannot mask them.
@@ -284,7 +291,8 @@ async function scan({ args, root, pd, ls, runDir, runName }) {
   const record = {
     ts, sha, coversSeq, status: all.length ? "fail" : "pass", blocking: all.length, allowlisted: allowed.length, decisionBacked: decided.backed.length,
     targets: ls.targets.map((t) => t.id), targetsHash: sha256(canonicalJson(ls)), image,
-    findings: all.slice(0, 500),
+    // Per-finding URL evidence (the ZAP workspace is pruned): kept scrubbed, same rules as the kept log and report.
+    findings: all.slice(0, 500).map((f) => (f.uris ? { ...f, uris: f.uris.map((u) => scrubUri(u, secretValues)) } : f)),
   };
   const stamp = ts.replace(/[:.]/g, "-");
   const dir = join(stateDir(root), "live-scans");

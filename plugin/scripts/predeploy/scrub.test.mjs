@@ -29,3 +29,11 @@ t("short values are ignored (they would shred the log) and ordinary text is unto
 });
 
 console.log(`\n${n} scrub tests passed`);
+
+import { scrubUri } from "./scrub.mjs";
+{
+  const u = scrubUri("https://h/a/b?x=1&access_token=abc123&session=zzz&page=2", []);
+  assert.equal(u, "https://h/a/b?x=1&access_token=[REDACTED]&session=[REDACTED]&page=2");
+  assert.equal(scrubUri("https://h/p/s3cr3t-value-123/q", ["s3cr3t-value-123"]), "https://h/p/[REDACTED]/q");
+  console.log("ok - scrubUri keeps the path and redacts credential-looking query values and injected values");
+}

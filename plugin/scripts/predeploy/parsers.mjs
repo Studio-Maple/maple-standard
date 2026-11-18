@@ -213,7 +213,7 @@ export const PARSERS = {
     for (const site of p.value.site) {
       for (const a of site.alerts || []) {
         const n = (a.instances || []).length;
-        out.push({ id: `zap-${a.pluginid}`, severity: risk[a.riskcode] ?? "high", message: `${a.name || a.alert} (${n} instance${n === 1 ? "" : "s"})`, location: (a.instances || [])[0]?.uri || site["@name"] });
+        out.push({ id: `zap-${a.pluginid}`, severity: risk[a.riskcode] ?? "high", message: `${a.name || a.alert} (${n} instance${n === 1 ? "" : "s"})`, location: (a.instances || [])[0]?.uri || site["@name"], uris: [...new Set((a.instances || []).map((i) => i.uri).filter(Boolean))].slice(0, 50) });
       }
     }
     return out;
