@@ -5,6 +5,8 @@ All notable changes to this project. Format loosely follows
 
 ## [Unreleased]
 
+- **Live scan: kept ZAP log and report are scrubbed of secrets (plugin v0.20.3, security).** ZAP can echo failed-auth request headers into its container log and JSON report, which are kept under `live-scans/`. `predeploy/scrub.mjs` now replaces every injected credential value, Authorization/Cookie/Set-Cookie/Access headers and JWTs with a redaction marker before either file is written (findings and verdicts are parsed from the unscrubbed report, so results are unchanged). Same scrub as EasyCaller `live-scan-auth.mjs`.
+
 - **Predeploy allowlist: overlapping rows no longer shadow each other (plugin v0.20.2, bug fix).** `applyAllowlist` used the first matching row and marked only it used, so a broad row listed before a narrower one made the narrower row "allowlist-unused" (round r4q). Now every matching row counts as used and the finding is attributed to the most specific match (longest location), independent of file order.
 
 - **A production-branch push is not a deploy for live-scan debt when the project says so (opt-in `predeploy.deployGuard.prodPushIsDeploy: false`, plugin v0.20.1, D078; amends D060/D066).** The guard's `prod-branch-push` hit wrote a deploy-ledger record, which created live-scan debt and forced a ~30-50 min scan per release even in projects where the push deploys nothing (EasyCaller: every Pages project is direct-upload). With the flag false the push is still verified against the stamp, but only the ledger record is skipped; real deploy commands are always recorded. Default true, so other projects are unchanged. Tests: `plugin/scripts/hooks/prod-push-ledger.test.mjs`.

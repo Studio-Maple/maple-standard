@@ -26,7 +26,7 @@
  * Needs Docker (ZAP does not start natively on this Windows host).
  */
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync, copyFileSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applyAllowlist, allowlistCommitted, loadAllowlist, validateEntries } from "./allowlist.mjs";
@@ -40,6 +40,7 @@ import { beginRun, finishRun, fmtGB, preflight } from "./runs.mjs";
 import { checkTargets } from "./targetcheck.mjs";
 import { dockerPull, dockerImagePresent, dockerUsable, nativePath } from "./tools.mjs";
 import { liveExposure, probePlan } from "./exposure-live.mjs";
+import { scrubSecrets } from "./scrub.mjs";
 
 const stripCaret = (re) => re.replace(/^\^/, "");
 const HOST_ANY = "https?://[^/]+";
@@ -249,7 +250,9 @@ async function scan({ args, root, pd, ls, runDir, runName }) {
   const log = (r.stdout || "") + (r.stderr || "");
   // The container log is the evidence for a failed scan; keep its tail with the live-scan records (the run workspace is deleted).
   mkdirSync(dirname(logFile), { recursive: true });
-  writeFileSync(logFile, log.length > 262144 ? "[... truncated ...]" + String.fromCharCode(10) + log.slice(-262144) : log);
+  // Kept evidence is scrubbed of the injected credential values, auth headers and JWTs (ZAP echoes failed-auth request headers).
+  const secretValues = envNames.map((e) => env[e.env]);
+  writeFileSync(logFile, scrubSecrets(log.length > 262144 ? "[... truncated ...]" + String.fromCharCode(10) + log.slice(-262144) : log, secretValues));
   const reportFile = join(runDir, "zap-report.json");
   const findings = [...authRejections(log, ls, envNames), ...exposure.findings];
   if (findings.length) console.error(`\nLIVE SCAN AUTH FAILURE — ${findings.length} authenticated target(s) were NOT authenticated:\n` + findings.map((f) => `  ${f.id}: ${f.message}`).join("\n") + "\n");
@@ -287,7 +290,7 @@ async function scan({ args, root, pd, ls, runDir, runName }) {
   const dir = join(stateDir(root), "live-scans");
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, `${stamp}.json`), JSON.stringify(record, null, 2));
-  if (existsSync(reportFile)) copyFileSync(reportFile, join(dir, `${stamp}-zap-report.json`));
+  if (existsSync(reportFile)) writeFileSync(join(dir, `${stamp}-zap-report.json`), scrubSecrets(readFileSync(reportFile, "utf8"), secretValues));
 
   if (args.json) console.log(JSON.stringify(record, null, 2));
   else {
