@@ -1,7 +1,8 @@
-# Supply-chain guard (D064): pnpm will not resolve a release younger than this many minutes (24 h), so
-# "install the latest" (what the dep-freshness guards require) never means "install what was published
-# an hour ago". Needs pnpm >= 10.16. check-dep-freshness honors the same window.
-minimumReleaseAge: 1440
+# Supply-chain guard (D064, D079): pnpm will not resolve a release younger than this many minutes (7 days),
+# so "install the latest" (what the dep-freshness guards require) never means "install what was published
+# this week". Needs pnpm >= 10.16. check-dep-freshness, the add-time guard and Dependabot's cooldown use the
+# same window.
+minimumReleaseAge: 10080
 
 # pnpm 11+ runs an install before every `pnpm run` when it thinks node_modules is stale. In a parallel-session
 # worktree node_modules is a junction into the MAIN checkout (D012), so that implicit install would write

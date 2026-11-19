@@ -7,12 +7,12 @@
 #     handles them on green CI). A CVE in vitest's transitive dep is a
 #     dev-machine issue, not a prod incident.
 #   - `security-updates` always gets its own grouped PR (high signal, fires
-#     on-advisory regardless of the monthly schedule).
+#     on-advisory regardless of the weekly schedule and the cooldown).
 #   - Major versions stay ignored (human review, deliberate upgrades). The
 #     auto-merge decision is made by dependabot-automerge.yml from
 #     fetch-metadata (update-type + dependency-type), NOT from these group
 #     names — so naming stays free.
-#   - Monthly cadence + grouping keeps a month to ~a handful of PRs. Each PR
+#   - Weekly cadence with a 7-day release cooldown (D079) + grouping keeps it to a handful of PRs. Each PR
 #     still triggers validate + CodeQL + gitleaks.
 
 version: 2
@@ -20,9 +20,13 @@ updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "monthly"
+      interval: "weekly"
       day: "monday"
       time: "06:00"
+    # D079: a release must be 7 days old before a version-update PR proposes it (supply-chain margin; the
+    # same window as pnpm minimumReleaseAge and the add-time guard). Security updates are not delayed.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10
     labels: ["dependencies"]
     groups:
@@ -59,8 +63,10 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "monthly"
+      interval: "weekly"
       day: "monday"
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     labels: ["dependencies", "ci"]
     groups:

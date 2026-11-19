@@ -238,7 +238,7 @@ hand-written dependency versions in any `package.json` (use `pnpm add`);
 `bash-guard` denies `add pkg@<version>` behind the latest major; the fast-tier
 `check-dep-freshness` gate fails any dependency added/changed vs the target
 branch that is behind the latest major (0.x: minor), and fails when the
-registry is unreachable. pnpm `minimumReleaseAge: 1440` keeps "latest" safe.
+registry is unreachable. pnpm `minimumReleaseAge: 10080` (7 days, D079) keeps "latest" safe; Dependabot uses the same cooldown.
 Exceptions live in `maple.config.json` `deps.exceptions[]`, each citing a
 D### in the decisions ledger.
 
