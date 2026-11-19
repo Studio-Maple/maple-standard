@@ -79,6 +79,13 @@ try {
     assert.equal(verdict(await run(warn, "Write", { file_path: `${warn}/docs/secrets.md`, content: `Never call ${STORE} yourself.` })), "allow");
     assert.equal(verdict(await run(warn, "Write", { file_path: `${warn}/plugin/scripts/secrets/x.mjs`, content: `const s = "${STORE}";` })), "allow");
   });
+  await t("a Write over an existing script that already calls the store is not blamed (migration path)", async () => {
+    const file = `${warn}/scripts/old-deploy.ps1`;
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(`${warn}/scripts`, { recursive: true });
+    writeFileSync(file, `$t = (${STORE} -Target 'X')\n`);
+    assert.equal(verdict(await run(warn, "Write", { file_path: file, content: `# tidied\n$t = (${STORE} -Target 'X')\n` })), "allow");
+  });
   await t("clean writes pass", async () => {
     assert.equal(verdict(await run(enforce, "Write", { file_path: `${enforce}/README.md`, content: "# hello\n" })), "allow");
   });

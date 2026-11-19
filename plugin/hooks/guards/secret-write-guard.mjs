@@ -10,6 +10,7 @@
 //    Without this, the shell guard could be sidestepped by writing a .ps1 and running it.
 //
 // Options: security.controls.secretWrite.allowPaths: ["glob", ...] (forward-slash, relative to the repo root).
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { relative } from "node:path";
 import { secretKinds } from "../secret-patterns.mjs";
 import { applyMode, controlOptions } from "./security-mode.mjs";
@@ -21,9 +22,20 @@ const STORE_HELPERS = /(^|\/)plugin\/(scripts\/(secrets|predeploy|hooks)\/|hooks
 const ENTROPY_ASSIGN = /\b([A-Za-z_]*(?:secret|token|password|passwd|api[_-]?key|private[_-]?key|access[_-]?key|client[_-]?secret)[A-Za-z_]*)["']?\s*[:=]\s*["'`]([A-Za-z0-9+/=_\-.]{24,})["'`]/gi;
 const PLACEHOLDER = /^(x+|0+|your[-_]|example|changeme|placeholder|dummy|test|fake|sample|redacted|<|\$\{|process\.env)/i;
 
+/** A Write over an existing file replaces it: what is already there is not this edit's doing. */
+function currentContent(file) {
+  try {
+    if (typeof file !== "string" || !file || !existsSync(file)) return "";
+    if (statSync(file).size > 2_000_000) return "";
+    return readFileSync(file, "utf8");
+  } catch {
+    return "";
+  }
+}
+
 /** The text this call adds, and the text it replaces (empty for a new file). */
 export function addedText(tool, input) {
-  if (tool === "Write") return { added: String(input.content ?? ""), removed: "" };
+  if (tool === "Write") return { added: String(input.content ?? ""), removed: currentContent(input.file_path) };
   if (tool === "Edit") return { added: String(input.new_string ?? ""), removed: String(input.old_string ?? "") };
   if (tool === "MultiEdit") {
     const edits = Array.isArray(input.edits) ? input.edits : [];
