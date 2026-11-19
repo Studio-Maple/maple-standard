@@ -82,7 +82,7 @@ export PP_FULL_RE='^scripts/(ci-local\.(sh|ps1)|lib/)|^plugin/scripts/prepush/|^
 # Machine-wide gate slots (MAPLE_GATE_SLOTS) cap concurrent HEAVY work. D066: a landing must not queue behind other
 # repos' builds before it has done any work (75-153 s slot waits were measured before the first lint), so only the
 # genuinely heavy steps take a slot: build, the integration suites, the live tier, the audits. Everything else is light.
-export PP_LIGHT_RE='^(lint|typecheck|knip|depcruise|vitest|plugin-(loops|agent-wt|jev|predeploy|deps|gate|prepush)|docs-drift|dep-freshness( \(heavy\))?|edge-typecheck|gitleaks|user-data-size|migration-duplicates|supply-chain|workflow-triggers|orphan-tables)$'
+export PP_LIGHT_RE='^(lint|typecheck|knip|depcruise|vitest|plugin-(loops|agent-wt|jev|predeploy|deps|secrets|gate|prepush)|docs-drift|dep-freshness( \(heavy\))?|edge-typecheck|gitleaks|user-data-size|migration-duplicates|supply-chain|workflow-triggers|orphan-tables)$'
 
 step() { echo ""; echo "--- $1 ---"; }
 die()  { echo ""; echo "x $1" >&2; exit 1; }
@@ -196,6 +196,7 @@ run_fast() {
   plugin_suite jev
   plugin_suite predeploy
   plugin_suite deps
+  plugin_suite secrets
   plugin_suite hooks
   plugin_suite gate
   # The affected-only selection + pass stamp + gate slots, proven fail-closed.
