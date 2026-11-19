@@ -9,6 +9,8 @@
 // unparseable JSON (other tooling will complain). A dependency covered by a decision-backed exception
 // (maple.config.json deps.exceptions, each citing a D### in the decisions ledger) passes too.
 // No network: the freshness itself is checked by `pnpm add` + the ci:fast gate.
+// D086 (control "necessity"): an edit that passes the above but adds a dependency KEY nothing in the project declares
+// yet (a tag / `*` spec, an exception, a git spec) needs a complete deps-ledger.json entry; warn or deny per D082.
 //
 // Hook errors never block.
 
@@ -16,8 +18,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, isAbsolute, resolve } from "node:path";
 import process from "node:process";
 import { findException, loadExceptions } from "../../scripts/deps/exceptions.mjs";
+import { checkNecessity } from "../../scripts/deps/necessity.mjs";
 import { applyToolEdit, classifyDep, diffDeps } from "../../scripts/deps/pkgjson.mjs";
 import { rangeFloor } from "../../scripts/deps/semver-lite.mjs";
+import { applyMode } from "./security-mode.mjs";
 
 const TOOLS = new Set(["Write", "Edit", "MultiEdit"]);
 
@@ -45,7 +49,8 @@ export function denialReason(offenders, problems) {
   return reason;
 }
 
-export function evaluate(payload) {
+/** The package.json edit as { root, before, after } parsed objects, or null when it is not a computable package.json edit. */
+function parseEdit(payload) {
   const tool = payload?.tool_name;
   const input = payload?.tool_input ?? payload?.input ?? {};
   const file = input.file_path;
@@ -58,12 +63,36 @@ export function evaluate(payload) {
   const after = parseJson(afterText);
   const before = current === "" ? {} : parseJson(current);
   if (after === null || before === null) return null;
-  const { valid, problems } = loadExceptions(root);
-  const offenders = offendingDeps(before, after, valid);
+  return { root, before, after };
+}
+
+export function evaluate(payload) {
+  const e = parseEdit(payload);
+  if (!e) return null;
+  const { valid, problems } = loadExceptions(e.root);
+  const offenders = offendingDeps(e.before, e.after, valid);
   return offenders.length ? denialReason(offenders, problems) : null;
+}
+
+// Workspace-internal packages are not external dependencies: no ledger entry needed (D086).
+const INTERNAL_SPEC = /^(workspace:|file:|link:|portal:)/i;
+
+/** New direct dependencies a package.json edit introduces: keys added to a dependency map that no manifest of the project declares yet. */
+export function addedDirectDeps(before, after) {
+  return diffDeps(before, after)
+    .filter((d) => d.was === null && !INTERNAL_SPEC.test(d.spec.trim()))
+    .map((d) => ({ eco: "npm", name: (classifyDep(d.name, d.spec).name || d.name).toLowerCase(), dev: d.section === "devDependencies", manifest: true }));
 }
 
 export function check(ctx) {
   const reason = evaluate({ tool_name: ctx.tool, tool_input: ctx.input, cwd: ctx.cwd });
-  return reason ? { deny: reason } : undefined;
+  if (reason) return { deny: reason };
+  // D086 necessity: a dependency key added to the manifest needs a deps-ledger.json entry (control "necessity", warn/enforce per D082)
+  const e = parseEdit({ tool_name: ctx.tool, tool_input: ctx.input, cwd: ctx.cwd });
+  if (!e) return undefined;
+  const adds = addedDirectDeps(e.before, e.after);
+  if (adds.length === 0) return undefined;
+  const { message, missing } = checkNecessity(adds, ctx.config().root || e.root);
+  if (!message) return undefined;
+  return applyMode(ctx, "necessity", { deny: message }, { rule: "ledger", subject: missing.join(",") });
 }

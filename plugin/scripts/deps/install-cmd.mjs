@@ -6,8 +6,8 @@
  * not pinned versions and are ignored. A compound command (`a && b; c | d`) is scanned per segment.
  */
 
-const SEGMENT_SPLIT = /&&|\|\||;|\||\r?\n/;
-const SUBCOMMANDS = {
+export const SEGMENT_SPLIT = /&&|\|\||;|\||\r?\n/;
+export const SUBCOMMANDS = {
   pnpm: ["add", "install", "i"],
   npm: ["install", "i", "add"],
   yarn: ["add"],
@@ -18,7 +18,7 @@ const VALUE_FLAGS = new Set(["--filter", "-F", "--dir", "-C", "--prefix", "--reg
 // `-w` is pnpm's boolean "workspace root" flag, but npm's `-w <name>`; only npm consumes a value for it
 const NPM_ONLY_VALUE_FLAGS = new Set(["-w"]);
 
-function tokenize(segment) {
+export function tokenize(segment) {
   const out = [];
   const re = /"([^"]*)"|'([^']*)'|(\S+)/g;
   for (const m of segment.matchAll(re)) out.push(m[1] ?? m[2] ?? m[3]);
@@ -34,7 +34,7 @@ export function splitSpecifier(token) {
 }
 
 const VERSIONISH = /^(?:v?\d|[\^~<>=]|\*$|[xX]$|npm:)/;
-const NOT_REGISTRY = /^(?:\.{0,2}[\\/]|~[\\/]|[A-Za-z]:[\\/]|file:|link:|git\+|git:|git@|https?:|ssh:|github:|[\w.-]+\/[\w.-]+$)|\.(?:tgz|tar|tar\.gz|zip)$/i;
+export const NOT_REGISTRY = /^(?:\.{0,2}[\\/]|~[\\/]|[A-Za-z]:[\\/]|file:|link:|git\+|git:|git@|https?:|ssh:|github:|[\w.-]+\/[\w.-]+$)|\.(?:tgz|tar|tar\.gz|zip)$/i;
 
 function pinnedFrom(token) {
   if (NOT_REGISTRY.test(token)) return null;
@@ -69,7 +69,7 @@ export function parseInstallSpecs(command) {
   return found;
 }
 
-function valueSkip(flag, pm) {
+export function valueSkip(flag, pm) {
   if (flag.includes("=")) return false;
   if (NPM_ONLY_VALUE_FLAGS.has(flag)) return pm === "npm";
   return VALUE_FLAGS.has(flag);

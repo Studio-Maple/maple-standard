@@ -56,7 +56,7 @@ try {
   check("garbage stdin never blocks", r.status === 0 && r.stderr === "");
 
   // exception list
-  writeFileSync(join(root, "maple.config.json"), JSON.stringify({ deps: { exceptions: [{ name: "react", range: "^17.0.0", decision: "D070", why: "legacy renderer needs react 17" }] } }));
+  writeFileSync(join(root, "maple.config.json"), JSON.stringify({ security: { controls: { packageAdd: "off", necessity: "off" } }, deps: { exceptions: [{ name: "react", range: "^17.0.0", decision: "D070", why: "legacy renderer needs react 17" }] } }));
   mkdirSync(join(root, "docs"));
   writeFileSync(join(root, "docs", "decisions.md"), "## D001 | 2026-01-01 | baseline\n");
   r = runHook(GUARD, edit('"react": "19.2.7"', '"react": "^17.0.2"'));

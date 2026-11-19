@@ -94,14 +94,33 @@ export async function check(ctx) {
     }
   }
 
-  // install-guard (D064): fail-open on any error — a broken guard must not block unrelated shell calls.
+  // install-guard (D064), package-add (D079-D081, control "packageAdd") and necessity (D086, control "necessity"):
+  // fail-open on any error — a broken guard must not block unrelated shell calls.
   const command = rebuild(segs);
-  if (!/\b(pnpm|npm|yarn|bun)\b/.test(command)) return undefined;
+  if (!/\b(pnpm|npm|yarn|bun|pip3?|uv|poetry)\b/.test(command)) return undefined;
   try {
     const { checkInstallCommand } = await import("../../scripts/deps/install-guard.mjs");
-    const { deny, warnings } = await checkInstallCommand(command, ctx.config().root || ctx.cwd);
-    if (deny) return { deny: `BLOCKED (dep-freshness): ${deny}` };
-    if (warnings.length) return { warn: warnings.join("\n") };
+    const { checkAdds } = await import("../../scripts/deps/add-guard.mjs");
+    const { applyMode, controlMode, controlOptions } = await import("./security-mode.mjs");
+    const { root: projectRoot, cfg } = ctx.config();
+    const root = projectRoot || ctx.cwd;
+    const [fresh, adds] = await Promise.all([
+      checkInstallCommand(command, root),
+      checkAdds(command, root, { packageAdd: controlMode(cfg, "packageAdd") !== "off", necessity: controlMode(cfg, "necessity") !== "off", options: controlOptions(cfg, "packageAdd") }),
+    ]);
+    if (fresh.deny) return { deny: `BLOCKED (dep-freshness): ${fresh.deny}` };
+    const warns = [...fresh.warnings, ...adds.packageAdd.warnings];
+    const denies = [];
+    for (const [control, res, rule, names] of [
+      ["necessity", adds.necessity, "ledger", adds.necessity.names],
+      ["packageAdd", adds.packageAdd, adds.packageAdd.rules.join("+"), adds.packageAdd.names],
+    ]) {
+      const r = res.deny ? applyMode(ctx, control, { deny: res.deny }, { rule, subject: names.join(",") }) : undefined;
+      if (r?.deny) denies.push(r.deny);
+      else if (r?.warn) warns.push(r.warn);
+    }
+    if (denies.length) return { deny: `BLOCKED (package-add): ${denies.join("\n")}` };
+    if (warns.length) return { warn: warns.join("\n") };
   } catch (err) {
     return { warn: `dep-freshness: guard error ignored (${err instanceof Error ? err.message : err})` };
   }

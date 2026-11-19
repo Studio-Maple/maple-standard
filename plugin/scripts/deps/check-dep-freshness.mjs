@@ -14,6 +14,9 @@
  * target. A registry that cannot be reached FAILS the gate (a gate that cannot check must not pass).
  * Exceptions: maple.config.json `deps.exceptions`, each citing a D### that exists in the decisions ledger.
  *
+ * Also (D086, control "necessity"): every dependency added vs the same base needs a complete deps-ledger.json entry
+ * (ledger-gate.mjs; warn mode prints a warning instead of failing), and ledger entries for removed packages warn.
+ *
  * CLI: `node check-dep-freshness.mjs` (project root = $CLAUDE_PROJECT_DIR or cwd). Exit 1 on any failure.
  */
 import { execFileSync } from "node:child_process";
@@ -22,6 +25,7 @@ import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadMapleConfig } from "../docs/lib/config.mjs";
 import { loadExceptions } from "./exceptions.mjs";
+import { ledgerGate } from "./ledger-gate.mjs";
 import { coolingMessage, judgeDep, staleMessage } from "./freshness.mjs";
 import { diffDeps } from "./pkgjson.mjs";
 import { fetchEligibility, readMinReleaseAge } from "./registry.mjs";
@@ -88,6 +92,10 @@ export async function run({ root, base, git = defaultGit, fetchImpl = fetch, now
     fail("dep-freshness: cannot resolve the target branch to diff against (tried repo.devBranch, the origin default branch, main) — set repo.devBranch in maple.config.json.");
     return { errors, lines };
   }
+
+  const necessity = ledgerGate({ root, base: resolved.base, git, now });
+  errors += necessity.errors;
+  lines.push(...necessity.lines);
 
   const files = changedPackageJsons(root, resolved.base, git);
   const changes = [];
