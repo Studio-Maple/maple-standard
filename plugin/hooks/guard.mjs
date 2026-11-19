@@ -8,7 +8,8 @@
 //                       (linked node_modules installs/deletes, cwd / push / clean / dependency-install freshness)
 //   Read | Grep | Glob  loop-budget, credential paths
 //   Write | Edit | MultiEdit | NotebookEdit   loop-budget, write scope (stay inside the project repo), dependency versions (D064), prod-migration approval, deploy-gate state / ask files
-//   mcp__*              loop-budget, mutating Supabase MCP tools
+//   mcp__*              loop-budget, MCP surface (D082), mutating Supabase MCP tools
+//   mcp__*__PowerShell | run_in_terminal   MCP shells: the MCP surface guard, then every shell guard above (as PowerShell)
 //
 // Output contract: deny = reason on stderr + exit 2; ask = permissionDecision JSON on stdout (exit 0);
 // warnings ride along as additionalContext. Malformed input and guard bugs fail OPEN, except the
@@ -23,17 +24,28 @@ const DEADLINE_MS = 12_000; // below the hook's own timeout (hooks.json), so we 
 
 const SHELL_GUARDS = ["loop-budget-guard", "hook-bypass", "deny-credential-paths", "worktree-guard", "prod-migration-guard", "deploy-guard", "write-scope-guard", "link-guard", "bash-guard"];
 
-/** Which guard modules a tool call needs, in run order. */
-export function planFor(tool, hasCommand) {
+// MCP servers that run shell commands (Windows-MCP PowerShell, the desktop app's terminal). Without this
+// they bypass every shell guard and the credential rule (D082/D085).
+export const MCP_SHELL = /^mcp__.+__(PowerShell|run_in_terminal)$/;
+
+/** The tool a guard should see: an MCP shell is judged exactly like the PowerShell tool. */
+export function effectiveTool(tool) {
+  return typeof tool === "string" && MCP_SHELL.test(tool) ? "PowerShell" : tool;
+}
+
+/** Which guard modules a tool call needs, in run order. `rawTool` is the name before effectiveTool(). */
+export function planFor(tool, hasCommand, rawTool = tool) {
+  if (rawTool !== tool) return hasCommand ? ["mcp-surface-guard", ...SHELL_GUARDS] : ["mcp-surface-guard"];
   if (tool === "Bash" || tool === "PowerShell") return hasCommand ? SHELL_GUARDS : [];
   if (tool === "Read" || tool === "Grep" || tool === "Glob") return ["loop-budget-guard", "deny-credential-paths"];
   if (tool === "Write" || tool === "Edit" || tool === "MultiEdit" || tool === "NotebookEdit") return ["loop-budget-guard", "write-scope-guard", "dep-version-guard", "prod-migration-guard", "deploy-guard"];
-  if (typeof tool === "string" && tool.startsWith("mcp__")) return ["loop-budget-guard", "mcp-guard"];
+  if (typeof tool === "string" && tool.startsWith("mcp__")) return ["loop-budget-guard", "mcp-surface-guard", "mcp-guard"];
   return [];
 }
 
 export function buildContext(payload) {
-  const tool = payload?.tool_name || "";
+  const rawTool = payload?.tool_name || "";
+  const tool = effectiveTool(rawTool);
   const input = payload?.tool_input ?? payload?.input ?? {};
   const cwd = payload?.cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
   const shell = tool === "PowerShell" ? "powershell" : "bash";
@@ -41,7 +53,7 @@ export function buildContext(payload) {
   let segs;
   let conf;
   return {
-    payload, tool, input, cwd, shell, command,
+    payload, tool, rawTool, input, cwd, shell, command,
     segments: () => (segs ??= parseShell(command, shell)),
     config: () => (conf ??= projectConfig(cwd)),
   };
@@ -58,7 +70,7 @@ export async function evaluate(payload) {
     timer.unref?.();
   });
   const run = async () => {
-    for (const name of planFor(ctx.tool, Boolean(ctx.command))) {
+    for (const name of planFor(ctx.tool, Boolean(ctx.command), ctx.rawTool)) {
       let mod;
       try {
         mod = await import(`./guards/${name}.mjs`);
@@ -79,7 +91,7 @@ export async function evaluate(payload) {
   const winner = await Promise.race([run().then(() => "done"), deadline]);
   clearTimeout(timer);
   if (winner === "deadline" && !out.deny) {
-    for (const name of ["prod-migration-guard", "deploy-guard"]) {
+    for (const name of ["mcp-surface-guard", "prod-migration-guard", "deploy-guard"]) {
       const mod = (loaded[name] ??= await import(`./guards/${name}.mjs`));
       const closed = mod.failClosed?.(ctx, "the guard hit its internal deadline");
       if (closed?.deny) { out.deny = closed.deny; break; }

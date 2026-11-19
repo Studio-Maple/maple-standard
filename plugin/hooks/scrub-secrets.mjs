@@ -114,6 +114,14 @@ function scrub(text) {
   return out;
 }
 
+/** Scrub every string inside a JSON-shaped value, keeping its structure. */
+function deepScrub(v, depth = 0) {
+  if (typeof v === 'string') return scrub(v);
+  if (depth > 20 || v === null || typeof v !== 'object') return v;
+  if (Array.isArray(v)) return v.map((x) => deepScrub(x, depth + 1));
+  return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, deepScrub(x, depth + 1)]));
+}
+
 // Flatten whatever shape the tool result arrived in into ONE string —
 // `updatedToolOutput` is documented as a full-replacement string (see
 // header), not a structured partial update, regardless of the tool's own
@@ -165,6 +173,20 @@ process.stdin.on('end', () => {
     // stdout ("allow", per the PostToolUse contract) rather than echoing
     // unparsed raw text back as if it were valid hook JSON output.
     process.exit(0);
+  }
+
+  // MCP tools (D082): the result is usually structured (content blocks), and a replacement must keep the
+  // tool's output shape, so every string inside it is scrubbed in place and the same structure goes back.
+  if (typeof payload?.tool_name === 'string' && payload.tool_name.startsWith('mcp__')) {
+    const original = payload.tool_response ?? payload.tool_output;
+    if (original !== undefined && original !== null && typeof original === 'object') {
+      const scrubbedTree = deepScrub(original);
+      if (JSON.stringify(scrubbedTree) === JSON.stringify(original)) process.exit(0);
+      process.stdout.write(JSON.stringify({
+        hookSpecificOutput: { hookEventName: 'PostToolUse', updatedMCPToolOutput: scrubbedTree, updatedToolOutput: scrubbedTree },
+      }));
+      process.exit(0);
+    }
   }
 
   const text = extractToolOutputText(payload);

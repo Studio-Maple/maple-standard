@@ -1,0 +1,23 @@
+[
+  {
+    "setup": {},
+    "cases": [
+      { "name": "MCP PowerShell: cat .env is denied like the PowerShell tool", "tool": "mcp__Windows-MCP__PowerShell", "input": { "command": "Get-Content .env.local" }, "expect": "deny", "match": "credential" },
+      { "name": "terminal run_in_terminal: type .env denied", "tool": "mcp__terminal__run_in_terminal", "input": { "command": "type .dev.vars", "cwd": "{ROOT}" }, "expect": "deny", "match": "credential" },
+      { "name": "MCP PowerShell without a command is denied", "tool": "mcp__Windows-MCP__PowerShell", "input": { "timeout": 30 }, "expect": "deny", "match": "mcp-surface-guard" },
+      { "name": "MCP PowerShell ordinary command allowed", "tool": "mcp__Windows-MCP__PowerShell", "input": { "command": "Get-ChildItem C:/Projects" }, "expect": "allow" },
+      { "name": "MCP PowerShell git push needs no Bash-tool timeout", "tool": "mcp__Windows-MCP__PowerShell", "input": { "command": "git push origin agent/x" }, "expect": "allow" },
+      { "name": "MCP PowerShell unanchored pnpm still hits cwd-guard", "tool": "mcp__Windows-MCP__PowerShell", "input": { "command": "pnpm install" }, "expect": "deny", "match": "cwd-guard" },
+      { "name": "FileSystem read .env denied", "tool": "mcp__Windows-MCP__FileSystem", "input": { "mode": "read", "path": "C:/p/.env" }, "expect": "deny", "match": "credential" },
+      { "name": "FileSystem copy of a credential file denied", "tool": "mcp__Windows-MCP__FileSystem", "input": { "mode": "copy", "path": "C:/Users/u/.aws/credentials", "destination": "C:/tmp/x" }, "expect": "deny" },
+      { "name": "FileSystem read of an ordinary file allowed", "tool": "mcp__Windows-MCP__FileSystem", "input": { "mode": "read", "path": "C:/p/README.md" }, "expect": "allow" },
+      { "name": "FileSystem read .env.example allowed", "tool": "mcp__Windows-MCP__FileSystem", "input": { "mode": "read", "path": "C:/p/.env.example" }, "expect": "allow" },
+      { "name": "Registry get under LSA secrets denied", "tool": "mcp__Windows-MCP__Registry", "input": { "mode": "get", "path": "HKLM:{BS}SECURITY{BS}Policy{BS}Secrets" }, "expect": "deny", "match": "registry" },
+      { "name": "Registry list of SAM denied", "tool": "mcp__Windows-MCP__Registry", "input": { "mode": "list", "path": "HKLM:{BS}SAM" }, "expect": "deny" },
+      { "name": "Registry get of an ordinary key allowed", "tool": "mcp__Windows-MCP__Registry", "input": { "mode": "get", "path": "HKCU:{BS}Software{BS}Microsoft{BS}Windows{BS}CurrentVersion{BS}Explorer" }, "expect": "allow" },
+      { "name": "Clipboard get denied", "tool": "mcp__Windows-MCP__Clipboard", "input": { "mode": "get" }, "expect": "deny", "match": "clipboard" },
+      { "name": "Clipboard set allowed", "tool": "mcp__Windows-MCP__Clipboard", "input": { "mode": "set", "text": "hello" }, "expect": "allow" },
+      { "name": "unrelated MCP tool untouched", "tool": "mcp__Windows-MCP__Snapshot", "input": {}, "expect": "allow" }
+    ]
+  }
+]

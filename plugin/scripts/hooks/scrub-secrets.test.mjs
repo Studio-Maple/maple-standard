@@ -117,4 +117,32 @@ t("a payload that is not JSON never crashes the hook", () => {
   assert.equal(r.stdout, "");
 });
 
+
+t("MCP tool: structured content is scrubbed in place and keeps its shape (D082)", () => {
+  const secret = "ghp_" + alnum(36);
+  const response = [{ type: "text", text: "token=" + secret }, { type: "text", text: "clean" }];
+  const payload = { hook_event_name: "PostToolUse", tool_name: "mcp__Windows-MCP__PowerShell", tool_input: { command: "x" }, tool_response: response };
+  const r = spawnSync(process.execPath, [HOOK], { input: JSON.stringify(payload), encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  const out = JSON.parse(r.stdout).hookSpecificOutput;
+  assert.ok(Array.isArray(out.updatedMCPToolOutput));
+  assert.equal(out.updatedMCPToolOutput[0].type, "text");
+  assert.ok(!out.updatedMCPToolOutput[0].text.includes(secret));
+  assert.ok(out.updatedMCPToolOutput[0].text.includes("[REDACTED:gh_pat]"));
+  assert.equal(out.updatedMCPToolOutput[1].text, "clean");
+});
+
+t("MCP tool: clean structured output is left alone", () => {
+  const payload = { hook_event_name: "PostToolUse", tool_name: "mcp__terminal__read_terminal", tool_response: { content: [{ type: "text", text: "hello" }] } };
+  const r = spawnSync(process.execPath, [HOOK], { input: JSON.stringify(payload), encoding: "utf8" });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, "");
+});
+
+t("PostToolUse matcher covers the MCP shell, terminal and file tools", () => {
+  const hooks = JSON.parse(readFileSync(join(ROOT, "plugin", "hooks", "hooks.json"), "utf8"));
+  const re = new RegExp(hooks.hooks.PostToolUse[0].matcher);
+  for (const tool of ["mcp__Windows-MCP__PowerShell", "mcp__terminal__read_terminal", "mcp__Windows-MCP__FileSystem", "mcp__Windows-MCP__Clipboard"]) assert.ok(re.test(tool), tool);
+});
+
 console.log(`\nall ${n} scrub-secrets tests passed`);

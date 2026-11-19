@@ -79,7 +79,8 @@ export async function check(ctx) {
           "  Drop one -f. To remove a worktree use `git worktree remove` or `/wt-reap`. (Disable via maple.config.json hooks.bashGuard.cleanGuardEnabled=false.)",
       };
     }
-    if (pushGuard && g.sub === "push") {
+    // MCP shells have their own timeout model (seconds / a terminal tab that outlives the turn): push-guard is about the Bash/PowerShell tool timeout only
+    if (pushGuard && g.sub === "push" && !(ctx.rawTool && ctx.rawTool !== ctx.tool)) {
       const input = ctx.input;
       const timeoutOk = typeof input.timeout === "number" && input.timeout >= minTimeout;
       if (input.run_in_background !== true && !timeoutOk) {
