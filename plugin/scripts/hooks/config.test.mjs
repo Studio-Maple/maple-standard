@@ -66,4 +66,29 @@ await t("pi-run: the worktree root is the MAIN checkout even when started inside
   }
 });
 
+await t("security block validates; always-enforce controls are not configurable (D082)", () => {
+  const soon = new Date(Date.now() + 7 * 86400_000).toISOString().slice(0, 10);
+  assert.deepEqual(validateConfig({ ...base, security: { mode: "warn", enforceAfter: soon, controls: { packageAdd: { minWeeklyDownloads: 1000 }, necessity: "off" } } }), []);
+  assert.match(validateConfig({ ...base, security: { mode: "loud" } }).join("\n"), /security\.mode/);
+  assert.match(validateConfig({ ...base, security: { enforceAfter: "2099-01-01" } }).join("\n"), /30 days/);
+  assert.match(validateConfig({ ...base, security: { enforceAfter: "soon" } }).join("\n"), /YYYY-MM-DD/);
+  assert.match(validateConfig({ ...base, security: { controls: { credentialStore: "off" } } }).join("\n"), /always enforced/);
+  assert.match(validateConfig({ ...base, security: { controls: { nope: "warn" } } }).join("\n"), /unknown control/);
+  assert.match(validateConfig({ ...base, security: { extra: 1 } }).join("\n"), /security\.extra/);
+});
+
+await t("security-mode: warn by default, enforceAfter flips, per-control overrides, always-enforce", async () => {
+  const { controlMode } = await import(pathToFileURL(join(HERE, "..", "..", "hooks", "guards", "security-mode.mjs")).href);
+  const now = "2026-11-20T12:00:00Z";
+  assert.equal(controlMode({}, "packageAdd", now), "warn");
+  assert.equal(controlMode({ security: { mode: "enforce" } }, "packageAdd", now), "enforce");
+  assert.equal(controlMode({ security: { enforceAfter: "2026-11-20" } }, "packageAdd", now), "enforce");
+  assert.equal(controlMode({ security: { enforceAfter: "2026-11-21" } }, "packageAdd", now), "warn");
+  assert.equal(controlMode({ security: { mode: "enforce", controls: { necessity: "warn" } } }, "necessity", now), "warn");
+  assert.equal(controlMode({ security: { enforceAfter: "2026-01-01", controls: { necessity: { mode: "warn" } } } }, "necessity", now), "warn");
+  assert.equal(controlMode({ security: { controls: { secretWrite: "off" } } }, "secretWrite", now), "off");
+  assert.equal(controlMode({ security: { mode: "warn" } }, "credentialStore", now), "enforce");
+  assert.equal(controlMode(null, "secretShell", now), "enforce");
+});
+
 console.log(`\n${n} config checks passed`);

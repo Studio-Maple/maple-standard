@@ -4,10 +4,10 @@
 // in-process, and the first deny wins. No guard spawns a child process unless its own trigger matched
 // (git is only asked about for `git worktree add` / `git push` / an active loop cycle).
 //
-//   Bash | PowerShell   loop-budget, hook-bypass, credentials, worktree placement, prod-migration approval, deploy gate, shell guards
+//   Bash | PowerShell   loop-budget, hook-bypass, credentials, credential store (D085), secret printing, worktree placement, prod-migration approval, deploy gate, shell guards
 //                       (linked node_modules installs/deletes, cwd / push / clean / dependency-install freshness)
 //   Read | Grep | Glob  loop-budget, credential paths
-//   Write | Edit | MultiEdit | NotebookEdit   loop-budget, write scope (stay inside the project repo), dependency versions (D064), prod-migration approval, deploy-gate state / ask files
+//   Write | Edit | MultiEdit | NotebookEdit   loop-budget, write scope (stay inside the project repo), secrets in written text, dependency versions (D064), prod-migration approval, deploy-gate state / ask files
 //   mcp__*              loop-budget, MCP surface (D082), mutating Supabase MCP tools
 //   mcp__*__PowerShell | run_in_terminal   MCP shells: the MCP surface guard, then every shell guard above (as PowerShell)
 //
@@ -22,7 +22,7 @@ import { projectConfig } from "./guards/project.mjs";
 
 const DEADLINE_MS = 12_000; // below the hook's own timeout (hooks.json), so we answer instead of being killed
 
-const SHELL_GUARDS = ["loop-budget-guard", "hook-bypass", "deny-credential-paths", "worktree-guard", "prod-migration-guard", "deploy-guard", "write-scope-guard", "link-guard", "bash-guard"];
+const SHELL_GUARDS = ["loop-budget-guard", "hook-bypass", "deny-credential-paths", "credential-store-guard", "secret-shell-guard", "worktree-guard", "prod-migration-guard", "deploy-guard", "write-scope-guard", "link-guard", "bash-guard"];
 
 // MCP servers that run shell commands (Windows-MCP PowerShell, the desktop app's terminal). Without this
 // they bypass every shell guard and the credential rule (D082/D085).
@@ -38,7 +38,7 @@ export function planFor(tool, hasCommand, rawTool = tool) {
   if (rawTool !== tool) return hasCommand ? ["mcp-surface-guard", ...SHELL_GUARDS] : ["mcp-surface-guard"];
   if (tool === "Bash" || tool === "PowerShell") return hasCommand ? SHELL_GUARDS : [];
   if (tool === "Read" || tool === "Grep" || tool === "Glob") return ["loop-budget-guard", "deny-credential-paths"];
-  if (tool === "Write" || tool === "Edit" || tool === "MultiEdit" || tool === "NotebookEdit") return ["loop-budget-guard", "write-scope-guard", "dep-version-guard", "prod-migration-guard", "deploy-guard"];
+  if (tool === "Write" || tool === "Edit" || tool === "MultiEdit" || tool === "NotebookEdit") return ["loop-budget-guard", "write-scope-guard", "secret-write-guard", "dep-version-guard", "prod-migration-guard", "deploy-guard"];
   if (typeof tool === "string" && tool.startsWith("mcp__")) return ["loop-budget-guard", "mcp-surface-guard", "mcp-guard"];
   return [];
 }

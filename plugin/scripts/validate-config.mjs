@@ -117,6 +117,30 @@ function checkNoExtraKeys(obj, allowed, blockPath, errors) {
  * @param {object} config parsed maple.config.json
  * @returns {string[]} problems (empty array = valid)
  */
+const SECURITY_CONTROLS = ["packageAdd", "necessity", "secretWrite", "localhost", "gitHooks", "continuous"];
+const SECURITY_ALWAYS = ["credentialStore", "secretShell", "mcpSurface"];
+const SECURITY_MODES = ["off", "warn", "enforce"];
+
+function validateSecurity(sec, errors, now = new Date()) {
+  if (!isPlainObject(sec)) { errors.push("security: must be an object"); return; }
+  checkNoExtraKeys(sec, ["mode", "enforceAfter", "controls"], "security", errors);
+  if (sec.mode !== undefined && !["warn", "enforce"].includes(sec.mode)) errors.push('security.mode: must be "warn" or "enforce"');
+  if (sec.enforceAfter !== undefined) {
+    const ok = typeof sec.enforceAfter === "string" && /^\d{4}-\d{2}-\d{2}$/.test(sec.enforceAfter) && !Number.isNaN(Date.parse(sec.enforceAfter));
+    if (!ok) errors.push("security.enforceAfter: must be a YYYY-MM-DD date");
+    else if (Date.parse(sec.enforceAfter) - now.getTime() > 31 * 86400_000) errors.push("security.enforceAfter: at most 30 days ahead (D082) — warn mode is a short trial, not a parking spot");
+  }
+  if (sec.controls === undefined) return;
+  if (!isPlainObject(sec.controls)) { errors.push("security.controls: must be an object"); return; }
+  for (const [name, v] of Object.entries(sec.controls)) {
+    if (SECURITY_ALWAYS.includes(name)) { errors.push(`security.controls.${name}: always enforced (D082), not configurable`); continue; }
+    if (!SECURITY_CONTROLS.includes(name)) { errors.push(`security.controls.${name}: unknown control (known: ${SECURITY_CONTROLS.join(", ")})`); continue; }
+    const mode = typeof v === "string" ? v : isPlainObject(v) ? v.mode : null;
+    if (typeof v !== "string" && !isPlainObject(v)) errors.push(`security.controls.${name}: must be a mode string or an object`);
+    else if (mode !== undefined && !SECURITY_MODES.includes(mode)) errors.push(`security.controls.${name}: mode must be off, warn or enforce`);
+  }
+}
+
 export function validateConfig(config) {
   const errors = [];
 
@@ -125,7 +149,7 @@ export function validateConfig(config) {
   }
   checkNoExtraKeys(
     config,
-    ["$schema", "project", "repo", "worktrees", "docs", "ci", "lint", "sizeCaps", "errorTracker", "loops", "hooks", "jev", "quality", "predeploy", "deps", "supabase", "officeci", "gate"],
+    ["$schema", "project", "repo", "worktrees", "docs", "ci", "lint", "sizeCaps", "errorTracker", "loops", "hooks", "jev", "quality", "predeploy", "deps", "supabase", "officeci", "gate", "security"],
     "root",
     errors
   );
@@ -477,6 +501,11 @@ export function validateConfig(config) {
       const u = config.officeci.url;
       if (u !== undefined && !(typeof u === "string" && /^https?:\/\/[^\s/]+\S*$/i.test(u))) errors.push("officeci.url: must be an http(s) URL");
     }
+  }
+
+  // ---- security (D082: one block, warn first, enforce from enforceAfter; see docs/security-guardrails.md) ----
+  if (config.security !== undefined) {
+    validateSecurity(config.security, errors);
   }
 
   // ---- hooks ------------------------------------------------------------------------

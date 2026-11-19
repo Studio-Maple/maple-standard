@@ -443,6 +443,28 @@
       }
     },
 
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "plugin extension (D079-D086) — the security guardrail layer, see docs/security-guardrails.md. No block = every configurable control warns. credentialStore, secretShell and mcpSurface always enforce and are not configurable (D082).",
+      "properties": {
+        "mode": { "enum": ["warn", "enforce"], "description": "Default warn." },
+        "enforceAfter": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "From this date on, warn acts as enforce. At most 30 days ahead." },
+        "controls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "packageAdd": { "description": "Add-time OSV / reputation / release-age check (D080).", "oneOf": [{ "enum": ["off", "warn", "enforce"] }, { "type": "object" }] },
+            "necessity": { "description": "New direct dependency needs a deps-ledger.json note (D086).", "oneOf": [{ "enum": ["off", "warn", "enforce"] }, { "type": "object" }] },
+            "secretWrite": { "description": "Secret scan of what Write/Edit adds.", "oneOf": [{ "enum": ["off", "warn", "enforce"] }, { "type": "object" }] },
+            "localhost": { "description": "Loopback hosts in prod config.", "oneOf": [{ "enum": ["off", "warn", "enforce"] }, { "type": "object" }] },
+            "gitHooks": { "description": "gitleaks at commit, OSV + lockfile integrity at push.", "oneOf": [{ "enum": ["off", "warn", "enforce"] }, { "type": "object" }] },
+            "continuous": { "description": "Weekly re-scan of the deployed sha (D084).", "oneOf": [{ "enum": ["off", "warn", "enforce"] }, { "type": "object" }] }
+          }
+        }
+      }
+    },
+
     "hooks": {
       "type": "object",
       "additionalProperties": false,
