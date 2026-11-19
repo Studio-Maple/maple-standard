@@ -16,6 +16,7 @@
         "node scripts/next-task-id.mjs --add --decision --title \"...\" --body \"...\""
       ],
       "related": [
+        "security-guardrails",
         "quality",
         "docker",
         "predeploy-gate",
@@ -245,9 +246,9 @@
       ],
       "related": [
         "predeploy-gate",
+        "decisions",
         "quality",
-        "standard-architecture",
-        "decisions"
+        "standard-architecture"
       ]
     },
     {

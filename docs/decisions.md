@@ -14,6 +14,30 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D086 | 2026-11-19 | New direct dependencies need a written necessity note
+Adding a direct dependency is blocked until deps-ledger.json has its entry: why it is needed, which existing dependency or platform/stdlib API was considered, and which more reliable alternative was considered (dev deps: why only). The hook lists existing direct deps and detected overlap; no model call. Warn first, then enforce, per the warn-to-enforce decision. Owner approved 2026-11-19.
+
+## D085 | 2026-11-19 | The maple-secret wrapper is the only credential-store path
+Secrets flow from Credential Manager into a child process's env or a temp file through plugin maple-secret run, which redacts the exact value from the child's output. Every direct retrieval (Get-StoredCredential, GetNetworkCredential, CredRead, PasswordVault, ...) is denied in every shell tool, owner-driven sessions included; the owner keeps the store UI and store-secret.ps1. Owner approved 2026-11-19.
+
+## D084 | 2026-11-19 | Weekly live re-scan runs locally, opens a task, blocks the next stamp
+Vulnerability presets re-run weekly against the deployed sha from the deploy ledger with a fresh DB, on the local desk or MapleLens scheduler, not GitHub Actions. A new CVE opens a board task and blocks the next predeploy stamp; no paging, no auto-rollback. Owner approved 2026-11-19.
+
+## D083 | 2026-11-19 | Security guardrails pilot on MapleLens first
+The guardrail layer pilots in warn mode on MapleLens, then EasyCaller, VeHagita, Maple-Pole, Nekuda and SmartMatzeva a week apart, each project's warn log reviewed before its flip to enforce. Owner approved 2026-11-19. See [[security-guardrails]].
+
+## D082 | 2026-11-19 | Security controls warn first, then enforce on a date
+With no security block every control warns; maple.config.json security.enforceAfter (default adoption + 7 days, at most 30) flips a project to enforce by itself. Credential-store reads, secret printing and the MCP-tool guard bypass enforce from day one: a PreToolUse warn would already let the secret into context. Owner approved 2026-11-19.
+
+## D081 | 2026-11-19 | Security tools: gitleaks, OSV, Dependabot
+Secrets: gitleaks (not trufflehog/detect-secrets). Vulnerabilities at edit and push time: OSV (free, no token, offline DB, npm + PyPI); Socket not adopted now. Dependency bot: Dependabot with cooldown, not Renovate. Owner approved 2026-11-19. See [[security-guardrails]].
+
+## D080 | 2026-11-19 | Add-time package thresholds: any OSV vuln or weak reputation blocks
+Adding a package is denied on any OSV vulnerability in the resolved version, and a NEW package is denied under 1,000 weekly downloads, under 30 days old, deprecated, or within edit distance 2 of a top-5,000 name it is not. deps.exceptions (D###-backed) override. Owner approved 2026-11-19. See [[security-guardrails]].
+
+## D079 | 2026-11-19 | Release cooldown is 7 days everywhere
+Package managers (pnpm minimumReleaseAge 10080, npm min-release-age=7, uv exclude-newer), the add-time guard and Dependabot (weekly, cooldown default-days 7) all use 7 days. Security updates skip the bot cooldown, never the add-time OSV check. Owner approved 2026-11-19. See [[security-guardrails]].
+
 ## D078 | 2026-11-17 | A push to the production branch is not a deploy for live-scan debt when the project says it deploys nothing
 predeploy.deployGuard.prodPushIsDeploy=false (default true) stops the prod-branch-push guard hit from creating a deploy-ledger record, so it creates no live-scan debt; the push is still verified against the stamp and real deploy commands are always recorded. Owner-approved 2026-11-17 for EasyCaller (all Pages projects direct-upload, no git integration). Amends D060/D066.
 

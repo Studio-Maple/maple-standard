@@ -10,9 +10,8 @@ code: [plugin/hooks/hooks.json, plugin/hooks/guard.mjs, plugin/hooks/scrub-secre
 ---
 # Security guardrails
 
-**Status: DESIGN, not built.** Phase 1 of the guardrail layer. Nothing here is
-enforced until the owner approves the drafts at the bottom and phase 2 lands
-it. The method is the standard's own: enforce by mechanism, low overhead, one
+**Status: APPROVED (D079-D086, 2026-11-19), phase 2 building.** Each control
+is enforced only once it lands; the CHANGELOG says which have. The method is the standard's own: enforce by mechanism, low overhead, one
 config block, no bypass. The [[predeploy-gate]] already does most of the heavy
 lifting, so most of this design closes the gaps around it.
 
@@ -49,13 +48,23 @@ New guard modules plug into the existing D065 dispatcher (`guard.mjs`, one proce
 **E1. Package-add guard** (extends `install-guard`, `security.packageAdd`).
 - Triggers: `pnpm|npm|yarn|bun add|install <name>`, `pip|uv pip install <name>`, `uv add`, `poetry add`. Edits to `requirements*.txt` / `pyproject.toml` get the same treatment as D064's package.json edit check.
 - Per package (in parallel, one batched OSV `querybatch` call):
-  - **Release age**: resolved version older than `minReleaseAgeDays` (Draft-A). npm reuses `registry.mjs`; PyPI uses the JSON API `upload_time`.
-  - **OSV**: no known vuln in the resolved version (`api.osv.dev/v1/querybatch`, ecosystems npm / PyPI). Severity floor: any (Draft-B).
+  - **Release age**: resolved version older than `minReleaseAgeDays` (D079). npm reuses `registry.mjs`; PyPI uses the JSON API `upload_time`.
+  - **OSV**: no known vuln in the resolved version (`api.osv.dev/v1/querybatch`, ecosystems npm / PyPI). Severity floor: any (D080).
   - **Reputation (new names only, not already in the lockfile)**: weekly downloads ≥ `minWeeklyDownloads`, package age ≥ 30 days, not deprecated, not within edit distance 1-2 of a name in a bundled top-N list (typosquat) unless it *is* that name. npm downloads API / pypistats.
   - **Pinned version**: the add must land an exact or lockfile-pinned version (npm/pnpm do via lockfile; pip must use `==` or a hashed requirements file, uv lock).
 - Bare names now ARE looked up (today they pass without a lookup).
 - Fail-open on network error with a warning (as D064 today); the commit/push OSV check is the backstop.
 - Exceptions: `deps.exceptions[]` (D###-backed, existing).
+
+**E1b. Dependency necessity (D086)** (part of the package-add guard, `security.controls.necessity`).
+- Trigger: a package that becomes a NEW DIRECT dependency (not already in any manifest of the project), via an install command or a manifest edit.
+- Required note, in the committed root file `deps-ledger.json` (lightest place the hook can check *before* the commit exists):
+  `{ "version": 1, "entries": { "<name>": { "why": "...", "existing": "...", "alternative": "...", "dev": false } } }`
+  - runtime deps: `why` (what it does that we need), `existing` (which current dependency or platform / stdlib API was considered and why it does not fit), `alternative` (which more reliable or more established package was considered). Each ≥ 15 chars, not placeholder text.
+  - dev-only deps (`-D`, devDependencies, `--group dev`): `why` only.
+- Missing or incomplete entry → deny (enforce) / warn (warn mode). The message lists the project's existing direct dependencies and any **overlap** found without a model call: a bundled capability map (e.g. HTTP client: axios / got / node-fetch / ky / undici vs global `fetch`; dates: moment / dayjs / date-fns / luxon vs `Intl`; utilities: lodash / underscore / ramda vs built-ins; uuid vs `crypto.randomUUID`; validation: zod / yup / joi / valibot; ...), plus a shared npm keyword or a shared name stem with an existing dependency.
+- The agent writes the entry (an ordinary Edit), then re-runs the add. A ci:fast check fails a new direct dependency without an entry, so a hand-edited manifest cannot skip it; removed dependencies drop their entry (stale entries are a warning).
+- Cost: reads two JSON files plus a static map, < 5 ms; no network beyond E1's.
 
 **E2. Secret scan on Write/Edit** (`security.secretWrite`).
 - New guard on Write/Edit/MultiEdit/NotebookEdit: run the **same pattern catalog** as `scrub-secrets` (extracted into one shared module, so there is never a second regex list) over the *new* text only (after − before).
@@ -90,7 +99,7 @@ Installed by the existing `install-hooks.mjs` path (absolute hooksPath, fail clo
 ### 4. Continuous
 
 - **Weekly live re-scan** (`security.continuous.weekly`): re-run the vulnerability presets (`osv-scanner`, `npm-audit`, `trivy-image` by deployed ref) against the **deployed sha** from the deploy ledger, with a fresh DB. A new finding opens a task on the app's MapleLens board (or `docs/gaps.md` outside MapleLens) and blocks the next stamp. Runs on the **local desk / MapleLens scheduler**, not GitHub Actions: `gaps.md` already says CI only deploys, and Caller's Actions are billing-blocked.
-- **Dependency bot with cooldown**: Dependabot `cooldown: { default-days: N }`, weekly, security updates ungrouped from cooldown. The template is monthly with no cooldown; Caller is weekly with 7 days. Standardize (Draft-A). Renovate is the alternative (`minimumReleaseAge`), not proposed: Dependabot is already wired with automerge.
+- **Dependency bot with cooldown**: Dependabot `cooldown: { default-days: N }`, weekly, security updates ungrouped from cooldown. The template is monthly with no cooldown; Caller is weekly with 7 days. Standardize (D079). Renovate is the alternative (`minimumReleaseAge`), not proposed: Dependabot is already wired with automerge.
 - Package manager cooldown matches: pnpm `minimumReleaseAge`, npm `min-release-age`, uv `exclude-newer` (relative), all at the same N days.
 
 ### 5. Credentials: Claude never reads Credential Manager
@@ -130,7 +139,7 @@ Rule: a secret flows store → child process env (or a temp file) → the comman
 }
 ```
 
-- Absent block = all controls in warn mode (Draft-D), so a plugin bump alone already reports.
+- Absent block = all controls in warn mode (D082), so a plugin bump alone already reports.
 - **Warn mode** = allow + `additionalContext` + one line appended to `<git-common-dir>/maple/security-log.jsonl` (control, rule, file/command shape, never values). `/project-status` shows the would-be denial count, so the flip to enforce is decided on data.
 - **Never warn-only**: `credentialStore`, `secretShell`, E0 (MCP bypass). A PreToolUse warn lets the command run, and then the secret is already in context. These enforce from day one; the explicit exception to warn-then-enforce.
 - Schema in `maple.config.schema.json`; `validate-config.mjs` rejects `mode: "off"` for the always-enforce controls and an `enforceAfter` more than 30 days out.
@@ -138,7 +147,7 @@ Rule: a secret flows store → child process env (or a temp file) → the comman
 ### Per project
 
 - **New projects**: `/adopt-standard` writes the block with `enforceAfter` = today + 7, installs gitleaks / osv-scanner check via `predeploy doctor`, adds the Dependabot cooldown and package-manager cooldown.
-- **Existing projects** (VeHagita, EasyCaller, Maple-Pole, Nekuda, MapleLens, SmartMatzeva): plugin bump (SessionStart cache sync, D053) + one line `"security": { "enforceAfter": "<date>" }`. Order: pilot on one project in warn (Draft-E), then the rest a week apart, so each project's warn log is reviewed before its flip.
+- **Existing projects** (VeHagita, EasyCaller, Maple-Pole, Nekuda, MapleLens, SmartMatzeva): plugin bump (SessionStart cache sync, D053) + one line `"security": { "enforceAfter": "<date>" }`. Order: pilot on one project in warn (D083), then the rest a week apart, so each project's warn log is reviewed before its flip.
 - Caller already runs most predeploy presets and has its own pre-commit gitleaks: the plugin's hook checks for an existing equivalent step and does not double-run.
 
 ## Overhead budget
@@ -161,23 +170,24 @@ Rule: a secret flows store → child process env (or a temp file) → the comman
 1. **E0**: MCP shell/file tools through the guards (closes the biggest hole; hours).
 2. **Credentials**: `maple-secret run` + `credential-store-guard` + skill rewrite.
 3. **E3** secret-printing shell guard, **E2** Write/Edit secret scan on the shared catalog, pre-commit `gitleaks protect --staged`.
-4. **E1** package-add: bare-name lookup, OSV, reputation/typosquat, cache; then pip/uv.
+4. **E1** package-add: bare-name lookup, OSV, reputation/typosquat, cache; then pip/uv. **E1b** necessity note alongside.
 5. Cooldown standardization (Dependabot `cooldown`, package managers).
 6. Later: E4 + `prod-localhost` preset + live CORS probe, lockfile integrity presets (lifted from Caller), weekly re-scan.
 
 Each lands with unit tests in `plugin/scripts/hooks/` fixtures, a plugin version bump, a CHANGELOG entry, then a warn-mode pilot.
 
-## Draft decisions for the owner
+## Decisions (approved 2026-11-19)
 
-Not logged; IDs get allocated when approved.
+The drafts as approved; the ledger entries are D079-D086 in [[decisions]].
 
-- **Draft-A, release cooldown: 7 days everywhere.** Package-manager cooldown (pnpm `minimumReleaseAge: 10080`, npm `min-release-age=7`, uv `exclude-newer`), the add-time guard, and Dependabot `cooldown.default-days: 7`, weekly. Template today: 1 day, monthly bot, no cooldown; Caller: 7 days. Security updates bypass the bot cooldown but not the add-time OSV check. Alternative: 3 days (faster fixes, less supply-chain margin).
-- **Draft-B, add-time thresholds.** Deny on any OSV vuln in the resolved version (all severities, matching the gate's zero rule); new-package reputation: ≥ 1,000 weekly downloads, ≥ 30 days old, not deprecated, typosquat edit distance ≤ 2 vs top 5,000 names → deny; owner-approved `deps.exceptions` override. Alternative: reputation as warn-only.
-- **Draft-C, tools.** Secrets: **gitleaks** (already in the gate and Caller; fast; local) over trufflehog (verifies live, slower, network) and detect-secrets (Python dependency). Vulns: **OSV** (free, no token, offline DB, npm + PyPI) as the edit/push source; **Socket** not adopted now (token, paid tiers for full API, network on every add) but its free reputation signal is a later option if typosquats slip through. Bot: **Dependabot** with `cooldown`, not Renovate.
-- **Draft-D, warn → enforce.** Absent `security` block = warn; each project flips to enforce automatically at `enforceAfter` (≤ 30 days, default 7 after adoption). Credential store, secret printing and the MCP bypass enforce from day one with no warn phase.
-- **Draft-E, pilot project.** Pilot in warn mode on **MapleLens** (active dev, no live customers, already the control surface), then EasyCaller, VeHagita, Maple-Pole, Nekuda, SmartMatzeva a week apart. Alternative: EasyCaller first (most security debt, most to learn, more noise).
-- **Draft-F, weekly live re-scan runs locally** (desk / MapleLens scheduler) against the deployed sha; a new CVE opens a board task and blocks the next stamp, it does not page or auto-rollback.
-- **Draft-G, credential wrapper is the only retrieval path.** Direct `Get-StoredCredential`-style retrieval is denied in every shell tool, including the owner's own sessions run through Claude; the owner keeps the store UI and `store-secret.ps1`.
+- **D079, release cooldown: 7 days everywhere.** Package-manager cooldown (pnpm `minimumReleaseAge: 10080`, npm `min-release-age=7`, uv `exclude-newer`), the add-time guard, and Dependabot `cooldown.default-days: 7`, weekly. Template today: 1 day, monthly bot, no cooldown; Caller: 7 days. Security updates bypass the bot cooldown but not the add-time OSV check. Alternative: 3 days (faster fixes, less supply-chain margin).
+- **D080, add-time thresholds.** Deny on any OSV vuln in the resolved version (all severities, matching the gate's zero rule); new-package reputation: ≥ 1,000 weekly downloads, ≥ 30 days old, not deprecated, typosquat edit distance ≤ 2 vs top 5,000 names → deny; owner-approved `deps.exceptions` override. Alternative: reputation as warn-only.
+- **D081, tools.** Secrets: **gitleaks** (already in the gate and Caller; fast; local) over trufflehog (verifies live, slower, network) and detect-secrets (Python dependency). Vulns: **OSV** (free, no token, offline DB, npm + PyPI) as the edit/push source; **Socket** not adopted now (token, paid tiers for full API, network on every add) but its free reputation signal is a later option if typosquats slip through. Bot: **Dependabot** with `cooldown`, not Renovate.
+- **D082, warn → enforce.** Absent `security` block = warn; each project flips to enforce automatically at `enforceAfter` (≤ 30 days, default 7 after adoption). Credential store, secret printing and the MCP bypass enforce from day one with no warn phase.
+- **D083, pilot project.** Pilot in warn mode on **MapleLens** (active dev, no live customers, already the control surface), then EasyCaller, VeHagita, Maple-Pole, Nekuda, SmartMatzeva a week apart. Alternative: EasyCaller first (most security debt, most to learn, more noise).
+- **D084, weekly live re-scan runs locally** (desk / MapleLens scheduler) against the deployed sha; a new CVE opens a board task and blocks the next stamp, it does not page or auto-rollback.
+- **D085, credential wrapper is the only retrieval path.** Direct `Get-StoredCredential`-style retrieval is denied in every shell tool, including the owner's own sessions run through Claude; the owner keeps the store UI and `store-secret.ps1`.
+- **D086, dependency necessity.** Added by the owner at approval; designed in E1b above.
 
 ## Related
 
