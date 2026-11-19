@@ -19,6 +19,7 @@ Concise status board. **Locate files by search (prefer `docs/state/`):** gaps, t
 4. `git branch -a` — branches
 5. **Drift gate** — if `scripts/check-docs-drift.mjs` exists: run it, capture the trailing `N error(s), M warning(s)`.
 6. **#T integrity** — the allocator (see note below): next free id, plus `--check` for collisions.
+7. **Security warn log** (D082) — `node "$CLAUDE_PLUGIN_ROOT/scripts/secrets/warn-report.mjs" .`: would-be blocks per control while the project is in warn mode, and its enforce date.
 
 **Read** (skip if missing): the gaps file, the tasks file, the decisions file (top 3 newest `D###`).
 
@@ -33,6 +34,9 @@ GAPS (address first):
 
 OPEN TASKS:
 • [open `- [ ]` items, grouped by `## Section`; one line each]
+
+SECURITY (warn mode):
+• [warn-report's first line; one line per control with a non-zero count; omit when 0 and mode is enforce]
 
 RECENT DECISIONS:
 • [top 3 `D###` titles from the decisions file; omit if missing]

@@ -45,6 +45,17 @@ node "$CLAUDE_PLUGIN_ROOT/scripts/secrets/maple-secret.mjs" run --file GEMINI_KE
 
 The command reads the path from `$GEMINI_KEY_FILE` (for example `process.env.GEMINI_KEY_FILE`). A tool that wants the value as a JSON secrets file needs a small script of its own that reads the file at that path and builds the shape it needs. Do not build it in your own shell from a retrieved value.
 
+### Pattern C: CLIs that read the secret on stdin
+
+`docker login --password-stdin`, `wrangler secret put`, `gh secret set` and similar read the value from stdin. Pipe it INSIDE the child, where the wrapper holds it; never `echo $X | cli` in your own shell (the secret-shell-guard denies it):
+
+```bash
+node "$CLAUDE_PLUGIN_ROOT/scripts/secrets/maple-secret.mjs" run --env P=<Project>-Docker-Registry-Token -- \
+  bash -c 'printf %s "$P" | docker login ghcr.io -u <user> --password-stdin'
+```
+
+`printf %s` adds no newline (and bash adds no BOM); in PowerShell prefer Pattern B over a pipe, for the BOM reason below.
+
 ### Why the wrapper writes no-BOM files (background)
 
 Piping a secret to a native command in Windows PowerShell 5.1 (`$secret | someExe.exe`) prepends a UTF-8 **BOM** and appends **CRLF**, so the consumer receives a corrupted value (a 53-char key arrives as 56 bytes). Many CLIs trim trailing whitespace but not a leading BOM, so the secret is silently wrong with no error at set-time. This once caused a real outage (a piped `wrangler pages secret put` stored a corrupted API key and every call to that upstream failed quietly). The wrapper avoids it by construction: env vars cross no encoding boundary, and temp files are written as raw UTF-8 bytes with no BOM and no newline. Never pipe a secret into a native command.

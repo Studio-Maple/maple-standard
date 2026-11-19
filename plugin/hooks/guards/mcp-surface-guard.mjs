@@ -11,6 +11,8 @@
 //   …__FileSystem   path / destination / search pattern naming a credential file -> deny
 //   …__Registry     get/list under a secret-holding hive (SAM, SECURITY, LSA secrets, credential/vault keys) -> deny
 //   …__Clipboard    get -> deny (the clipboard is where a copied password sits; the owner pastes into chat instead)
+//   ANY MCP tool     a path-like field or file: URL anywhere in its input (browser navigate/preview/file_upload,
+//                    scrapers, batch wrappers that nest whole tool calls) naming a credential file -> deny
 //
 // Honest limit: input-synthesis tools (Type, Shortcut, App, ...) can type into any window, a terminal included;
 // they cannot be judged by their input and are outside this guard.
@@ -22,6 +24,39 @@ const SECRET_HIVE = /(^|[\\/:])(SAM|SECURITY)([\\/]|$)|Lsa[\\/]+Secrets|Policy[\
 function toolName(ctx) {
   const m = /^mcp__(.+?)__(.+)$/.exec(ctx.rawTool || ctx.tool || "");
   return m ? m[2] : "";
+}
+
+// Any MCP tool (browser panes, browser extensions, scrapers, uploaders, batch wrappers) may carry a local path
+// or a file: URL in its input, nested at any depth (browser_batch holds whole tool calls). Every path-like field
+// and every file: URL is judged like a Read path.
+const PATHISH_KEY = /^(path|paths|file|files|file_?path|file_?paths|filename|destination|dest|source|src|target|url|uri|href|location|cwd|dir|directory)$/i;
+
+function asPath(v) {
+  if (!/^file:/i.test(v)) return v;
+  let p = v.replace(/^file:\/*/i, "").replace(/[?#].*$/, "");
+  try { p = decodeURIComponent(p); } catch { /* keep raw */ }
+  return p;
+}
+
+/** The first credential-bearing path referenced anywhere in an MCP tool input, else null. */
+export function credentialRefIn(value, key = "", depth = 0) {
+  if (depth > 12 || value === null || value === undefined) return null;
+  if (typeof value === "string") {
+    if (!value || value.length > 4096) return null;
+    if (/^file:/i.test(value) || PATHISH_KEY.test(key)) {
+      const p = asPath(value);
+      if (isCredentialPath(p)) return p;
+    }
+    return null;
+  }
+  if (Array.isArray(value)) {
+    for (const v of value) { const hit = credentialRefIn(v, key, depth + 1); if (hit) return hit; }
+    return null;
+  }
+  if (typeof value === "object") {
+    for (const [k, v] of Object.entries(value)) { const hit = credentialRefIn(v, k, depth + 1); if (hit) return hit; }
+  }
+  return null;
 }
 
 function credentialDeny(what) {
@@ -40,6 +75,8 @@ export async function check(ctx) {
     }
     return undefined;
   }
+  const ref = credentialRefIn(input);
+  if (ref) return { deny: credentialDeny(ref) };
   const name = toolName(ctx);
   if (name === "FileSystem") {
     for (const v of [input.path, input.destination, input.pattern]) {

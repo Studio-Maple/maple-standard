@@ -17,7 +17,17 @@
       { "name": "Registry get of an ordinary key allowed", "tool": "mcp__Windows-MCP__Registry", "input": { "mode": "get", "path": "HKCU:{BS}Software{BS}Microsoft{BS}Windows{BS}CurrentVersion{BS}Explorer" }, "expect": "allow" },
       { "name": "Clipboard get denied", "tool": "mcp__Windows-MCP__Clipboard", "input": { "mode": "get" }, "expect": "deny", "match": "clipboard" },
       { "name": "Clipboard set allowed", "tool": "mcp__Windows-MCP__Clipboard", "input": { "mode": "set", "text": "hello" }, "expect": "allow" },
-      { "name": "unrelated MCP tool untouched", "tool": "mcp__Windows-MCP__Snapshot", "input": {}, "expect": "allow" }
+      { "name": "unrelated MCP tool untouched", "tool": "mcp__Windows-MCP__Snapshot", "input": {}, "expect": "allow" },
+      { "name": "built-in browser navigate to a file: .env denied", "tool": "mcp__Claude_Browser__navigate", "input": { "url": "file:///C:/p/.env.local" }, "expect": "deny", "match": "credential" },
+      { "name": "browser preview_start with a file: URL to .dev.vars denied", "tool": "mcp__Claude_Browser__preview_start", "input": { "url": "file:///C:/p/.dev.vars" }, "expect": "deny" },
+      { "name": "url-encoded file: path still caught", "tool": "mcp__Claude_Browser__navigate", "input": { "url": "file:///C:/Users/a%20b/.aws/credentials" }, "expect": "deny" },
+      { "name": "browser_batch nesting a navigate to .env denied", "tool": "mcp__Claude_Browser__browser_batch", "input": { "actions": [{ "name": "navigate", "input": { "url": "http://localhost:3000" } }, { "name": "navigate", "input": { "url": "file:///C:/p/.env" } }, { "name": "get_page_text", "input": {} }] }, "expect": "deny" },
+      { "name": "chrome file_upload of a credential file denied", "tool": "mcp__claude-in-chrome__file_upload", "input": { "paths": ["C:/Users/u/.ssh/id_ed25519"], "ref": "ref_3" }, "expect": "deny" },
+      { "name": "browser navigate to a normal site allowed", "tool": "mcp__Claude_Browser__navigate", "input": { "url": "https://example.com/docs" }, "expect": "allow" },
+      { "name": "browser navigate to a local README allowed", "tool": "mcp__Claude_Browser__navigate", "input": { "url": "file:///C:/p/README.md" }, "expect": "allow" },
+      { "name": "browser_batch of harmless steps allowed", "tool": "mcp__Claude_Browser__browser_batch", "input": { "actions": [{ "name": "navigate", "input": { "url": "http://localhost:3000" } }, { "name": "computer", "input": { "action": "screenshot" } }] }, "expect": "allow" },
+      { "name": "text field mentioning .env is not a path", "tool": "mcp__Claude_Browser__computer", "input": { "action": "type", "text": "copy .env.example to .env.local" }, "expect": "allow" },
+      { "name": "scraper with a file: URL to .netrc denied", "tool": "mcp__Windows-MCP__Scrape", "input": { "url": "file:///C:/Users/u/.netrc" }, "expect": "deny" }
     ]
   }
 ]
