@@ -42,6 +42,10 @@ if [ -n "$MIGRATIONS" ]; then
   echo "  Migration file naming: OK"
 fi
 
+# Staged secrets (D081, security control gitHooks): gitleaks over the staged changes. warn mode reports,
+# enforce blocks (maple.config.json security; docs/security-guardrails.md). ~0.1-0.5 s.
+node scripts/precommit-secrets.mjs "$(git rev-parse --show-toplevel)" || exit 1
+
 # Staged-file lint ONLY (D066) - same flags as the gate, so a green commit cannot go red at push for lint.
 # No tsc here: a cold whole-project typecheck made every commit slow; types are checked by the gate
 # (affected-only) at push/landing. Edge Function typecheck (Deno) moved to the heavy tier.
