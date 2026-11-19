@@ -33,6 +33,7 @@ is untouched by the generator.
 - [[quality-gate]] — the per-function Jev gate every landing passes: what it checks, what blocks, how to accept a finding.
 - [[quality]] — the enforcement matrix: every gate/hook, what it enforces, where it runs.
 - [[rollout]] — ordered rollout plan (plugin v1 → EasyCaller → VeHagita → MapleLens → loops live) with per-step verification.
+- [[security-guardrails]] — design for the plugin's security guardrail layer: what already enforces each owner goal, the gaps, controls per stage (edit, commit/push, predeploy, continuous, credentials), rollout via one security config block, overhead budget, and draft decisions awaiting the owner.
 - [[standard-architecture]] — the standard's four-way split (plugin / user-global / stamped files / template), the `maple.config.json` schema, and the `/adopt-standard` sequence.
 - [[tasks]] — open tasks only (`#T###`). Done tasks are swept; the record lives in CHANGELOG/git.
 <!-- catalog:end -->

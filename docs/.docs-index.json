@@ -1,5 +1,5 @@
 {
-  "generated": "2026-11-15",
+  "generated": "2026-11-19",
   "generator": "plugin/scripts/docs/generate-docs-index.mjs",
   "description": "Machine-readable map of docs/**/*.md preambles (OKF v0.1 frontmatter or legacy prose — docs/decisions.md D010). Regenerate after any preamble/description change: run this script (or check-docs-drift.mjs --fix).",
   "files": [
@@ -217,6 +217,37 @@
         "standard-architecture",
         "loop-pack",
         "maplelens"
+      ]
+    },
+    {
+      "path": "docs/security-guardrails.md",
+      "title": "Security guardrails",
+      "topic": "root",
+      "audience": "owner (approves the drafts), the session that builds phase 2, anyone asking \"what stops a vulnerable dependency or a leaked secret?\"",
+      "authoritative_for": [
+        "the security guardrail design",
+        "its rollout plan and its open owner decisions"
+      ],
+      "anchor_type": "code",
+      "anchor_paths": [
+        "plugin/hooks/hooks.json",
+        "plugin/hooks/guard.mjs",
+        "plugin/hooks/scrub-secrets.mjs",
+        "plugin/hooks/guards/deny-credential-paths.mjs",
+        "plugin/hooks/guards/bash-guard.mjs",
+        "plugin/hooks/guards/dep-version-guard.mjs",
+        "plugin/scripts/deps/install-guard.mjs",
+        "plugin/scripts/deps/registry.mjs",
+        "plugin/scripts/predeploy/catalog.mjs",
+        "plugin/scripts/predeploy/credentials.mjs",
+        "plugin/skills/credential-manager/SKILL.md",
+        "plugin/schema/maple.config.schema.json"
+      ],
+      "related": [
+        "predeploy-gate",
+        "quality",
+        "standard-architecture",
+        "decisions"
       ]
     },
     {
