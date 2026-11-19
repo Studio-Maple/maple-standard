@@ -198,7 +198,8 @@
       "related": [
         "../CLAUDE.md",
         "docker",
-        "predeploy-gate"
+        "predeploy-gate",
+        "security-guardrails"
       ]
     },
     {
@@ -242,7 +243,18 @@
         "plugin/scripts/predeploy/catalog.mjs",
         "plugin/scripts/predeploy/credentials.mjs",
         "plugin/skills/credential-manager/SKILL.md",
-        "plugin/schema/maple.config.schema.json"
+        "plugin/schema/maple.config.schema.json",
+        "plugin/hooks/secret-patterns.mjs",
+        "plugin/hooks/guards/security-mode.mjs",
+        "plugin/hooks/guards/mcp-surface-guard.mjs",
+        "plugin/hooks/guards/credential-store-guard.mjs",
+        "plugin/hooks/guards/secret-shell-guard.mjs",
+        "plugin/hooks/guards/secret-write-guard.mjs",
+        "plugin/scripts/secrets/maple-secret.mjs",
+        "plugin/scripts/prepush/precommit-secrets.mjs",
+        "plugin/scripts/deps/add-guard.mjs",
+        "plugin/scripts/deps/necessity.mjs",
+        "deps-ledger.json"
       ],
       "related": [
         "predeploy-gate",

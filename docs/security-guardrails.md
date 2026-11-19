@@ -6,12 +6,14 @@ tags: [security, design, hooks, supply-chain, secrets]
 timestamp: 2026-11-19
 audience: owner (approves the drafts), the session that builds phase 2, anyone asking "what stops a vulnerable dependency or a leaked secret?"
 authoritative_for: [the security guardrail design, its rollout plan and its open owner decisions]
-code: [plugin/hooks/hooks.json, plugin/hooks/guard.mjs, plugin/hooks/scrub-secrets.mjs, plugin/hooks/guards/deny-credential-paths.mjs, plugin/hooks/guards/bash-guard.mjs, plugin/hooks/guards/dep-version-guard.mjs, plugin/scripts/deps/install-guard.mjs, plugin/scripts/deps/registry.mjs, plugin/scripts/predeploy/catalog.mjs, plugin/scripts/predeploy/credentials.mjs, plugin/skills/credential-manager/SKILL.md, plugin/schema/maple.config.schema.json]
+code: [plugin/hooks/hooks.json, plugin/hooks/guard.mjs, plugin/hooks/scrub-secrets.mjs, plugin/hooks/guards/deny-credential-paths.mjs, plugin/hooks/guards/bash-guard.mjs, plugin/hooks/guards/dep-version-guard.mjs, plugin/scripts/deps/install-guard.mjs, plugin/scripts/deps/registry.mjs, plugin/scripts/predeploy/catalog.mjs, plugin/scripts/predeploy/credentials.mjs, plugin/skills/credential-manager/SKILL.md, plugin/schema/maple.config.schema.json, plugin/hooks/secret-patterns.mjs, plugin/hooks/guards/security-mode.mjs, plugin/hooks/guards/mcp-surface-guard.mjs, plugin/hooks/guards/credential-store-guard.mjs, plugin/hooks/guards/secret-shell-guard.mjs, plugin/hooks/guards/secret-write-guard.mjs, plugin/scripts/secrets/maple-secret.mjs, plugin/scripts/prepush/precommit-secrets.mjs, plugin/scripts/deps/add-guard.mjs, plugin/scripts/deps/necessity.mjs, deps-ledger.json]
 ---
 # Security guardrails
 
-**Status: APPROVED (D079-D086, 2026-11-19), phase 2 building.** Each control
-is enforced only once it lands; the CHANGELOG says which have. The method is the standard's own: enforce by mechanism, low overhead, one
+**Status: APPROVED (D079-D086, 2026-11-19).** Built in plugin v0.21.0: E0,
+E1, E1b, E2, E3, credentials, pre-commit gitleaks, cooldowns. Not built yet:
+E4 / `prod-localhost` / live CORS probe, push-time OSV + lockfile integrity,
+the weekly live re-scan. The method is the standard's own: enforce by mechanism, low overhead, one
 config block, no bypass. The [[predeploy-gate]] already does most of the heavy
 lifting, so most of this design closes the gaps around it.
 

@@ -223,7 +223,10 @@ Claude Code hooks live only in the plugin (D065). One PreToolUse dispatcher
 PowerShell alike, plus Read/Grep/Glob, file edits and MCP tools: credential
 reads (any shell verb), git-hook bypass (`--no-verify`, `core.hooksPath`,
 `HUSKY=0`), the deploy gate (baseline wrangler/supabase/terraform/vercel
-patterns + pushes to the prod branch), prod Supabase MCP mutations, worktree
+patterns + pushes to the prod branch), prod Supabase MCP mutations, the security
+guardrails ([[security-guardrails]]: MCP shell/file tools judged like the built-ins,
+credential-store reads only via `maple-secret`, secret printing, secrets in written
+text, add-time OSV/reputation/necessity checks), worktree
 placement, hand-written dependency versions, the cwd/push/clean shell
 hazards and the loop budget; `scrub-secrets` redacts tool output. The
 template registers none of them: its `.claude/settings.json` holds only the
