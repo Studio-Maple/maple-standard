@@ -357,9 +357,10 @@ Skip if the project does not use pnpm. The plugin's hooks already enforce
 the add-time half (`dep-version-guard` + bash-guard) once enabled; two
 things need planting in the project itself:
 
-- **`pnpm-workspace.yaml`**: ensure it contains `minimumReleaseAge: 1440`
-  (create the file if absent; add only that key if the file exists and lacks
-  it — never overwrite an existing value). Requires pnpm >= 10.16: if
+- **`pnpm-workspace.yaml`**: ensure it contains `minimumReleaseAge: 10080`
+  (7 days, D079; create the file if absent; add only that key if the file exists and lacks
+  it; raise a smaller existing value to 10080, never lower a larger one). npm projects:
+  `.npmrc` `min-release-age=7`. Requires pnpm >= 10.16: if
   `package.json` `packageManager` pins an older pnpm, report it and ask
   before bumping (a major pnpm bump can change lifecycle-script handling —
   `onlyBuiltDependencies` — and the lockfile).
@@ -375,6 +376,26 @@ things need planting in the project itself:
 Legitimate old versions are recorded in `maple.config.json`
 `deps.exceptions[]` (`name`, optional `range`, `decision`, `why`); each must
 cite a `D###` that exists in `docs.decisions`. Do not stamp any.
+
+### 6c. Security guardrails (D079-D086) — every project
+
+The plugin's hooks enforce the edit-time controls once enabled; the project
+needs four things planted (see `docs/security-guardrails.md` in the plugin repo):
+
+- **`maple.config.json`**: add `"security": { "enforceAfter": "<today + 7 days>" }`.
+  Every configurable control warns until that date, then enforces by itself (D082).
+  Never set a date more than 30 days out (the validator refuses it).
+- **Pre-commit gitleaks**: vendor `$CLAUDE_PLUGIN_ROOT/scripts/prepush/precommit-secrets.mjs`
+  byte-identically to `scripts/precommit-secrets.mjs` and call it from the
+  project's pre-commit hook (`node scripts/precommit-secrets.mjs "$(git rev-parse --show-toplevel)" || exit 1`),
+  before lint. Skip if the project's pre-commit already runs gitleaks on staged changes; say so.
+- **`deps-ledger.json`** (D086): create `{ "version": 1, "entries": {} }` at the repo root.
+  Existing dependencies need no entry; only new direct ones do.
+- **Dependabot** (`.github/dependabot.yml`, if present): weekly, with
+  `cooldown: { default-days: 7 }` on every ecosystem (D079). Do not create the
+  file if the project has none; report it.
+
+`predeploy doctor` lists missing scanners (gitleaks, osv-scanner, trivy) with install commands.
 
 ### 7. Verify
 
