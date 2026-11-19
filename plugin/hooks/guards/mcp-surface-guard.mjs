@@ -31,7 +31,7 @@ function credentialDeny(what) {
   );
 }
 
-export function check(ctx) {
+export async function check(ctx) {
   const raw = ctx.rawTool || ctx.tool || "";
   const input = ctx.input ?? {};
   if (MCP_SHELL.test(raw)) {
@@ -44,6 +44,11 @@ export function check(ctx) {
   if (name === "FileSystem") {
     for (const v of [input.path, input.destination, input.pattern]) {
       if (typeof v === "string" && v && isCredentialPath(v)) return { deny: credentialDeny(v) };
+    }
+    if (String(input.mode || "").toLowerCase() === "write" && typeof input.content === "string") {
+      // an MCP file write is judged like the Write tool for secrets in what it writes
+      const { check: secretWrite } = await import("./secret-write-guard.mjs");
+      return secretWrite({ ...ctx, tool: "Write", input: { file_path: input.path, content: input.content } });
     }
     return undefined;
   }
