@@ -5,7 +5,7 @@
 // rewrites the main checkout's install:
 //   - `npm ci` deletes every entry of ./node_modules BEFORE installing (lib/commands/ci.js readdir + rm)
 //     — through a junction that empties the main checkout's packages; an interrupted or failed run
-//     leaves it empty. EasyCaller 2026-10-09: main's site/node_modules found with 0 entries after
+//     leaves it empty. incident 2026-10-09 in a consuming project: main's site/node_modules found with 0 entries after
 //     agents ran `(cd site && npm ci)` in worktrees whose site/node_modules was such a junction.
 //   - `npm install|add|remove|update|prune|dedupe` (and the pnpm/yarn/bun equivalents) reify into it.
 //   - `rm -r`, `Remove-Item -Recurse`, `rmdir /s`, `rimraf` on a path UNDER the link (or `link/*`,
@@ -161,7 +161,7 @@ export function check(ctx) {
           deny:
             `BLOCKED (link-guard): ${nm} is a link to ${tgt} — another checkout's install (worktrees link node_modules from the main ` +
             `checkout). \`${seg.verb} ${seg.args.map((w) => w.text).join(" ")}\` rewrites that directory; \`npm ci\` first DELETES every entry ` +
-            "in it, so it would empty the main checkout's packages through the link (EasyCaller 2026-10-09: main's site/node_modules wiped).\n" +
+            "in it, so it would empty the main checkout's packages through the link (incident 2026-10-09 in a consuming project: main's site/node_modules wiped).\n" +
             `  Either install in the checkout that owns it: \`cd ${tgt.replace(/[\\/]node_modules$/, "").replace(/\\/g, "/")} && npm ci\`\n` +
             `  or give this worktree its own install: remove ONLY the link first — \`cmd //c rmdir "${winPath(nm)}"\` (Windows) / \`rm "${nm}"\` ` +
             "(no -r, Unix) — then re-run the install here." +

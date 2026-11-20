@@ -53,7 +53,7 @@ All keys optional; create the file if the user wants something pinned:
   "protectSessionIds": ["local_4a7f9e83-a571-4b2b-9cb3-877238be7ade"],
   "protectTitles": ["ביקורת חיוב מלאה"],
   "protectTitlePatterns": ["^Nightly heal"],
-  "protectCwdPatterns": ["\\\\Maple-Pole$"]
+  "protectCwdPatterns": ["\\\\my-project$"]
 }
 ```
 
@@ -74,5 +74,5 @@ writes UTF-8 **without a BOM** — the app silently drops a card whose JSON star
 - **Restart the app after applying.** The running app keeps the sidebar in memory, and a
   session it currently has loaded can get its card rewritten (un-archiving it). Sessions
   that were open during a sweep may reappear — re-run the prune after the restart.
-- The main `C:\Projects\Maple-Standard` checkout has `bare = true` in `.git/config`, so git
+- The main `<projects-root>\Maple-Standard` checkout has `bare = true` in `.git/config`, so git
   work-tree commands fail there. Edit this plugin from a `/wt-start` worktree.

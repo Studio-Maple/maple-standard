@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Regression: the shell files adopters copy into their repos (prepush-lib.sh, the template ci-local.sh)
 // must stay parseable by semgrep's bash grammar. An unparseable file is a `semgrep-error` finding in the
-// adopter's predeploy gate (EasyCaller 2026-10-08, fixed by hand in 8de69d36, then reverted by every
+// adopter's predeploy gate (incident 2026-10-08 in a consuming project, fixed by hand, then reverted by every
 // re-sync of the canonical file). This is the fast, tool-free half: it greps for the exact forms semgrep
 // rejects. The real parse by semgrep itself is semgrep-parse.integration.test.mjs (heavy tier).
 import { readFileSync } from "node:fs";

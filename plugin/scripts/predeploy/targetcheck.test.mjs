@@ -15,8 +15,8 @@ let n = 0;
 const t = async (name, fn) => { await fn(); n++; console.log("ok - " + name); };
 
 // Fixtures: what the edge actually answers when a parked target is behind Cloudflare.
-const CF_530 = { status: 530, headers: { server: "cloudflare", "cf-ray": "9a1b2c3d4e5f-FRA" }, body: "<!DOCTYPE html><title>Cloudflare Tunnel error | credentials.easy-call.co.il | Cloudflare</title><span>Error 1033</span> error code: 1033" };
-const CF_522 = { status: 522, headers: { server: "cloudflare", "cf-ray": "9a1b2c3d4e5f-FRA" }, body: "<title>sip.easy-call.co.il | 522: Connection timed out</title><span class=\"cf-error-code\">522</span>" };
+const CF_530 = { status: 530, headers: { server: "cloudflare", "cf-ray": "9a1b2c3d4e5f-FRA" }, body: "<!DOCTYPE html><title>Cloudflare Tunnel error | credentials.example.com | Cloudflare</title><span>Error 1033</span> error code: 1033" };
+const CF_522 = { status: 522, headers: { server: "cloudflare", "cf-ray": "9a1b2c3d4e5f-FRA" }, body: "<title>sip.example.com | 522: Connection timed out</title><span class=\"cf-error-code\">522</span>" };
 const CF_502 = { status: 502, headers: { server: "cloudflare" }, body: "<html><head><title>502 Bad Gateway</title></head><body>cf-error-details Cloudflare</body></html>" };
 const ACCESS = { status: 302, headers: { location: "https://team.cloudflareaccess.com/cdn-cgi/access/login/app.example?kid=abc&redirect_url=%2F" }, body: "" };
 const APP_200 = { status: 200, headers: { server: "cloudflare", "cf-ray": "x" }, body: "<html>app</html>" };
@@ -67,11 +67,11 @@ await t("schedule note wording", () => {
 const fixtureProbe = (map) => async (url) => map[url];
 await t("checkTargets: the 2026-10-08 incident (two parked targets) blocks with target-down, never header findings", async () => {
   const ls = { schedule: sched, targets: [
-    { id: "credentials", url: "https://credentials.easy-call.co.il/", headers: [{ name: "X", credentialRef: "r" }] },
-    { id: "sip", url: "https://sip.easy-call.co.il:8443/" },
-    { id: "app", url: "https://app.easy-call.co.il/" },
+    { id: "credentials", url: "https://credentials.example.com/", headers: [{ name: "X", credentialRef: "r" }] },
+    { id: "sip", url: "https://sip.example.com:8443/" },
+    { id: "app", url: "https://app.example.com/" },
   ] };
-  const r = await checkTargets(ls, { now: new Date("2026-10-08T19:30:00Z"), probe: fixtureProbe({ "https://credentials.easy-call.co.il/": CF_530, "https://sip.easy-call.co.il:8443/": CF_522, "https://app.easy-call.co.il/": APP_200 }) });
+  const r = await checkTargets(ls, { now: new Date("2026-10-08T19:30:00Z"), probe: fixtureProbe({ "https://credentials.example.com/": CF_530, "https://sip.example.com:8443/": CF_522, "https://app.example.com/": APP_200 }) });
   assert.deepEqual(r.findings.map((f) => f.id), ["target-down:credentials", "target-down:sip"]);
   for (const f of r.findings) { assert.equal(f.severity, "high"); assert.equal(f.check, "live-scan"); assert.match(f.message, /scan not meaningful/); assert.match(f.message, /outside its declared schedule/); assert.match(f.message, /No ZAP scan was run/); }
   assert.equal(r.results.find((x) => x.id === "app").state, "up");

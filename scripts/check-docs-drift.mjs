@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Thin delegate — the canonical implementation lives in
 // plugin/scripts/docs/check-docs-drift.mjs, bundled into the maple-standard
-// plugin so non-template adopters (VeHagita, EasyCaller) get this gate too,
+// plugin so non-template adopters (adopting projects) get this gate too,
 // instead of owning their own copy. See docs/decisions.md D010,
 // docs/tasks.md #T13.
 //

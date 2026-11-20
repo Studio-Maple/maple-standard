@@ -7,15 +7,15 @@ timestamp: 2026-07-26
 audience: anyone deploying a new per-app MapleLens instance, or auditing what the extraction shipped
 authoritative_for: [what's shared vs. per-instance, the deployment story per app, and the MCP contract /sweep-errors depends on]
 code: []
-reference_for: the maplelens extraction (done 2026-07-26) — shared code lives in the external MapleLens repo (C:/Projects/MapleLens, branch extraction); no owned paths in this repo
+reference_for: the maplelens extraction (done 2026-07-26) — shared code lives in the external MapleLens repo; no owned paths in this repo
 ---
 # MapleLens — generalizing the DIY error tracker
 
-> **Status:** Extraction **done** 2026-07-26 (spec approved 2026-07-25). The shared code shipped in the standalone **MapleLens repo** — `C:/Projects/MapleLens`, branch `extraction` (own repo per D011 in [[decisions]]; execution logged in MapleLens `docs/log.md` S002, per-task notes in its `docs/tasks.md` #T1–#T7). This page records what actually shipped. Deploys are still pending — VeHagita first, EasyCaller second, see [[rollout]].
-> **Source design:** VeHagita `docs/features/diy-error-tracker/roadmap.md` + `deployment.md` (agent-native, MCP-first, dual-send with free-tier Sentry — carried over verbatim, not redesigned).
+> **Status:** Extraction **done** 2026-07-26 (spec approved 2026-07-25). The shared code shipped in the standalone **MapleLens repo** (own repo per D011 in [[decisions]]). This page records what actually shipped. Deploys are per consuming project — first and second instance, see [[rollout]].
+> **Source design:** the original in-project DIY error tracker's roadmap and deployment docs (agent-native, MCP-first, dual-send with free-tier Sentry — carried over verbatim, not redesigned).
 > **Related:** [[standard-architecture]] (`errorTracker` block in `maple.config.json`) · [[loop-pack]] (`/sweep-errors`) · [[rollout]]
 
-**MapleLens** is the name for per-app deployed instances of VeHagita's DIY error tracker, built from shared code in the standalone MapleLens repo (the `maplelens-core` working name is retired — it's a repo, not a maple-standard package, per D011). Nothing about the design was reopened: the extraction ported VeHagita's `cloudflare/error-tracker/` as-is, parameterized instead of hardcoded. VeHagita deploys its own instance first, in a separate session; EasyCaller is next.
+**MapleLens** is the name for per-app deployed instances of a DIY error tracker first built inside one consuming project, built from shared code in the standalone MapleLens repo (the `maplelens-core` working name is retired — it's a repo, not a maple-standard package, per D011). Nothing about the design was reopened: the extraction ported that project's `cloudflare/error-tracker/` as-is, parameterized instead of hardcoded. The first consuming project deploys its own instance first, in a separate session; the second is next.
 
 ## Design carried over unchanged
 
@@ -27,11 +27,11 @@ reference_for: the maplelens extraction (done 2026-07-26) — shared code lives 
 
 ## What shipped in the shared core
 
-The extraction ported **all** of VeHagita's `cloudflare/error-tracker/` — 19 worker modules + 6 D1 migrations, the MCP server, and the SDK transport — zero VeHagita strings left in code, `tsc --noEmit` clean across all three packages, all ported tests passing. Repo layout: `core/` (the CF Worker), `mcp/` (the MCP server), `sdk/` (client transport reference pattern), `instances/example/` (per-instance config + runbook template).
+The extraction ported **all** of the original `cloudflare/error-tracker/` — 19 worker modules + 6 D1 migrations, the MCP server, and the SDK transport — zero project-specific strings left in code, `tsc --noEmit` clean across all three packages, all ported tests passing. Repo layout: `core/` (the CF Worker), `mcp/` (the MCP server), `sdk/` (client transport reference pattern), `instances/example/` (per-instance config + runbook template).
 
 Four shipped phases were missing from the pre-extraction version of this table — regression detection, Telegram alerts, perf/AE-SQL queries, replay ingestion. All four were ported; they're marked below.
 
-| VeHagita source (`cloudflare/error-tracker/`) | Shipped as (MapleLens repo) | Parameterization |
+| Original source (`cloudflare/error-tracker/`) | Shipped as (MapleLens repo) | Parameterization |
 |---|---|---|
 | `worker.ts` (envelope receive, routing) + `parse-envelope.ts`, `cors.ts`, `types.ts` | `core/worker.ts`, `core/parse-envelope.ts`, `core/cors.ts`, `core/types.ts` | Allowed origins + self-monitoring DSN env-driven; rate limits per instance |
 | `fingerprint.ts` | `core/fingerprint.ts` — as-is | None — the algorithm is app-agnostic |
@@ -58,25 +58,25 @@ Not extracted — lives in each app's own deploy config / secrets. The documente
 - CF Analytics API token — read scope for the perf/AE-SQL queries.
 - Allowed origins — the app's own frontend domain(s), env-driven.
 - Optional admin/dashboard host (`MAPLELENS_ADMIN_URL` on the MCP side) for the replay hand-off tool; without it the tool degrades gracefully.
-- Source-map upload wiring — hooked into whatever build tool the app uses (Vite/Remix for VeHagita; EasyCaller's equivalent, TBD at its deploy step).
+- Source-map upload wiring — hooked into whatever build tool the app uses (e.g. Vite/Remix; decided per instance at its deploy step).
 - Sentry fallback project ref — the app's own free-tier Sentry project for dual-send.
 - All of the above surface through `maple.config.json`'s `errorTracker` block (see [[standard-architecture]]) — `provider`, `endpoint`, `readTokenRef`, `writeTokenRef`, `sentryProject`.
 
 ## Deployment story per app
 
-The generalized runbook shipped: `instances/example/RUNBOOK.md` in the MapleLens repo — the same 9 steps as VeHagita's `deployment.md`, stack-agnostic, parameterized the same way as the code:
+The generalized runbook shipped: `instances/example/RUNBOOK.md` in the MapleLens repo — the same 9 steps as the original deployment doc, stack-agnostic, parameterized the same way as the code:
 
 1. Provision CF resources (D1, R2 buckets) — namespaced per app.
 2. Wire the generated D1 `database_id` into that app's Worker config (not a secret — safe to commit).
-3. Set Worker secrets (`READ_TOKEN`, `WRITE_TOKEN`, Telegram creds, CF Analytics token) via the credential-manager skill — Maayan runs the `wrangler secret put` prompts himself, reports success only.
+3. Set Worker secrets (`READ_TOKEN`, `WRITE_TOKEN`, Telegram creds, CF Analytics token) via the credential-manager skill — the owner runs the `wrangler secret put` prompts himself, reports success only.
 4. Apply D1 migrations.
-5. Deploy; verify the custom domain resolves to the right Worker (VeHagita's runbook flags this as the one genuinely fiddly step — env-suffixed worker names can silently split from the intended custom domain).
+5. Deploy; verify the custom domain resolves to the right Worker (the runbook flags this as the one genuinely fiddly step — env-suffixed worker names can silently split from the intended custom domain).
 6. Smoke test: unauthed health check, authed read, a thrown test error visible in `/v1/issues` within ~5s (and still landing in Sentry — dual-send confirmed).
 7. Register the MCP server in the relevant `~/.claude/settings.json` / project MCP config (`MAPLELENS_API_URL` + tokens).
 8. Wire source-map upload into that app's post-build step.
-9. Start the soak (parity check vs. Sentry) as a confidence exercise — not a drop-gate, per VeHagita's own Phase 10 rescoping. Sentry never goes away.
+9. Start the soak (parity check vs. Sentry) as a confidence exercise — not a drop-gate, per the original Phase 10 rescoping. Sentry never goes away.
 
-VeHagita's own execution of this runbook happens in a separate session — see [[rollout]] for where it sits in the ordered plan. EasyCaller's deploy follows the same template; its extraction prerequisite is now met.
+The first instance's execution of this runbook happens in a separate session — see [[rollout]] for where it sits in the ordered plan. The second instance's deploy follows the same template; its extraction prerequisite is now met.
 
 ## How `/sweep-errors` consumes MapleLens
 
@@ -90,6 +90,6 @@ The shipped MCP server registers 15 tools (events, symbolication, replay hand-of
 | `errors.get_issue` | One-fetch full context per actionable cluster — stack, breadcrumbs, suspect files/commits, similar issues. |
 | `errors.diff_since` | Bound each cycle to what's new since the loop's last run, not a full re-scan. |
 | `errors.search_code_path` | Pre-edit check — is the file about to be touched already implicated in an open issue. |
-| `errors.resolve` / `errors.ignore` (shipped alongside `errors.assign`) | Final step after a fix's regression test passes the gate — `MAPLELENS_WRITE_TOKEN`-gated, same permission-note discipline as VeHagita's `/heal` (external write, request approval if not pre-approved). |
+| `errors.resolve` / `errors.ignore` (shipped alongside `errors.assign`) | Final step after a fix's regression test passes the gate — `MAPLELENS_WRITE_TOKEN`-gated, same permission-note discipline as `/heal` (external write, request approval if not pre-approved). |
 
 Until an app's MapleLens instance is deployed, the same loop logic runs against that app's Sentry MCP tools instead (`search_issues` / `get_sentry_resource`) — the clustering and verification-ladder logic in `/sweep-errors` is written against the tool *contract*, not against MapleLens specifically, so the provider swap is a config change, not a rewrite.

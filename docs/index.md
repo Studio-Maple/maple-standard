@@ -32,7 +32,7 @@ is untouched by the generator.
 - [[predeploy-gate]] — the enforced zero-findings gate in front of every deploy: checks, allowlist, stamp, guard hook, live ZAP policy, emergency override.
 - [[quality-gate]] — the per-function Jev gate every landing passes: what it checks, what blocks, how to accept a finding.
 - [[quality]] — the enforcement matrix: every gate/hook, what it enforces, where it runs.
-- [[rollout]] — ordered rollout plan (plugin v1 → EasyCaller → VeHagita → MapleLens → loops live) with per-step verification.
+- [[rollout]] — ordered rollout plan (plugin v1 → first consuming project → second → MapleLens → loops live) with per-step verification.
 - [[security-guardrails]] — design for the plugin's security guardrail layer: what already enforces each owner goal, the gaps, controls per stage (edit, commit/push, predeploy, continuous, credentials), rollout via one security config block, overhead budget, and draft decisions awaiting the owner.
 - [[standard-architecture]] — the standard's four-way split (plugin / user-global / stamped files / template), the `maple.config.json` schema, and the `/adopt-standard` sequence.
 - [[tasks]] — open tasks only (`#T###`). Done tasks are swept; the record lives in CHANGELOG/git.
@@ -50,7 +50,7 @@ is untouched by the generator.
 - The legacy prose preamble (`> **Audience:**` / `**Authoritative for:**` /
   `**Code:**` blockquote) is still fully supported — it's how a doc looked
   before D010 — but the gate WARNS on a page with no frontmatter, so
-  migration pressure exists. VeHagita's ~65 pages migrate under #T5.
+  migration pressure exists. An adopting project's existing pages migrate under #T5.
 - IDs (`#T###`, `D###`, `S###`) are ALLOCATED, never guessed:
   `node scripts/next-task-id.mjs [--decision|--session] [--add ...]`.
 - Entries in decisions/tasks/log are capped at 600 chars (gate-enforced) —

@@ -33,7 +33,7 @@ const upper = (len) => rep("QWERTYUIOP1234ASDFGH", len);
 
 const redacted = (out, kind) => out !== null && out.includes(`[REDACTED:${kind}]`);
 
-// --- new in 0.13.4 (ported from EasyCaller's former project copy, D065 regression) ---
+// --- new in 0.13.4 (ported from a consuming project's former copy, D065 regression) ---
 
 t("sb_secret_ key is redacted; sb_publishable_ (not a secret) and a too-short sb_secret_ are left alone", () => {
   const key = "sb_secret_" + alnum(30);

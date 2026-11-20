@@ -7,7 +7,7 @@
  *   { "version": 1, "entries": [
  *     { "name": "mysql",                       // the trivy-image `name`
  *       "ref":  "mysql:8.0@sha256:…",          // the exact pin (`context:<dir>` for an image we build from a third-party base)
- *       "owner": "Maayan", "plan": "how and when this gets fixed (>= 10 chars)",
+ *       "owner": "Alice", "plan": "how and when this gets fixed (>= 10 chars)",
  *       "due": "YYYY-MM-DD",                   // after this date any remaining finding fails the gate
  *       "baselined": "YYYY-MM-DD",             // written by --rebaseline-image-debt
  *       "findings": [ "CVE-…|pkg@ver|target" ] // SNAPSHOT of finding keys, written by --rebaseline-image-debt

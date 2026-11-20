@@ -7,7 +7,7 @@
 # branch from a single dedicated `_preview` worktree (detached HEAD, so it
 # never conflicts with the agent's own checkout).
 #
-# Ported + generalized from VeHagita's scripts/agent-wt/vh-preview.sh
+# Ported + generalized from an adopter's project-specific worktree scripts
 # (D085 / #T070 there). Config: see maple-lib.sh header + plugin/README.md.
 # CANONICAL keys (docs/standard-architecture.md; reconciled #T11 — nested
 # under the schema's `worktrees.*` block, not an invented top-level one):

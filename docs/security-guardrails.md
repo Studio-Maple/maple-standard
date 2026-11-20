@@ -25,7 +25,7 @@ lifting, so most of this design closes the gaps around it.
 | Deployed version has no known CVEs | Predeploy gate (D060/D061/D063): `osv-scanner`, `npm-audit`, `trivy-fs`, `trivy-image` (own + third-party refs), `snyk`, zero findings, expiring allowlist (owner + expires, 90-day cap), `suppression-audit` flags `.trivyignore` / `osv-scanner.toml` | CVEs published **after** the deploy are seen only on the next predeploy run: nothing re-scans what is live on a schedule |
 | A dependency added while coding is not vulnerable | Nothing at edit time (only freshness) | OSV lookup at add time; the first vulnerability signal is today the predeploy gate, days later |
 | localhost never in prod | Nothing | Edit-time guard on prod config + a predeploy preset + a live CORS probe |
-| Credentials never leak | `deny-credential-paths` (Read/Grep/Glob + any shell verb naming a credential file), `scrub-secrets` PostToolUse (known token shapes), predeploy `gitleaks` (tree + history) | No scan of what Claude **writes** (Write/Edit); no gitleaks at commit (template's pre-commit has none, Caller's is project-local); scrubber only knows token shapes, not arbitrary passwords |
+| Credentials never leak | `deny-credential-paths` (Read/Grep/Glob + any shell verb naming a credential file), `scrub-secrets` PostToolUse (known token shapes), predeploy `gitleaks` (tree + history) | No scan of what Claude **writes** (Write/Edit); no gitleaks at commit (template's pre-commit has none; a consuming project's may be project-local); scrubber only knows token shapes, not arbitrary passwords |
 | Claude can never read Credential Manager values | Nothing. The credential-manager skill *tells* Claude to run `Get-StoredCredential … .Password` itself | **Two holes**, below |
 
 ### Headline findings
@@ -33,7 +33,7 @@ lifting, so most of this design closes the gaps around it.
 1. **MCP shell tools bypass every guard.** `hooks.json` matches `Bash|PowerShell|Read|Grep|Glob|Write|Edit|MultiEdit` plus named Supabase MCP tools. Sessions also carry `mcp__Windows-MCP__PowerShell`, `mcp__terminal__run_in_terminal`, `mcp__Windows-MCP__FileSystem`, `…__Registry`, `…__Clipboard`. A `Get-StoredCredential` or `cat .env` through any of them never reaches `guard.mjs`, and their output never reaches `scrub-secrets`. Every "never" in this page is false until that is closed.
 2. **The credential rule is trust-based.** The skill's Pattern A runs the retrieval in Claude's own shell, so one stray `Write-Output` (or a non-token-shaped value the scrubber does not know) lands the secret in context. Patterns cannot fix this; only a wrapper that holds the value can (Credentials, below).
 
-Exceptions channel: the predeploy allowlist (`{check, id, location, reason, owner, expires}`) is already the one place a time-boxed CVE exception lives (the Maple-Pole picomatch case fits it as-is); `suppression-audit` already flags tool-native ignore files. This design adds **no** second exception file.
+Exceptions channel: the predeploy allowlist (`{check, id, location, reason, owner, expires}`) is already the one place a time-boxed CVE exception lives (a time-boxed transitive-CVE exception fits it as-is); `suppression-audit` already flags tool-native ignore files. This design adds **no** second exception file.
 
 ## Controls by stage
 
@@ -84,12 +84,12 @@ New guard modules plug into the existing D065 dispatcher (`guard.mjs`, one proce
 
 ### 2. Commit and push (git hooks, `security.gitHooks`)
 
-Installed by the existing `install-hooks.mjs` path (absolute hooksPath, fail closed). The template's `ci-local.sh` has **no** gitleaks or supply-chain step today (the names exist only in the light-step regex; Caller defines its own).
+Installed by the existing `install-hooks.mjs` path (absolute hooksPath, fail closed). The template's `ci-local.sh` has **no** gitleaks or supply-chain step today (the names exist only in the light-step regex; consuming projects define their own).
 
 - **pre-commit: `gitleaks protect --staged --redact`** (~0.1-0.3 s). Missing gitleaks = fail with the install command, never a skip.
 - **pre-push, only when a lockfile / manifest changed** (affected-only, like D066):
   - `osv-scanner scan source -L <changed lockfiles>` against a locally cached DB (`--offline` with a daily refresh), empty config file so `osv-scanner.toml` is not honoured.
-  - **Lockfile integrity**: lockfile in sync with manifests (`pnpm install --frozen-lockfile --lockfile-only` / `npm ci --dry-run`), every resolved URL on the configured registry over https (no git / http / tarball URLs unless excepted), every entry carries an `integrity` hash, registry host unchanged. Lift Caller's `lock-closure` and `npm-signatures` (`npm audit signatures`) into plugin presets instead of rewriting them.
+  - **Lockfile integrity**: lockfile in sync with manifests (`pnpm install --frozen-lockfile --lockfile-only` / `npm ci --dry-run`), every resolved URL on the configured registry over https (no git / http / tarball URLs unless excepted), every entry carries an `integrity` hash, registry host unchanged. Lift a consuming project's `lock-closure` and `npm-signatures` (`npm audit signatures`) into plugin presets instead of rewriting them.
 
 ### 3. Predeploy gate (exists; tighten)
 
@@ -101,7 +101,7 @@ Installed by the existing `install-hooks.mjs` path (absolute hooksPath, fail clo
 ### 4. Continuous
 
 - **Weekly live re-scan** (`security.continuous.weekly`): re-run the vulnerability presets (`osv-scanner`, `npm-audit`, `trivy-image` by deployed ref) against the **deployed sha** from the deploy ledger, with a fresh DB. A new finding opens a task on the app's MapleLens board (or `docs/gaps.md` outside MapleLens) and blocks the next stamp. Runs on the **local desk / MapleLens scheduler**, not GitHub Actions: `gaps.md` already says CI only deploys, and Caller's Actions are billing-blocked.
-- **Dependency bot with cooldown**: Dependabot `cooldown: { default-days: N }`, weekly, security updates ungrouped from cooldown. The template is monthly with no cooldown; Caller is weekly with 7 days. Standardize (D079). Renovate is the alternative (`minimumReleaseAge`), not proposed: Dependabot is already wired with automerge.
+- **Dependency bot with cooldown**: Dependabot `cooldown: { default-days: N }`, weekly, security updates ungrouped from cooldown. The template is monthly with no cooldown; some consuming projects are weekly with 7 days. Standardize (D079). Renovate is the alternative (`minimumReleaseAge`), not proposed: Dependabot is already wired with automerge.
 - Package manager cooldown matches: pnpm `minimumReleaseAge`, npm `min-release-age`, uv `exclude-newer` (relative), all at the same N days.
 
 ### 5. Credentials: Claude never reads Credential Manager
@@ -149,8 +149,8 @@ Rule: a secret flows store → child process env (or a temp file) → the comman
 ### Per project
 
 - **New projects**: `/adopt-standard` writes the block with `enforceAfter` = today + 7, installs gitleaks / osv-scanner check via `predeploy doctor`, adds the Dependabot cooldown and package-manager cooldown.
-- **Existing projects** (VeHagita, EasyCaller, Maple-Pole, Nekuda, MapleLens, SmartMatzeva): plugin bump (SessionStart cache sync, D053) + one line `"security": { "enforceAfter": "<date>" }`. Order: pilot on one project in warn (D083), then the rest a week apart, so each project's warn log is reviewed before its flip.
-- Caller already runs most predeploy presets and has its own pre-commit gitleaks: the plugin's hook checks for an existing equivalent step and does not double-run.
+- **Existing consuming projects:** plugin bump (SessionStart cache sync, D053) + one line `"security": { "enforceAfter": "<date>" }`. Order: pilot on one project in warn (D083), then the rest a week apart, so each project's warn log is reviewed before its flip.
+- A project that already runs most predeploy presets and has its own pre-commit gitleaks: the plugin's hook checks for an existing equivalent step and does not double-run.
 
 ## Overhead budget
 
@@ -174,7 +174,7 @@ Rule: a secret flows store → child process env (or a temp file) → the comman
 3. **E3** secret-printing shell guard, **E2** Write/Edit secret scan on the shared catalog, pre-commit `gitleaks protect --staged`.
 4. **E1** package-add: bare-name lookup, OSV, reputation/typosquat, cache; then pip/uv. **E1b** necessity note alongside.
 5. Cooldown standardization (Dependabot `cooldown`, package managers).
-6. Later: E4 + `prod-localhost` preset + live CORS probe, lockfile integrity presets (lifted from Caller), weekly re-scan.
+6. Later: E4 + `prod-localhost` preset + live CORS probe, lockfile integrity presets (lifted from a consuming project), weekly re-scan.
 
 Each lands with unit tests in `plugin/scripts/hooks/` fixtures, a plugin version bump, a CHANGELOG entry, then a warn-mode pilot.
 
@@ -182,11 +182,11 @@ Each lands with unit tests in `plugin/scripts/hooks/` fixtures, a plugin version
 
 The drafts as approved; the ledger entries are D079-D086 in [[decisions]].
 
-- **D079, release cooldown: 7 days everywhere.** Package-manager cooldown (pnpm `minimumReleaseAge: 10080`, npm `min-release-age=7`, uv `exclude-newer`), the add-time guard, and Dependabot `cooldown.default-days: 7`, weekly. Template today: 1 day, monthly bot, no cooldown; Caller: 7 days. Security updates bypass the bot cooldown but not the add-time OSV check. Alternative: 3 days (faster fixes, less supply-chain margin).
+- **D079, release cooldown: 7 days everywhere.** Package-manager cooldown (pnpm `minimumReleaseAge: 10080`, npm `min-release-age=7`, uv `exclude-newer`), the add-time guard, and Dependabot `cooldown.default-days: 7`, weekly. Template today: 1 day, monthly bot, no cooldown; some consuming projects: 7 days. Security updates bypass the bot cooldown but not the add-time OSV check. Alternative: 3 days (faster fixes, less supply-chain margin).
 - **D080, add-time thresholds.** Deny on any OSV vuln in the resolved version (all severities, matching the gate's zero rule); new-package reputation: ≥ 1,000 weekly downloads, ≥ 30 days old, not deprecated, typosquat edit distance ≤ 2 vs top 5,000 names → deny; owner-approved `deps.exceptions` override. Alternative: reputation as warn-only.
-- **D081, tools.** Secrets: **gitleaks** (already in the gate and Caller; fast; local) over trufflehog (verifies live, slower, network) and detect-secrets (Python dependency). Vulns: **OSV** (free, no token, offline DB, npm + PyPI) as the edit/push source; **Socket** not adopted now (token, paid tiers for full API, network on every add) but its free reputation signal is a later option if typosquats slip through. Bot: **Dependabot** with `cooldown`, not Renovate.
+- **D081, tools.** Secrets: **gitleaks** (already in the gate and in consuming projects; fast; local) over trufflehog (verifies live, slower, network) and detect-secrets (Python dependency). Vulns: **OSV** (free, no token, offline DB, npm + PyPI) as the edit/push source; **Socket** not adopted now (token, paid tiers for full API, network on every add) but its free reputation signal is a later option if typosquats slip through. Bot: **Dependabot** with `cooldown`, not Renovate.
 - **D082, warn → enforce.** Absent `security` block = warn; each project flips to enforce automatically at `enforceAfter` (≤ 30 days, default 7 after adoption). Credential store, secret printing and the MCP bypass enforce from day one with no warn phase.
-- **D083, pilot project.** Pilot in warn mode on **MapleLens** (active dev, no live customers, already the control surface), then EasyCaller, VeHagita, Maple-Pole, Nekuda, SmartMatzeva a week apart. Alternative: EasyCaller first (most security debt, most to learn, more noise).
+- **D083, pilot project.** Pilot in warn mode on one consuming project (active dev, no live customers), then the others a week apart. Alternative: pilot on the project with the most security debt (most to learn, more noise).
 - **D084, weekly live re-scan runs locally** (desk / MapleLens scheduler) against the deployed sha; a new CVE opens a board task and blocks the next stamp, it does not page or auto-rollback.
 - **D085, credential wrapper is the only retrieval path.** Direct `Get-StoredCredential`-style retrieval is denied in every shell tool, including the owner's own sessions run through Claude; the owner keeps the store UI and `store-secret.ps1`.
 - **D086, dependency necessity.** Added by the owner at approval; designed in E1b above.

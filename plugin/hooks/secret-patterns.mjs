@@ -1,4 +1,4 @@
-// The ONE secret-pattern catalog of the plugin (D070 ports every EasyCaller pattern). Used by the
+// The ONE secret-pattern catalog of the plugin (D070 ports every pattern of an adopter's former copy). Used by the
 // scrub-secrets PostToolUse hook (redact tool output) and by secret-write-guard (deny secrets in text an
 // agent writes). Add a pattern here once and both sides learn it. Comments on each pattern's design live
 // in scrub-secrets.mjs's header.

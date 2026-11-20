@@ -57,9 +57,9 @@ Don't remind the user to `/wt-land` later — they know. (Landing is still how t
 
 If the slug is missing/invalid or the branch already exists, the script exits non-zero with the reason — relay it; don't retry blindly.
 
-## Gap vs. the VeHagita original
+## Gap vs. the original project-specific command
 
-The source command (`VeHagita/.claude/commands/wt-start.md`) hardcoded
+The original project-specific command hardcoded
 `origin/development` as the base and assumed a `frontend/` + `tests/e2e/` +
 `supabase/tests/` monorepo layout for `node_modules` linking. Both are now
 `maple.config.json` keys with generic single-package defaults — a project

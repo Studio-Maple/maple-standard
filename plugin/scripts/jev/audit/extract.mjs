@@ -420,7 +420,7 @@ export function matchesPathFilters(relPath, pathFilters) {
  * should pass the target repo's own base — `config.baseBranch`, else that
  * repo's own `maple.config.json` `repo.devBranch`, else "main" (resolved by
  * `resolveBaseBranch` in audit.mjs) — so a repo whose integration branch
- * isn't literally named `main` (e.g. EasyCaller's `development`) gets a real
+ * isn't literally named `main` (e.g. a `development` default branch) gets a real
  * diff instead of silently falling back to working-tree-only.
  */
 export async function discoverChangedFiles(config, cwd, pathFilters = [], baseBranch = "main") {
@@ -455,7 +455,7 @@ export async function discoverTestFiles(cwd) {
  * Buckets a path to its top-level scope directory for the report's module
  * heatmap. `config.moduleLabels` (keyed by the exact `scopeDirs` entry) lets
  * a config override the default "first path segment" label — needed for
- * EasyCaller, where `services/call-plane/src` and `services/srs/src` would
+ * a consuming project, where `services/a/src` and `services/b/src` would
  * otherwise both collapse to the single label `services`, losing the split
  * the heatmap is for. Absent `moduleLabels`, behaviour is unchanged.
  */

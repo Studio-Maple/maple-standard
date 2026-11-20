@@ -17,7 +17,7 @@
  * page's frontmatter `description`. A page with no frontmatter yet keeps
  * its EXISTING catalog line verbatim (looked up by basename) rather than
  * losing hand-written prose — so a partially-migrated docs/ (e.g.
- * VeHagita pre-#T5) degrades gracefully. Hand-written content outside the
+ * a large adopter pre-#T5) degrades gracefully. Hand-written content outside the
  * markers is never touched. If the markers are missing entirely, catalog
  * maintenance is skipped (check-docs-drift.mjs warns about that).
  *

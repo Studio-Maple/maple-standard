@@ -9,7 +9,7 @@
 //
 // No git subprocess: the repo root is found by walking up to `.git` (a directory = main checkout; a file
 // `gitdir: <common>/.git/worktrees/<n>` = linked worktree) and cached per cwd. Paths are compared after
-// realpath of their nearest existing ancestor (expands 8.3 short names like MAAYAN~1) and, on Windows,
+// realpath of their nearest existing ancestor (expands 8.3 short names like ABCDEF~1) and, on Windows,
 // case-insensitively with `/` and `\` unified. Anything unresolvable fails open.
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";

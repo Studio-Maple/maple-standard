@@ -30,7 +30,7 @@ const LEDGER = "# Decisions\n\n## D161 | 2026-10-01 | Test exception decision\nb
 const OPT_OUT = { optOut: { bundle: { decision: "D161", why: "fixture repo: no web build to scan (the D072 opt-out path)" } } };
 const OK = { id: "ok", command: 'node -e "process.exit(0)"' };
 const cfgOf = (checks, extra = {}) => ({ project: { name: "t", slug: "t" }, predeploy: { checks, exposure: OPT_OUT, ...extra } });
-const WORKFLOW = "name: r\non: push\njobs:\n  build:\n    runs-on: [self-hosted, docker, ezcall]\n    steps:\n      - run: echo\n";
+const WORKFLOW = "name: r\non: push\njobs:\n  build:\n    runs-on: [self-hosted, docker, acme]\n    steps:\n      - run: echo\n";
 const commit = (cfg, files = {}) => {
   writeFileSync(join(repo, "maple.config.json"), JSON.stringify(cfg, null, 2));
   for (const [k, v] of Object.entries({ "docs/decisions.md": LEDGER, ".github/workflows/w.yml": WORKFLOW, ...files })) {
@@ -49,7 +49,7 @@ const fakeGh = ({ runs = [], runners = null, apiStatus = 0 } = {}) => async (_ro
   if (args[0] === "api") return apiStatus ? { status: 1, out: "", err: "HTTP 403: Resource not accessible by integration" } : { status: 0, out: JSON.stringify({ runners: runners || [] }), err: "" };
   return { status: 1, out: "", err: "unexpected" };
 };
-const runner = (status) => ({ name: "box", status, busy: false, labels: ["self-hosted", "docker", "ezcall", "X64"].map((name) => ({ name })) });
+const runner = (status) => ({ name: "box", status, busy: false, labels: ["self-hosted", "docker", "acme", "X64"].map((name) => ({ name })) });
 
 const pf = (cfg, o = {}) => {
   const pd = normalize(cfg);
@@ -195,7 +195,7 @@ await t("a full clean gate run records the preflight and real per-check timing i
 });
 
 await t("runs-on parsing: inline list, scalar, block list, group labels, expressions, GitHub-hosted", () => {
-  assert.deepEqual(selfHostedLabelSets(WORKFLOW).sets, [["self-hosted", "docker", "ezcall"]]);
+  assert.deepEqual(selfHostedLabelSets(WORKFLOW).sets, [["self-hosted", "docker", "acme"]]);
   assert.deepEqual(selfHostedLabelSets("jobs:\n  a:\n    runs-on: self-hosted\n").sets, [["self-hosted"]]);
   assert.deepEqual(selfHostedLabelSets("jobs:\n  a:\n    runs-on:\n      - self-hosted\n      - 'gpu'\n    steps: []\n").sets, [["self-hosted", "gpu"]]);
   assert.deepEqual(selfHostedLabelSets("jobs:\n  a:\n    runs-on:\n      group: g\n      labels: [self-hosted, big]\n").sets, [["self-hosted", "big"]]);

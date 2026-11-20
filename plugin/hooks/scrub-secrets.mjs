@@ -55,11 +55,11 @@ import { scrub } from './secret-patterns.mjs';
 // false-positive constantly: git SHAs are 40 hex chars and show up in every deploy log.
 //
 // docs/ IS scrubbed like everything else. It used to be exempt so pattern EXAMPLES stayed readable, which also
-// meant a real secret pasted into a doc reached model context unredacted (EasyCaller audit 12 L5, restored here
+// meant a real secret pasted into a doc reached model context unredacted (a consuming project's audit, restored here
 // after D065 removed the project copies that had fixed it). An example that matches a pattern is redacted too;
 // that costs nothing, and docs should use values that are obviously fake and do not match.
 //
-// This hook ports EVERY pattern of EasyCaller's former project copy; there is no second copy to keep in sync.
+// This hook ports EVERY pattern of a consuming project's former copy; there is no second copy to keep in sync.
 //
 
 

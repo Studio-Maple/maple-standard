@@ -22,7 +22,7 @@ const plus = (days) => isoDay(TODAY.getTime() + days * DAY);
 // ── pure core ───────────────────────────────────────────────────────────────
 const fnd = (image, id, pkg = "libc@1", target = "debian 12") => ({ check: "trivy-images", id, severity: "high", message: "m", location: `${image}: ${target}`, resource: pkg, image, imageFinding: true });
 const pins = [{ name: "mysql", pin: "mysql:8@sha256:aa", check: "trivy-images" }, { name: "redis", pin: "redis:7@sha256:bb", check: "trivy-images" }, { name: "call-plane", pin: "context:services/call-plane", check: "trivy-images" }];
-const ent = (name, ref, keys, extra = {}) => ({ name, ref, owner: "Maayan", plan: "bump the base image", due: plus(9), baselined: plus(0), findings: keys, ...extra });
+const ent = (name, ref, keys, extra = {}) => ({ name, ref, owner: "Alice", plan: "bump the base image", due: plus(9), baselined: plus(0), findings: keys, ...extra });
 const file = (entries, problems = []) => ({ path: "predeploy-image-debt.json", entries, raw: "x", present: true, problems });
 const base = { pins, ownImages: ["call-plane"], ranImages: new Set(["mysql", "redis", "call-plane"]), today: TODAY, maxDays: 30 };
 const ids = (r) => r.blocking.map((f) => f.id).sort();
@@ -86,7 +86,7 @@ await t("a scan that did not complete neither counts nor shrinks the image", () 
   assert.equal(r.images.find((i) => i.name === "mysql").fixed, null); assert.deepEqual(ids(r), []);
 });
 
-const flags = { owner: "Maayan", plan: "patch-layer rebuilds tracked in #T214", due: plus(9) };
+const flags = { owner: "Alice", plan: "patch-layer rebuilds tracked in #T214", due: plus(9) };
 await t("baseline: new entries need owner/plan/due; due is bounded; own images are skipped", () => {
   const find = [fnd("mysql", "CVE-1"), fnd("redis", "CVE-2"), fnd("call-plane", "CVE-3")];
   assert.match(buildBaseline(find, file([]), { ...base, flags: {} }).errors.join(), /new: pass --owner/);

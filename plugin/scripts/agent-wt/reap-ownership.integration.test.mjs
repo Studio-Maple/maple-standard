@@ -46,7 +46,7 @@ const check = (name, ok, detail = "") => {
   if (!ok) failed++;
 };
 
-// realpath: on Windows os.tmpdir() can be an 8.3 short path (C:\Users\ABCDEF~1)
+// realpath: on Windows os.tmpdir() can be an 8.3 short path (C:SERSABCDEF~1)
 // while `git worktree list` prints the long one, so reap's path-prefix match
 // would never fire and every "survives" assertion would pass vacuously.
 const sb = realpathSync.native(mkdtempSync(join(tmpdir(), "maple-reap-own-")));

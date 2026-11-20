@@ -2,8 +2,8 @@
 
 Enforced parallel sessions — isolation + a merge semaphore — so multiple
 Claude sessions stop colliding on the shared tree. Ported + generalized from
-VeHagita's `scripts/agent-wt/vh-*.sh` (decision D085 / #T070 there): every
-value that was hardcoded to VeHagita's specific layout (target branch,
+an adopter's project-specific worktree scripts: every
+value that was hardcoded to that project's specific layout (target branch,
 `frontend/` subdir, Supabase-specific gate invocation, dev-server command,
 `node_modules` dirs) now reads from `maple.config.json` at the adopting
 project's root, with sane defaults for a typical single-package project.
@@ -82,17 +82,17 @@ Every script above falls back to defaults and warns once
 `node "$CLAUDE_PLUGIN_ROOT/scripts/validate-config.mjs"` for the full list
 of problems.
 
-## Known gaps vs. the VeHagita original (see plugin/README.md "Gaps")
+## Known gaps vs. the original project-specific scripts (see plugin/README.md "Gaps")
 
 - **No package-manager-specific dependency linking beyond `node_modules`
-  junctions/symlinks.** VeHagita's `_lib.sh` linked exactly four
+  junctions/symlinks.** The original `_lib.sh` linked exactly four
   monorepo-specific dirs (`.`, `frontend`, `tests/e2e`, `supabase/tests`);
   this version takes an arbitrary list via `worktrees.nodeModulesDirs`, but a
   project must enumerate its own dirs — there's no auto-discovery.
   Windows-only: junction/hardlink logic mirrors the original 1:1
   (`mklink /J` for dirs, `mklink /H` for files); Unix uses real symlinks.
-- **No Supabase-specific `SUPABASE_WORKDIR` gate workaround.** VeHagita's
-  `vh-land.sh` set `SUPABASE_WORKDIR` so the Supabase CLI's local-stack
+- **No Supabase-specific `SUPABASE_WORKDIR` gate workaround.**
+  The original land script set `SUPABASE_WORKDIR` so the Supabase CLI's local-stack
   identity (keyed to a project dir) resolved from inside a worktree. That's
   a Supabase-CLI-specific quirk, not something this generic script can infer
   — if your `ci.tiers.*` command needs a similar per-tool workaround, bake

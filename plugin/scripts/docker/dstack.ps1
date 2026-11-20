@@ -33,7 +33,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$script:RegistryPath = 'C:\Users\Maayan Margolin\.claude\docker-stacks.json'
+$script:RegistryPath = (Join-Path $HOME '.claude/docker-stacks.json')
 
 # ---------------------------------------------------------------------------
 # Registry (fallback project-dir map for containers that don't carry the
@@ -48,11 +48,8 @@ function Initialize-StackRegistry {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
 
-    $default = [ordered]@{
-        'caller'            = 'C:\Projects\Caller'
-        'caller-call-plane' = 'C:\Projects\Caller\services\call-plane'
-        'vehagita-local'    = 'C:\Projects\VeHagita'
-    }
+    # Seeded empty: add entries as "<stack-name>": "<project dir>".
+    $default = [ordered]@{}
     ($default | ConvertTo-Json) | Set-Content -LiteralPath $script:RegistryPath -Encoding utf8
     Write-Host "Created stack registry: $script:RegistryPath" -ForegroundColor DarkGray
 }

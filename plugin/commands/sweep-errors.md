@@ -18,7 +18,7 @@ its `/sweep-errors` anatomy table exactly).
   any uncommitted/attempted work, log it, hand back to `/dev-burner`.
 - **Standing branch only.** Everything happens in the standing worktree on
   `repo.standingLoopBranch` (default `dev-burner`) — never merged, never
-  pushed. Landing is Maayan's call at morning review.
+  pushed. Landing is the owner's call at morning review.
 - **No `docs/` page writes.** This loop never edits a `docs/` content page.
 - **Process corrections** (a rule this cycle didn't know it should have)
   go in the cycle report only — never self-applied to `CLAUDE.md`.

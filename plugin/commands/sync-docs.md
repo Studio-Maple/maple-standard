@@ -103,9 +103,9 @@ review before commit. Don't commit unless told to.
 - Don't raise the docs-drift gate's tolerance to make it pass. The gate only
   ratchets down.
 
-## Gap vs. the VeHagita original
+## Gap vs. the original project-specific command
 
-The source command (`VeHagita/.claude/commands/sync-docs.md`) hardcoded a
+The original project-specific command hardcoded a
 nested `docs/{system,features,quality,dev,learning,state}/` layout and
 called out `docs/state/*` as ephemeral by name. This version treats the
 docs folder shape as config (`docs.root`, `docs.ephemeralPaths`) so it works

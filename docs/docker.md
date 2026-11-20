@@ -34,18 +34,18 @@ Stacks were identified by the `com.docker.compose.project` /
 owning project by matching `project_id` against every `supabase/config.toml`
 on disk. Two of the four stacks had no owner left:
 
-- `maple-pole-local` (12 containers, built 2026-07-16) — no `config.toml`
+- `<project>-local` (12 containers, built 2026-07-16) — no `config.toml`
   anywhere referenced it.
-- `supabase` (12 containers, built 2026-08-05) — owned only by the legacy
-  `C:\Projects\Caller\old telnyx MVP` folder; its `db` container had never
+- `supabase` (12 containers, built 2026-08-05) — owned only by a legacy
+  project folder; its `db` container had never
   started and 3 of its services were restart-looping.
 
 Together these were 24 of 44 containers — 64% of the load was projects
 that no longer existed. Removing both stacks, then `docker image prune -a`
 (78.48GB — mostly old Supabase version tags accumulated across months of
 CLI upgrades), `docker volume prune -a` (2.97GB — dead parallel-session
-worktree DBs: `maple-pole-s4`/`s5`/`s6`/`s8b`, `caller-loop`,
-`caller-verify1`/`2`/`3`, `your-project-local`, plus 30+ unnamed volumes),
+worktree DBs: `<project>-s4`/`s5`/`s6`, `<project>-loop`,
+`<project>-verify1`/`2`/`3`, `your-project-local`, plus 30+ unnamed volumes),
 and `docker builder prune -a` (9.93GB) reclaimed 91.4GB total. Final state:
 20 containers, 20 images, 5 volumes, 13.58GB — then `docker update
 --restart=no` on all 20 remaining containers.
@@ -93,7 +93,7 @@ there's no version of "just track idle time" that works while
    owning project left; the 14-day clock doesn't need to run before
    flagging it.
 6. **Parallel-session worktrees leak Supabase volumes.** The
-   `maple-pole-s*` / `caller-verify*` pattern above — each worktree's
+   `<project>-s*` / `<project>-verify*` pattern above — each worktree's
    local Supabase stack leaves its named volume behind after the worktree
    is reaped. `docker volume prune -a` is part of the routine, not a
    one-off. See [[standard-architecture]] for the worktree lifecycle
@@ -128,7 +128,7 @@ On Windows, TCP `54207-54906` can be a **dynamic excluded port range** (`netsh i
 protocol=tcp`), which covers the Supabase CLI's default `5432x` ports - `supabase start` then cannot bind and the live
 gate can never run on that machine (D064 landed with its live tier skipped for exactly this reason; it is recorded as
 gate debt, #T15, and paid by the first green heavy run). Other ranges reserved on this machine: `50000-50359`,
-`50480-50579`, `55320-55331` (VeHagita's administered exclusion), `60142-60241`, `61035-61134`.
+`50480-50579`, `55320-55331` (a project's administered exclusion), `60142-60241`, `61035-61134`.
 
 The template's `supabase/config.toml` therefore pins **every** port the CLI binds to `56320-56329`:
 
@@ -142,7 +142,7 @@ The template's `supabase/config.toml` therefore pins **every** port the CLI bind
 | analytics (`[analytics].port`, disabled) | 56327 |
 | pooler (`[db.pooler].port`, disabled) | 56329 |
 
-Blocks in use on this machine: template 5632x, VeHagita 5532x, Caller 5832x. A project instantiated from the template
+Blocks in use on a machine: template 5632x, plus one block per other local project (e.g. 5532x, 5832x). A project instantiated from the template
 picks an unused block. References that follow the config: `supabase/tests/local-defaults.mjs` (`SUPABASE_URL`
 default), `.github/workflows/supabase-migrations.yml` (`--db-url`), `.env.example`.
 
@@ -172,8 +172,8 @@ on that copy only and removes only Docker objects whose `com.supabase.cli.projec
 stack's data and migrations never matter to heavy, and heavy can never reset them.
 
 Pick a block per project that is outside the dev block and outside every reserved range (`netsh interface ipv4 show excludedportrange
-protocol=tcp`, `Get-NetTCPConnection -State Listen`). In use on this machine: dev 5532x VeHagita, 5632x template, 5832x Caller; CI 5642x
-template, 584xx EasyCaller. **Owner-run, one time, elevated PowerShell** - reserve the template's CI block so Windows' dynamic range never
+protocol=tcp`, `Get-NetTCPConnection -State Listen`). In use on a machine: dev 5532x project A, 5632x template, 5832x project B; CI 5642x
+template, 584xx project B. **Owner-run, one time, elevated PowerShell** - reserve the template's CI block so Windows' dynamic range never
 grows into it:
 
 ```powershell

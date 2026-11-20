@@ -1,7 +1,7 @@
 /**
  * runs.mjs - lifecycle and disk hygiene of the gate's run workspaces (<state>/runs/<id>).
  *
- * Incident 2026-10-07 (EasyCaller): every gate run left a clean-room scan copy plus scanner artefacts under
+ * Incident 2026-10-07 in a consuming project: every gate run left a clean-room scan copy plus scanner artefacts under
  * runs/<12-hex> and every live scan left runs/live-<ms>, forever. 298.5 GB later C: had 0 bytes free, Docker
  * froze, a gate hung, worktree creation failed with ENOSPC. Rules now enforced here:
  *

@@ -130,8 +130,8 @@ test("moduleOf maps a path to its top-level scope directory", () => {
 });
 
 test("moduleOf honours moduleLabels to split two scopeDirs that would otherwise collapse to the same top-level segment", () => {
-  // EasyCaller's services/call-plane/src and services/srs/src would both map to "services"
-  // without an override — moduleLabels is how audit.caller.json keeps them separate in the heatmap.
+  // services/a/src and services/b/src would both map to "services"
+  // without an override — moduleLabels is how audit.<slug>.json keeps them separate in the heatmap.
   const config = {
     scopeDirs: ["services/call-plane/src", "services/srs/src"],
     moduleLabels: { "services/call-plane/src": "call-plane", "services/srs/src": "srs" },

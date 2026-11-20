@@ -26,7 +26,7 @@
 # reported with their idle age; --force removes their *worktree* (freeing
 # disk) but keeps the branch so the commits survive.
 #
-# Ported + generalized from VeHagita's scripts/agent-wt/vh-reap.sh
+# Ported + generalized from an adopter's project-specific worktree scripts
 # (D085 / #T070 there). Config: see maple-lib.sh header + plugin/README.md.
 # CANONICAL key (docs/standard-architecture.md; reconciled #T11):
 #   worktrees.reap.staleHours   default 24

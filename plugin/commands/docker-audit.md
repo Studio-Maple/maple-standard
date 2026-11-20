@@ -4,7 +4,7 @@ allowed-tools: ["Bash", "AskUserQuestion"]
 ---
 
 Run `dstack ls` and `dstack audit` (PowerShell function; falls back to
-`& "C:\Projects\Studio-Maple\maple-standard\plugin\scripts\docker\dstack.ps1" ls` / `audit`
+`& "<maple-standard>\plugin\scripts\docker\dstack.ps1" ls` / `audit`
 if the `dstack` function isn't loaded in this shell).
 
 Summarize which stacks are idle more than 14 days (from the audit output), with their

@@ -69,7 +69,7 @@ try {
   // returns without ever calling the client -> fail-open -> exit 0.
   // Deliberately NOT relying on "no credential in the store" here: a dev
   // machine may have a real TypeSafe key under one of the documented
-  // fallback targets (Maple-TypeSafe-APIKey / MapleLens-TypeSafe-APIKey),
+  // fallback targets (Maple-TypeSafe-APIKey),
   // in which case this would exercise the REAL API instead of the
   // fail-open path it's meant to test. This also exercises the full
   // stdin -> transcript read -> judge path end to end.

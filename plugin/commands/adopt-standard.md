@@ -78,8 +78,7 @@ Check for:
   topology with `git rev-parse --git-common-dir` from each side: an
   IDENTICAL common-dir means the pair is **linked worktrees sharing one
   `.git`**, not two independent clones — don't assume clones; check. This
-  is real, not hypothetical: EasyCaller's actual prod/dev pair (`C:/Projects
-  /Caller` + `C:/Projects/Caller-development`) is linked worktrees, and it
+  is real, not hypothetical: a prod/dev pair such as (`<projects-root>/<repo>` + `<projects-root>/<repo>-development`) is linked worktrees, and it
   surprised the first adopter. (`git worktree list` from either side shows
   the whole pair when it's this topology.)
   - Two real checkouts of the same repo found -> **dual-checkout**. Resolve
@@ -103,7 +102,7 @@ Check for:
        branch set, independent of which checkout currently has which
        branch checked out.
     3. **HEAD on neither candidate branch does not make this ambiguous** —
-       it's the common case, not an edge case (EasyCaller's prod checkout
+       it's the common case, not an edge case (a consuming project's prod checkout
        sits on `feat/telephony-inbound`, its dev checkout on
        `fix/ci-covers-live-app` — neither is `production` or
        `development`). Keep the directory-derived role and the
@@ -132,7 +131,7 @@ Check for:
 ### 2. Write `maple.config.json`
 
 **Ask the owner** (one `AskUserQuestion` call, multi-select + a free-write
-option at the bottom, per Maayan's global convention) — only for what step 1
+option at the bottom, per the owner's global convention) — only for what step 1
 couldn't safely infer or detect unambiguously. Cover at least:
 
 - **Project identity**: `project.name` (default: directory name or
@@ -209,7 +208,7 @@ couldn't safely infer or detect unambiguously. Cover at least:
   (see [[maplelens]]) — never ask for a literal token value, only a
   credential-manager reference name.
 - **Docs layout**: does `docs/` already exist with its own structure (e.g.
-  VeHagita's richer nested layout)? If so, don't assume the flat
+  a richer nested layout)? If so, don't assume the flat
   `docs/index.md` etc. defaults — ask for the actual paths, or confirm the
   defaults are right.
 
@@ -326,7 +325,7 @@ have frontmatter yet.
 - **`CLAUDE.md` already exists**: propose the same minimal insertions
   (the session-start pointer to `docs/index.md`) as a **diff** and ask for approval before writing anything —
   never a blind overwrite, never append silently. This is how a project
-  with its own extras (VeHagita) keeps them (per [[rollout]]). If the
+  with its own extras keeps them (per [[rollout]]). If the
   owner declines, note it and move on — this step is optional, not a
   blocker for the rest of the sequence.
 
@@ -452,7 +451,7 @@ stop. Do not commit on the owner's behalf; that's their call.
 
 This command's actual purpose is bootstrapping a project that's already
 alive — real history, real docs, real branch state — not a scratch/empty
-clone. First real-world run (EasyCaller) surfaced a few things worth
+clone. The first real-world run surfaced a few things worth
 stating explicitly, since "everything scaffolded, nothing broke" can look
 suspiciously like "nothing happened":
 

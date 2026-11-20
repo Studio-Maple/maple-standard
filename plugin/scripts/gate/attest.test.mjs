@@ -136,11 +136,11 @@ await t("coordinator URL sources: env, then Credential Manager officeci-url, the
   const none = () => null;
   assert.equal(coordinatorUrl(dir, { OFFICECI_URL: "http://env:1/" }, none), "http://env:1", "env alone; trailing slash trimmed");
   assert.equal(coordinatorUrl(dir, {}, () => " http://cred:2/ "), "http://cred:2", "Credential Manager alone");
-  writeFileSync(join(dir, "maple.config.json"), JSON.stringify({ officeci: { url: "http://cfg.ts.net:8080/" } }));
-  assert.equal(coordinatorUrl(dir, {}, none), "http://cfg.ts.net:8080", "config alone");
+  writeFileSync(join(dir, "maple.config.json"), JSON.stringify({ officeci: { url: "http://cfg.example.com:8080/" } }));
+  assert.equal(coordinatorUrl(dir, {}, none), "http://cfg.example.com:8080", "config alone");
   assert.equal(coordinatorUrl(dir, { OFFICECI_URL: "http://env:1" }, () => "http://cred:2"), "http://env:1", "env beats credential and config");
   assert.equal(coordinatorUrl(dir, {}, () => "http://cred:2"), "http://cred:2", "credential beats config");
-  assert.equal(coordinatorUrl(dir, {}, none), "http://cfg.ts.net:8080");
+  assert.equal(coordinatorUrl(dir, {}, none), "http://cfg.example.com:8080");
   writeFileSync(join(dir, "maple.config.json"), JSON.stringify({ predeploy: {} }));
   assert.throws(() => coordinatorUrl(dir, {}, none), /no coordinator URL/, "none found");
   assert.throws(() => coordinatorUrl(dir, { OFFICECI_URL: "ftp://x" }, none), /not an http\(s\) URL/);

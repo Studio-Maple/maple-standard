@@ -50,7 +50,7 @@ export const FUNCTION_QUESTIONS = {
     instructions: "Rate how easy this function is to read and maintain.",
     criteria: ["Clear", "Mostly clear", "Tangled", "Hard to follow", "Unmaintainable"],
   },
-  // The EasyCaller run flagged 673 functions on error_handling/edge_cases,
+  // An early run flagged 673 functions on error_handling/edge_cases,
   // led by pure code like a G.711 byte decoder: a noul has no "not
   // applicable", so a function with nothing that can fail still reads as
   // "doesn't handle failures". This asks the applicability question

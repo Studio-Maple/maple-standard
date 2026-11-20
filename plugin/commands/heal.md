@@ -172,11 +172,11 @@ A cluster is stale when **any** of:
 
 When in doubt, surface the diagnosis with a `stale?` flag and let the user decide.
 
-## Gap vs. the VeHagita original
+## Gap vs. the original project-specific command
 
-The source command (`VeHagita/.claude/commands/heal.md`) hardcoded the
-Sentry org (`margix`), region (`de.sentry.io`), project
-(`vehagita-frontend`), the live URL (`dev.wehagita.com`), a `frontend/` cd
+The original project-specific command hardcoded the
+Sentry org, region, project,
+the live URL, a `frontend/` cd
 for lint/build, and specific MCP tool names (`mcp__<uuid>__search_issues`
 etc.) plus Playwright MCP for T4. All of that is now config or generic
 guidance — but this means **the plugin cannot name the exact MCP tool to

@@ -28,7 +28,7 @@ single-package project.
 | `/todo`, `/project-status`, `/session-end`, `/represent`, `/review-aspect` | The **session commands** — open-task list, status board, session close-out (log + tasks + docs gate), a plain-English "where are we" orientation, and a single-aspect code review. All docs-shape-agnostic and allocator-aware; previously machine-local under `~/.claude/commands/`, now bundled so every adopting project gets them. |
 | `/predeploy-gate` | The **enforced pre-deploy gate** (D060): zero-findings checks (local scanners + one remote workflow), expiring allowlist + permanent decision-backed exceptions (D061, essentials only) + dated, shrink-only third-party image debt (D063), sha-bound stamp, `predeploy-guard` hook that blocks deploy commands without a stamp, `doctor`, run-workspace pruning (`run.mjs prune`, `predeploy.runs`, `predeploy.minFreeGB`, D068), the aggressive post-deploy live ZAP scan, and the stack-exposure standard (D072, v0.14.0: `stack-exposure` preset + anonymous live probes, required unless opted out by a decision). See `docs/predeploy-gate.md`, `docs/stack-exposure.md`. |
 | `/fast-lane` | The opt-in **fast lane** (D076, `predeploy.fastLane`): deploy first, enforce after. `fastlane-cli.mjs check|permit|status` (`plugin/scripts/predeploy/fastlane*.mjs`): a change whose diff from the last fully stamped commit touches only `allow`ed paths and nothing on the built-in deny list (migrations, infra/deploy, auth/RLS, edge functions, manifests/lockfiles, CI/gate config, secrets) may deploy on a short-lived permit once the gate tier is green, the tree is clean and pushed, and a gitleaks scan of the diff is clean. The deploy guard then records ONE debt (heavy + predeploy owed within `deadlineHours`, default 12); while it is open only a fully stamped commit containing it, or a rollback to its fully stamped base, may deploy. State under `<git-common-dir>/maple/predeploy/fast-lane/` is guarded like every other gate state; `fastLane` is excluded from the stamp config hash. Tests: `fastlane.test.mjs` (unit), `fastlane.integration.test.mjs`. |
-| `plugin/scripts/prepush/prepush-lib.sh` | The **affected-only pre-push gate toolkit** (v0.10.0): source it from a project's `ci-local.sh` to select checks from the push range (`pp_want` / `pp_want_graph` / `pp_list_*`, one "ran / skipped (reason)" line per step), fail closed to FULL (no range, `--full`, gate scripts / lockfiles / shared configs), keep a tree-sha-bound pass stamp under `.git/ci-gate-pass/` so `/wt-land` + the push it makes run the gate once, keep per-checkout caches, and cap concurrent heavy gates machine-wide with a stale-safe slot semaphore (`MAPLE_GATE_SLOTS`, default 2). Selection is builtins-only (a fork costs seconds under load). Companion `install-hooks.mjs` makes the git hooks fail closed in every worktree (absolute `core.hooksPath` into the git common dir; see `docs/quality.md`). Vendor the file into a project (EasyCaller: `scripts/lib/prepush-lib.sh`); `node plugin/scripts/prepush/run-tests.mjs` proves the fail-closed rules. |
+| `plugin/scripts/prepush/prepush-lib.sh` | The **affected-only pre-push gate toolkit** (v0.10.0): source it from a project's `ci-local.sh` to select checks from the push range (`pp_want` / `pp_want_graph` / `pp_list_*`, one "ran / skipped (reason)" line per step), fail closed to FULL (no range, `--full`, gate scripts / lockfiles / shared configs), keep a tree-sha-bound pass stamp under `.git/ci-gate-pass/` so `/wt-land` + the push it makes run the gate once, keep per-checkout caches, and cap concurrent heavy gates machine-wide with a stale-safe slot semaphore (`MAPLE_GATE_SLOTS`, default 2). Selection is builtins-only (a fork costs seconds under load). Companion `install-hooks.mjs` makes the git hooks fail closed in every worktree (absolute `core.hooksPath` into the git common dir; see `docs/quality.md`). Vendor the file into a project (e.g. `scripts/lib/prepush-lib.sh`); `node plugin/scripts/prepush/run-tests.mjs` proves the fail-closed rules. |
 | `plugin/scripts/gate/`, `plugin/scripts/agent-wt/maple-queue.sh` | **Gate v2** (D066, v0.12.0): `heavy-run.mjs` (the scheduled heavy tier in a temporary worktree: stamp on green, failure report otherwise), `gate-cli.mjs` / `gate-state.mjs` (verified `MAPLE_GATE_SKIP` reasons, the gate-debt ledger `gate-debt.jsonl`, heavy stamps `heavy-pass/<sha>.json`, the production-promotion requirement used by `predeploy` verify; `attest.mjs` / `gate-cli attest` imports a heavy or standard predeploy pass verified on OfficeCI, D073, v0.16.0), `run-suite.mjs` (unit vs `*.integration.test.*` split), `find-bash.mjs` (Git Bash, never WSL); the **landing queue** behind `/wt-land` (FIFO batch, one gate, bisect on red, locks never stolen from a live pid); `plugin/scripts/docs/check-docs-touched.mjs` (non-blocking docs-sync warning at landing). See `docs/quality.md` and "Gate v2 - consumer migration" below. `pnpm test:plugin-gate`, `pnpm test:plugin-integration`. |
 | `plugin/skills/credential-manager` | The **credential skill** — read secrets from the OS credential store (Windows Credential Manager) just-in-time for local commands, instead of reading `.env*` (which `deny-credential-paths.mjs` blocks anyway) or asking the owner to paste a value. Pairs with that hook: the hook closes the wrong path, the skill supplies the right one. |
 | `plugin/hooks/guards/dep-version-guard.mjs`, `plugin/scripts/deps/` | **Dependency freshness** (D064, v0.11.0): agents write versions from memory, so new deps land outdated. A guard (inside the PreToolUse dispatcher) denies hand-writing a dependency (added or re-specced) in any `package.json` — use `pnpm add <pkg>`; the bash guard denies `pnpm/npm/yarn/bun add pkg@<version>` (global `-g` installs included) behind the newest release that has passed the project's release-age cooldown by a major (0.x: minor), and an exact pin still inside the cooldown (registry lookup, fail-open with a warning); `plugin/scripts/deps/check-dep-freshness.mjs` is the diff-scoped **ci:fast** gate (every dep added/changed vs the target branch must be at the latest major; honors the same cooldown; unreachable registry fails). Exceptions: `deps.exceptions[]` in `maple.config.json`, each citing a `D###` that exists in the decisions ledger. Consumers wire the gate into their fast tier via `/adopt-standard` (step 6b). `node plugin/scripts/deps/run-tests.mjs` (`pnpm test:plugin-deps`). |
@@ -37,8 +37,8 @@ single-package project.
 ## Gate v2 - consumer migration (D066, plugin v0.12.0)
 
 D066 moves the expensive checks out of every landing into a batched **heavy** tier, keeps production promotion
-strict, and makes the landing queue safe. A project that adopted the standard (VeHagita, EasyCaller/Caller, MapleLens,
-Nekuda) migrates once; nothing here can be skipped without leaving the production deploy guard red.
+strict, and makes the landing queue safe. A project that adopted the standard (several consuming projects,
+and MapleLens itself) migrates once; nothing here can be skipped without leaving the production deploy guard red.
 
 **1. Plugin scripts.** Update the plugin (version 0.12.0). The gate scripts live in `plugin/scripts/gate/`
 (`gate-cli.mjs`, `gate-state.mjs`, `heavy-run.mjs`, `run-suite.mjs`, `find-bash.mjs`); the landing queue in
@@ -52,7 +52,7 @@ RLS/E2E + Jev audit + stamp via `node <plugin>/scripts/gate/gate-cli.mjs stamp`)
 `.gitleaks.toml`) out of `PP_FULL_RE` into their own steps; set `PLUGIN_DIR` (or `MAPLE_PLUGIN_DIR`) so the script finds
 `scripts/gate/`. Print the docs-touched warning at the end of `gate`.
 
-**3. `prepush-lib.sh` (vendored copies, e.g. EasyCaller `scripts/lib/prepush-lib.sh`).** Replace with the plugin's
+**3. `prepush-lib.sh` (vendored copies, e.g. `scripts/lib/prepush-lib.sh`).** Replace with the plugin's
 canonical file (keep byte-identical): it adds `pp_sleep` (sandbox-safe sleep), the never-rob-a-live-pid lock rule
 (`PP_LOCK_GRACE` replaces `PP_LOCK_TTL`) and per-step timings in `pp_summary`. Vendored copies that still call `sleep`
 crash under the Claude Code Bash sandbox.
@@ -72,7 +72,7 @@ protocol=tcp startport=<portBase> numberofports=10`, elevated). Re-copy the temp
 `stop_stack_if_ours`, `CI_STACK` = `<plugin>/scripts/gate/ci-stack.mjs`) and `scripts/check-types-fresh.mjs` (honours `CI_SUPABASE_WORKDIR`).
 Point the project's Supabase tests and Playwright at `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_DB_URL` /
 `E2E_SUPABASE_URL` (what `ci-stack.mjs env` exports) instead of hardcoded dev ports. Without `ci.stack` heavy still runs against the dev stack,
-with a warning. VeHagita: `portBase` next to its 5532x block that is free (e.g. 5542x). EasyCaller/Caller: keep `ci.stack.projectId: "ezcall-ci"`,
+with a warning. A project with its own port block: pick a `portBase` next to it that is free. A project with an existing CI stack: keep `ci.stack.projectId: "app-ci"`,
 `portBase: 58420`, delete `scripts/ci-supabase.mjs` and its lock plumbing in favour of the plugin's `ci-stack.mjs up|env|down` (the plugin's lock owner is
 the gate run: `--owner-pid`). `env` output carries keys: eval it, never print it.
 
@@ -121,7 +121,7 @@ node plugin/scripts/sync-plugin-cache.mjs --force   # re-sync even if the conten
 
 1. **Add the marketplace** (once per machine, from this repo):
    ```
-   /plugin marketplace add C:\Projects\Maple-Standard
+   /plugin marketplace add <projects-root>\Maple-Standard
    ```
    (or a git remote URL once this repo is pushed somewhere Claude Code can
    reach — `owner/maple-standard` on GitHub, etc.)
@@ -271,7 +271,7 @@ catalog in its docs (conventionally `docs/quality/secrets-handling.md`).
 ### Bundled docs tooling (`plugin/scripts/docs/`) — #T13
 
 Canonical, generalized implementations of the four scripts a project's docs
-gate needs, so a non-template adopter (VeHagita, EasyCaller) gets them for
+gate needs, so a non-template adopter gets them for
 free instead of owning its own copies:
 
 | Script | What it does |
@@ -403,7 +403,7 @@ fixed during #T11's reconciliation pass:
 | `hooks.bashGuard.pushGuardEnabled` | `true` | blocks a foreground `git push` without `run_in_background`/a long timeout |
 | `hooks.bashGuard.pushGuardMinTimeoutMs` | `600000` | minimum explicit timeout that satisfies the push guard |
 | `hooks.bashGuard.cleanGuardEnabled` | `true` | blocks `git clean` with double force (deletes nested worktrees) |
-| `hooks.bashGuard.linkGuardEnabled` | `true` | `plugin/hooks/guards/link-guard.mjs`: blocks `npm|pnpm|yarn|bun` installs (`ci`, `install`, `add`, `remove`, `update`, `prune`, ...) in a dir whose `node_modules` (or a workspace member's) is a junction/symlink, and `rm -r` / `Remove-Item -Recurse` / `rmdir /s` / `rimraf` on a path inside one. Worktrees link node_modules to the main checkout; `npm ci` empties the dir it installs into, so it would wipe the main install (EasyCaller 2026-10-09). The deny names the safe alternatives: install in the owning checkout, or `cmd //c rmdir <link>` first. |
+| `hooks.bashGuard.linkGuardEnabled` | `true` | `plugin/hooks/guards/link-guard.mjs`: blocks `npm|pnpm|yarn|bun` installs (`ci`, `install`, `add`, `remove`, `update`, `prune`, ...) in a dir whose `node_modules` (or a workspace member's) is a junction/symlink, and `rm -r` / `Remove-Item -Recurse` / `rmdir /s` / `rimraf` on a path inside one. Worktrees link node_modules to the main checkout; `npm ci` empties the dir it installs into, so it would wipe the main install (incident 2026-10-09 in a consuming project). The deny names the safe alternatives: install in the owning checkout, or `cmd //c rmdir <link>` first. |
 
 ### `supabase.*` — used by `plugin/hooks/guards/mcp-guard.mjs` (D065)
 
@@ -647,7 +647,7 @@ calibrated probability answers better:
 | **Sub-agent validation** | `plugin/hooks/jev-validate-subagent.mjs` (`SubagentStop`) | Judges a sub-agent's task + final report before the main session trusts it; blocks once (never twice — guarded by `stop_hook_active`) with Jev's concerns if the report looks incomplete. The same judge (`validate.mjs`) applies to a `pi-run.mjs` result too. |
 
 Shared code: `plugin/scripts/jev/client.mjs` (the API client — direct
-TypeSafe endpoint, not a gateway; ported from `C:\Projects\MapleLens\tools\jev\client.mjs`,
+TypeSafe endpoint, not a gateway; ported from MapleLens's jev client,
 same endpoint/model pin/question shapes, plus a DPAPI-encrypted per-user
 credential cache — see its module docstring), `config.mjs` (`jev.*`
 resolver), `redact.mjs` (masks emails/tokens/hex/phone-shaped numbers
@@ -725,10 +725,10 @@ tells you who's allowed to edit it and when it updates:
 
 - **`ci.tiers.*` has no default command** — every adopting project must
   define its own gate commands; there's no bundled generic gate script (the
-  original VeHagita `ci-local.sh` was too project-specific to generalize
+  original project-specific `ci-local.sh` was too project-specific to generalize
   into one).
 - **No Supabase-CLI-style per-tool worktree workaround.** The original
-  `vh-land.sh` set `SUPABASE_WORKDIR` so the Supabase CLI resolved its local
+  The original land script set `SUPABASE_WORKDIR` so the Supabase CLI resolved its local
   stack from inside a worktree. Generic equivalent: bake any such
   workaround directly into your `ci.tiers.<name>` command string.
 - **`/heal` can't name the exact MCP tool to call.** MCP server ids are

@@ -7,7 +7,7 @@
  * Covers the re-review fix (adopt-standard shakedown, defect 6): the legacy
  * blockquote preamble parser used to hardcode BOLD markdown labels
  * (`**Audience:**`) as the only recognized form. A real adopting project
- * (EasyCaller's docs/{engineering-standards,mvp-plan,security,
+ * (docs/{engineering-standards,mvp-plan,security,
  * system-map}.md) uses the identical blockquote STRUCTURE without bold
  * (`> Audience: ...`), which used to produce false "no anchor" warnings —
  * overstating doc debt. Both forms must now parse identically, and a page
@@ -123,19 +123,19 @@ Body.
 // ── Legacy prose preamble — NON-BOLD form (the real-world bug, defect 6) ─
 
 function testLegacyPlainFullyPopulated() {
-  // Structurally identical to EasyCaller's docs/engineering-standards.md.
-  const content = `# Engineering Standards (inherited from VeHagita)
+  // Structurally identical to a real adopter's docs/engineering-standards.md.
+  const content = `# Engineering Standards (inherited from another project)
 
-> Audience: anyone building Caller
+> Audience: anyone building Acme
 > Authoritative for: stack, environments, CI, security, error tracking, conventions
-> Source: VeHagita audit (proven patterns) + day-1 fixes for its known gaps
+> Source: Prior audit (proven patterns) + day-1 fixes for its known gaps
 
-Caller mirrors VeHagita's engineering setup.
+Acme mirrors another project's engineering setup.
 `;
   const m = readDocMeta(content);
   const ok =
     m.hasFrontmatter === false &&
-    m.audience === "anyone building Caller" &&
+    m.audience === "anyone building Acme" &&
     m.authoritative_for.length === 6 &&
     m.authoritative_for[0] === "stack" &&
     m.hasAnyAnchor === true;

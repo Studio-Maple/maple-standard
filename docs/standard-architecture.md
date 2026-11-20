@@ -17,7 +17,7 @@ code: [plugin/, plugin/commands/adopt-standard.md, plugin/README.md]
 
 ## Why a hybrid, not one artifact
 
-A single template repo (clone-and-rename) works for greenfield Next.js+Supabase projects but can't retrofit VeHagita, EasyCaller, or anything already alive with its own stack, history, and extras. A single global `~/.claude` drop-in works for truly universal behavior but can't carry project-specific parameters (branch names, CI commands, tracker endpoints) or per-project docs scaffolding. So the standard splits into four components, each carrying only what belongs at that layer.
+A single template repo (clone-and-rename) works for greenfield Next.js+Supabase projects but can't retrofit any project already alive with its own stack, history, and extras. A single global `~/.claude` drop-in works for truly universal behavior but can't carry project-specific parameters (branch names, CI commands, tracker endpoints) or per-project docs scaffolding. So the standard splits into four components, each carrying only what belongs at that layer.
 
 ## The four components
 
@@ -26,16 +26,16 @@ A single template repo (clone-and-rename) works for greenfield Next.js+Supabase 
 | **maple-standard plugin** | Claude Code plugin (installed per-project or per-user via the plugin marketplace mechanism) | `wt-*` commands, generic safety hooks, parameterized `/heal`, the loop pack (`/sweep-errors` `/burn-backlog` `/sweep-quality` `/detect-drift` `/dev-burner`), `/adopt-standard`, the session commands (`/todo` `/project-status` `/session-end` `/represent` `/review-aspect`), `skills/` (`credential-manager`), MapleLens MCP server + shared worker code | Stack-agnostic logic that reads `maple.config.json` for the project-specific bits. One codebase, versioned, updates propagate to every adopting project without a re-clone. |
 | **User-global `~/.claude`** | The owner's machine, outside any repo | Personal preferences only — voice, working style, cross-project conventions that are about *the owner*, not about a project | **Near-empty by design (D051).** "Zero project-specific parameters" turned out to be the wrong test: the credential-manager skill and the five session commands had zero parameters and still belonged in the plugin, because machine-local means unversioned, invisible to a new machine, and unavailable to an adopting project. The real test is *does anything but this one human need it* — if yes, it ships in the plugin. This bucket is the one place with no gate backing it, so keep it for things a gate could never check anyway. |
 | **Per-project stamped files** | Each adopting project's repo root, written once by `/adopt-standard` then owned by the project | `maple.config.json`, `docs/` skeleton (`index.md` `decisions.md` `tasks.md` `gaps.md` `log.md`), `docs/.docs-index.json`, a `CLAUDE.md` skeleton merged into (never overwriting) whatever's there | This is the parameterization surface the plugin commands read. Project-owned after stamping — `/adopt-standard` never re-stamps over existing content. |
-| **maple-standard template repo** (unchanged) | `C:/Projects/Maple-Standard` (D056 — top-level, no longer nested under Studio-Maple), clone-and-rename | Full Next.js+Supabase+Vercel scaffold, its own CI workflows, no hook scripts of its own (D065) — `.claude/settings.json` holds only the SessionStart branch echo | Greenfield-only concern. A brand-new project still gets the fastest path: clone, rename, done — it doesn't need a bootstrap command because there's no existing state to reconcile. |
+| **maple-standard template repo** (unchanged) | `<projects-root>/Maple-Standard` (D056 — top-level, no longer nested under a project), clone-and-rename | Full Next.js+Supabase+Vercel scaffold, its own CI workflows, no hook scripts of its own (D065) — `.claude/settings.json` holds only the SessionStart branch echo | Greenfield-only concern. A brand-new project still gets the fastest path: clone, rename, done — it doesn't need a bootstrap command because there's no existing state to reconcile. |
 
 **Hooks live only in the plugin (D065).** The old project-side `eslint-fix`, `size-warning` and `build-counter` hooks are gone: lint, size caps and types run at commit and in the gate tiers, not as per-edit hooks. A project registers no hook that duplicates a plugin hook; `plugin/scripts/hooks/check-hook-wiring.mjs` (fast tier) fails on it.
 
 ## v1 layers of the plugin (scope boundary — not reopening this)
 
-1. **Worktree lifecycle** — `wt-start` / `wt-land` / `wt-preview` / `wt-reap`, generalized from VeHagita's `scripts/agent-wt/*`, parameterized by `maple.config.json`'s `repo.*` fields instead of hardcoded branch/domain names.
+1. **Worktree lifecycle** — `wt-start` / `wt-land` / `wt-preview` / `wt-reap`, generalized from a consuming project's `scripts/agent-wt/*`, parameterized by `maple.config.json`'s `repo.*` fields instead of hardcoded branch/domain names.
 2. **Generic safety hooks** — one PreToolUse dispatcher (`plugin/hooks/guard.mjs`) running the guard modules in `plugin/hooks/guards/` in-process (bash/cwd/push/clean/install, hook-bypass, credential paths, deploy gate, Supabase MCP, worktree placement, loop budget, dependency versions) for Bash and PowerShell alike, plus `scrub-secrets` (PostToolUse) and the sub-agent validator. Pure Node, no stack assumptions; paths and doc locations come from `maple.config.json`.
 3. **Docs gate + decision integrity** — the drift-gate pattern (dead `Code:` paths, broken wikilinks, stale index, ID collisions) and the `D###`/`#T###`/`S###` allocator, both already stack-agnostic in the template — ported as-is, paths parameterized. The allocator's ids are **repo-global**, not per-worktree (D050): a counter in `<git-common-dir>/maple/id-counters.json` plus a live `git worktree list` scan, with the `--add` mutex in that same shared dir. Two parallel `agent/<slug>` sessions used to each scan their own branch-local `tasks.md` and both issue `#T42`, colliding only at `/wt-land`. Fails open to single-worktree behaviour outside git. `Code:` `plugin/scripts/docs/lib/id-store.mjs`.
-4. **Self-healing engine** — a parameterized `/heal` that takes its tracker (Sentry today, MapleLens once deployed — see [[maplelens]]) and its target environment from config, instead of VeHagita's hardcoded org/project/domain.
+4. **Self-healing engine** — a parameterized `/heal` that takes its tracker (Sentry today, MapleLens once deployed — see [[maplelens]]) and its target environment from config, instead of a hardcoded org/project/domain.
 
 Everything else discussed this session (loop pack, MapleLens) builds on top of these four; none of them reopen this boundary.
 
@@ -47,13 +47,13 @@ One file, repo root, written by `/adopt-standard`, read by every plugin command.
 {
   "$schema": "https://maple-standard/schema/maple.config.json",
   "project": {
-    "name": "EasyCaller",
-    "slug": "caller"
+    "name": "Example Project",
+    "slug": "example"
   },
   "repo": {
     // Decision 7: prod/dev dual checkouts of the same repo.
-    "prodCheckout": "C:/Projects/Caller",
-    "devCheckout": "C:/Projects/Caller-development",
+    "prodCheckout": "<projects-root>/example",
+    "devCheckout": "<projects-root>/example-development",
     "prodBranch": "production",
     "devBranch": "development",
     "standingLoopBranch": "dev-burner"   // see [[loop-pack]]
@@ -91,7 +91,7 @@ One file, repo root, written by `/adopt-standard`, read by every plugin command.
     "endpoint": null,                  // MapleLens worker URL once live
     "readTokenRef": null,              // credential-manager reference, never a literal value
     "writeTokenRef": null,
-    "sentryProject": "caller-frontend"
+    "sentryProject": "example-frontend"
   },
   "loops": {
     "enabled": ["sweep-errors", "burn-backlog", "sweep-quality", "detect-drift"],
@@ -112,10 +112,10 @@ Every plugin command that needs a path, branch name, or CI invocation reads it f
 ## Adoption sequence (`/adopt-standard`)
 
 1. **Detect repo layout.** Look for a sibling `<name>-development` / prod checkout pair (decision 7's dual-checkout convention); if ambiguous, ask rather than guess.
-2. **Write `maple.config.json`.** Infer what's inferable from `package.json` / existing CI config / existing git branches; ask (`AskUserQuestion`, per Maayan's global convention) for anything it can't infer. Validate against the schema before writing.
-3. **Stamp `docs/` skeleton if missing.** Write `index.md`, `decisions.md`, `tasks.md`, `gaps.md`, `log.md` only where absent — never overwrite an existing page. A project with its own richer `docs/` (VeHagita) keeps it; `/adopt-standard` fills gaps, not replaces structure.
+2. **Write `maple.config.json`.** Infer what's inferable from `package.json` / existing CI config / existing git branches; ask (`AskUserQuestion`, per the owner's global convention) for anything it can't infer. Validate against the schema before writing.
+3. **Stamp `docs/` skeleton if missing.** Write `index.md`, `decisions.md`, `tasks.md`, `gaps.md`, `log.md` only where absent — never overwrite an existing page. A project with its own richer `docs/` (already adopted) keeps it; `/adopt-standard` fills gaps, not replaces structure.
 4. **Generate `docs/.docs-index.json`.** Run the index generator once so the drift gate has something to check against from commit one.
-5. **Merge the `CLAUDE.md` skeleton.** If `CLAUDE.md` exists, propose insertions as a diff for approval — never a blind overwrite. This is how VeHagita "keeps its extras" per [[rollout]].
+5. **Merge the `CLAUDE.md` skeleton.** If `CLAUDE.md` exists, propose insertions as a diff for approval — never a blind overwrite. This is how an already-adopted project "keeps its extras" per [[rollout]].
 6. **Check hook wiring.** The plugin's hooks apply globally once it is enabled and no hook copies are planted. This step runs `check-hook-wiring.mjs`, which fails on a project registration or stale copy that duplicates a plugin hook (D065), and wires the same check into the project's fast tier.
 7. **Verify.** Run the docs-drift gate once and one CI tier once; report red/green. Adoption isn't declared done on say-so — it's done when the gate the project just inherited actually passes.
 

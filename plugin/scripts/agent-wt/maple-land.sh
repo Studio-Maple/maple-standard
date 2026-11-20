@@ -21,7 +21,7 @@
 #
 # Red gate, rebase conflict, or non-ff push -> it refuses and hands back. Nothing un-gated can reach the target.
 #
-# Ported + generalized from VeHagita's scripts/agent-wt/vh-land.sh (D085 / #T070 there). Config: see
+# Ported + generalized from an adopter's project-specific worktree scripts (D085 / #T070 there). Config: see
 # maple-lib.sh header + plugin/README.md. CANONICAL keys (docs/standard-architecture.md; reconciled #T11):
 #   ci.prePushTier   default "gate"
 #   ci.tiers.<name>  shell command string to run as the gate for that tier — e.g. {"fast": "pnpm ci:fast",

@@ -30,7 +30,7 @@
       { "name": "D067: list_organizations explains the partial listing", "tool": "mcp__abd1b7ee-3102-417a-a87e-ddfddae2d9aa__list_organizations", "input": {}, "expect": "deny", "match": "get_project" },
       { "name": "D067: a supabase-named server list_projects too", "tool": "mcp__supabase__list_projects", "input": {}, "expect": "deny", "match": "devref0000000000000 .development." },
       { "name": "D067: another platform list_projects (team-scoped) passes", "tool": "mcp__vercel__list_projects", "input": { "teamId": "team_x" }, "expect": "allow" },
-      { "name": "D067: get_project is never touched", "tool": "mcp__abd1b7ee-3102-417a-a87e-ddfddae2d9aa__get_project", "input": { "id": "bibodwvvvjvfnkcnxfgg" }, "expect": "allow" }
+      { "name": "D067: get_project is never touched", "tool": "mcp__abd1b7ee-3102-417a-a87e-ddfddae2d9aa__get_project", "input": { "id": "abcdefghijklmnopqrst" }, "expect": "allow" }
     ]
   },
   {

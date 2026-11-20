@@ -7,7 +7,7 @@
 # --no-launch — opens a Claude session there (tmux window/session if
 # available).
 #
-# Ported + generalized from VeHagita's scripts/agent-wt/vh-start.sh
+# Ported + generalized from an adopter's project-specific worktree scripts
 # (D085 / #T070 there). Config: see maple-lib.sh header + plugin/README.md.
 #
 # When the session is done, run maple-land from inside the worktree.

@@ -4,7 +4,7 @@
  * on the owner's ChatGPT subscription — "Pi's GPT") run in an isolated git
  * worktree, for the `pi` executor jev-model-routing can pick.
  *
- * Trimmed port of C:\Projects\MapleLens\tools\jev\worker-pi.mjs (the worker
+ * Trimmed port of MapleLens's jev worker-pi (the worker
  * adapter) + worktree.mjs (isolation). MapleLens's worktree.mjs also carries
  * checkpoint/revert/patch-cap machinery for a long-running supervised
  * mission loop (supervise.mjs) — this is a single-shot, one-prompt-in

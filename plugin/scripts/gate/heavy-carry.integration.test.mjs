@@ -1,6 +1,6 @@
 // Heavy stamp carry-over end to end, through the real CLIs as separate processes, in a throwaway repo shaped like
-// EasyCaller: a real heavy pass on the origin (gate-cli stamp, as ci-local's heavy tier writes it), a late data-only
-// commit (an allowlist row + the semgrep timeout 1800 -> 3600, EasyCaller 10e9b3c08), `gate-cli carry`, then the
+// Consuming project: a real heavy pass on the origin (gate-cli stamp, as ci-local's heavy tier writes it), a late data-only
+// commit (an allowlist row + the semgrep timeout 1800 -> 3600), `gate-cli carry`, then the
 // production checks (`gate-cli verify`, predeploy `verify.mjs`, the fast lane's "fully stamped"). Predeploy is never
 // carried; a code change, a forged record and a widened carry config are all refused.
 import assert from "node:assert/strict";

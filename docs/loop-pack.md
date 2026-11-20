@@ -24,10 +24,10 @@ A loop is not "leave Claude running and hope." It's a worker that gets re-prompt
 
 ## Standing execution model (shared by all four loops)
 
-- **One long-running local session**, started by Maayan, running `/loop` self-paced (no fixed interval — the session paces itself) over `/dev-burner`. No Telegram reporting from this session.
+- **One long-running local session**, started by the owner, running `/loop` self-paced (no fixed interval — the session paces itself) over `/dev-burner`. No Telegram reporting from this session.
 - **One standing worktree, one standing branch.** Unlike `wt-start`'s ephemeral `agent/<slug>` worktrees, the loop pack uses a single dedicated worktree (e.g. `<repo>-loop`) checked out on a branch literally named `dev-burner`, created once from the current `development` tip and reused cycle over cycle — commits accumulate on it across the whole overnight run.
-- **Full gate before every commit.** Whatever `maple.config.json` `ci.tiers.gate` resolves to (VeHagita's T1–T5 evidence-ladder pattern where a project has one) must pass before a loop's change is committed. A red gate reverts the attempt; it never lands half-verified.
-- **`dev-burner` is never merged automatically.** Maayan reviews it each morning and lands it himself. See "Morning review" below.
+- **Full gate before every commit.** Whatever `maple.config.json` `ci.tiers.gate` resolves to (a T1–T5 evidence-ladder pattern where a project has one) must pass before a loop's change is committed. A red gate reverts the attempt; it never lands half-verified.
+- **`dev-burner` is never merged automatically.** the owner reviews it each morning and lands it himself. See "Morning review" below.
 
 ## Docs and rules discipline (cross-cutting, applies to all four loops)
 
@@ -35,7 +35,7 @@ The owner-approval gate on `docs/` is absolute and this doesn't get relaxed for 
 
 - **No loop edits a `docs/` content page directly**, except `/detect-drift`'s narrow, explicitly-granted `gaps.md`-append privilege (below). `decisions.md` entries are owner calls by definition — no loop writes one.
 - **`/burn-backlog` does not check off `tasks.md` itself.** It commits the working code + tests and records the completion claim in its own state file; the actual tasks.md sweep happens at morning review, evidence in hand.
-- **Process corrections** (principle 3 above) are written to the loop's report, not to `CLAUDE.md` — Maayan folds them in himself during review.
+- **Process corrections** (principle 3 above) are written to the loop's report, not to `CLAUDE.md` — the owner folds them in himself during review.
 
 ## The four loops
 
@@ -45,7 +45,7 @@ The owner-approval gate on `docs/` is absolute and this doesn't get relaxed for 
 |---|---|
 | **Trigger** | Selected by `/dev-burner` for a cycle. |
 | **Scope** | Unresolved issues from MapleLens (or Sentry, until MapleLens is deployed for this project — provider comes from `maple.config.json` `errorTracker.provider`). |
-| **Action** | Pull unresolved issues → cluster actionable vs. noise (same discriminators as VeHagita's `/heal`: group by `{culprit, error_class}`, drop stale clusters via the stale-check heuristics) → reproduce the top actionable cluster on a clean load → fix with a regression test that is proven red-before-fix. |
+| **Action** | Pull unresolved issues → cluster actionable vs. noise (same discriminators as `/heal`: group by `{culprit, error_class}`, drop stale clusters via the stale-check heuristics) → reproduce the top actionable cluster on a clean load → fix with a regression test that is proven red-before-fix. |
 | **Budget** | 1–2 clusters per cycle (config-capped) — small, verifiable changes over broad sweeps. |
 | **Verification gate** | Full gate tier, plus the regression test must demonstrably fail against the pre-fix code and pass against the post-fix code — not just exist. |
 | **State persistence** | `.loop-state/sweep-errors.json` — fingerprint → last outcome (`fixed` / `noise` / `unreproducible` / `budget-exceeded`) + timestamp, so noise isn't re-attempted every cycle. |
@@ -61,7 +61,7 @@ The owner-approval gate on `docs/` is absolute and this doesn't get relaxed for 
 | **Action** | Implement the task, write/run tests, verify. |
 | **Budget** | 1 task per cycle. |
 | **Verification gate** | Full gate tier. |
-| **State persistence** | `.loop-state/burn-backlog.json` — attempted `#T###` → outcome this run, plus a claim marker with timestamp so an overnight loop and Maayan working the same list by hand don't collide. |
+| **State persistence** | `.loop-state/burn-backlog.json` — attempted `#T###` → outcome this run, plus a claim marker with timestamp so an overnight loop and the owner working the same list by hand don't collide. |
 | **Next-action logic** | Skip claimed/in-progress tasks; skip a task that failed once this run without a new fix angle. |
 | **Failure handling** | Gate-red → revert, record diagnosis, leave the task open — never marked done without a passing gate. Discovered-underspecified mid-implementation → abort cleanly, flag it in the loop report for morning review rather than guessing at scope. |
 
@@ -105,9 +105,9 @@ Run each cycle by the standing `/loop` session. No arguments needed for normal o
 
 ## Morning review
 
-1. Maayan reads `.loop-state/dev-burner-ledger.jsonl` — cycle count, commits landed on `dev-burner`, per-loop breakdown.
+1. The owner reads `.loop-state/dev-burner-ledger.jsonl` — cycle count, commits landed on `dev-burner`, per-loop breakdown.
 2. Reads each loop's queued report: `/detect-drift`'s already-committed `gaps.md` proposals, `/burn-backlog`'s completion claims (pending `tasks.md` checkoff), any process-correction candidates.
 3. Reviews `git log development..dev-burner` / the diff, commit by commit. Per commit: land, discuss/amend, or discard.
-4. **Landing** approved commits into `development` runs through the sanctioned integration path (a `dev-burner`-aware variant of `/wt-land`'s discipline: rebase onto fresh `development`, re-run the gate tier, fast-forward — never a bare merge that skips the gate a second time). This step is always explicit and always Maayan's call — nothing here auto-lands.
-5. Docs bookkeeping — `tasks.md` checkoffs, any `decisions.md` entries for process corrections — happens now, informed by the loop's proposals but written by Maayan (or Claude Code under his direction in an interactive session), never by the loop itself.
+4. **Landing** approved commits into `development` runs through the sanctioned integration path (a `dev-burner`-aware variant of `/wt-land`'s discipline: rebase onto fresh `development`, re-run the gate tier, fast-forward — never a bare merge that skips the gate a second time). This step is always explicit and always the owner's call — nothing here auto-lands.
+5. Docs bookkeeping — `tasks.md` checkoffs, any `decisions.md` entries for process corrections — happens now, informed by the loop's proposals but written by the owner (or Claude Code under his direction in an interactive session), never by the loop itself.
 6. After a successful land, recreate `dev-burner` from the new `development` tip for a clean slate rather than carrying forward stale, already-landed history.

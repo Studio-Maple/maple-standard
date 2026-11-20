@@ -61,9 +61,9 @@ the failing step — fix it in this worktree and re-run. Do **not** bypass the
 gate (no `--no-verify`, no skipping the configured tier) — the gate is the
 enforcement.
 
-## Gap vs. the VeHagita original
+## Gap vs. the original project-specific command
 
-The source command (`VeHagita/.claude/commands/wt-land.md`) called a fixed
+The original project-specific command called a fixed
 `frontend/scripts/ci-local.sh <tier>` and set a Supabase-CLI-specific
 `SUPABASE_WORKDIR` env var so the local-stack identity resolved from inside
 a worktree. This version runs whatever shell command `ci.tiers.<tier>`

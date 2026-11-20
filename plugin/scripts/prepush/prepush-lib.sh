@@ -2,7 +2,7 @@
 # prepush-lib.sh -- affected-only gate helpers. SOURCE this file, do not run it.
 #
 # Canonical copy: this file (maple-standard plugin, plugin/scripts/prepush/).
-# Projects vendor it (EasyCaller: scripts/lib/prepush-lib.sh) so their gate does not
+# Projects vendor it (e.g. scripts/lib/prepush-lib.sh) so their gate does not
 # depend on the plugin being installed. Keep the copies byte-identical (diff on bump).
 #
 # What it gives a gate script (ci-local.sh):

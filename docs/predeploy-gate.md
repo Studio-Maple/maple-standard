@@ -166,7 +166,7 @@ of findings that do not reach zero by the next deploy. This is **not** an allowl
 
 ```json
 { "version": 1, "entries": [
-  { "name": "mysql", "ref": "mysql:8.0@sha256:...", "owner": "Maayan",
+  { "name": "mysql", "ref": "mysql:8.0@sha256:...", "owner": "<owner>",
     "plan": "patch-layer rebuilds / version bumps tracked in #T214",
     "due": "2026-10-11", "baselined": "2026-10-02",
     "findings": [ "CVE-2024-1234|libssl3@3.0.1|mysql:8.0 (debian 12)" ] } ] }
@@ -194,7 +194,7 @@ of findings that do not reach zero by the next deploy. This is **not** an allowl
 
 ## Run workspaces and disk hygiene (D068)
 
-Incident 2026-10-07 (EasyCaller): every gate run left its clean-room copy and scanner artefacts under
+Incident 2026-10-07 (a consuming project): every gate run left its clean-room copy and scanner artefacts under
 `<git-common-dir>/maple/predeploy/runs/<id>` and every live scan left `runs/live-<ms>`, forever; 298.5 GB later C: had 0 bytes
 free, Docker froze and agents could not create worktrees. A run dir is now a **disposable workspace** (`plugin/scripts/predeploy/runs.mjs`):
 

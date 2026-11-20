@@ -82,7 +82,7 @@ export PP_FULL_RE='^scripts/(ci-local\.(sh|ps1)|lib/)|^plugin/scripts/prepush/|^
 # Machine-wide gate slots (MAPLE_GATE_SLOTS) cap concurrent HEAVY work. D066: a landing must not queue behind other
 # repos' builds before it has done any work (75-153 s slot waits were measured before the first lint), so only the
 # genuinely heavy steps take a slot: build, the integration suites, the live tier, the audits. Everything else is light.
-export PP_LIGHT_RE='^(lint|typecheck|knip|depcruise|vitest|plugin-(loops|agent-wt|jev|predeploy|deps|secrets|gate|prepush)|docs-drift|dep-freshness( \(heavy\))?|edge-typecheck|gitleaks|user-data-size|migration-duplicates|supply-chain|workflow-triggers|orphan-tables)$'
+export PP_LIGHT_RE='^(lint|typecheck|knip|depcruise|vitest|plugin-(loops|agent-wt|jev|predeploy|deps|secrets|gate|prepush)|docs-drift|dep-freshness( \(heavy\))?|edge-typecheck|gitleaks|user-data-size|migration-duplicates|supply-chain|workflow-triggers|orphan-tables|public-hygiene)$'
 
 step() { echo ""; echo "--- $1 ---"; }
 die()  { echo ""; echo "x $1" >&2; exit 1; }
@@ -228,6 +228,11 @@ run_fast() {
     pp_skip "dep-freshness" "no package.json, config or decision ledger change"
   fi
   if pp_want hook-wiring '^(\.claude/|plugin/hooks/|plugin/scripts/hooks/)'; then node plugin/scripts/hooks/check-hook-wiring.mjs; fi
+  # This repo is a PUBLIC plugin: no consuming project, client, person or private path may be named in it.
+  # Every tracked file, every tier (~1 s); any file can introduce a name, so it is never affected-only.
+  pp_ran "public-hygiene" "every tracked file"
+  node scripts/check-public-hygiene.test.mjs >/dev/null
+  node scripts/check-public-hygiene.mjs
 }
 
 # ---- heavy-only pieces ------------------------------------------------------

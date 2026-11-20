@@ -5,7 +5,7 @@
       { "name": "MCP PowerShell: cat .env is denied like the PowerShell tool", "tool": "mcp__Windows-MCP__PowerShell", "input": { "command": "Get-Content .env.local" }, "expect": "deny", "match": "credential" },
       { "name": "terminal run_in_terminal: type .env denied", "tool": "mcp__terminal__run_in_terminal", "input": { "command": "type .dev.vars", "cwd": "{ROOT}" }, "expect": "deny", "match": "credential" },
       { "name": "MCP PowerShell without a command is denied", "tool": "mcp__Windows-MCP__PowerShell", "input": { "timeout": 30 }, "expect": "deny", "match": "mcp-surface-guard" },
-      { "name": "MCP PowerShell ordinary command allowed", "tool": "mcp__Windows-MCP__PowerShell", "input": { "command": "Get-ChildItem C:/Projects" }, "expect": "allow" },
+      { "name": "MCP PowerShell ordinary command allowed", "tool": "mcp__Windows-MCP__PowerShell", "input": { "command": "Get-ChildItem C:/work" }, "expect": "allow" },
       { "name": "MCP PowerShell git push needs no Bash-tool timeout", "tool": "mcp__Windows-MCP__PowerShell", "input": { "command": "git push origin agent/x" }, "expect": "allow" },
       { "name": "MCP PowerShell unanchored pnpm still hits cwd-guard", "tool": "mcp__Windows-MCP__PowerShell", "input": { "command": "pnpm install" }, "expect": "deny", "match": "cwd-guard" },
       { "name": "FileSystem read .env denied", "tool": "mcp__Windows-MCP__FileSystem", "input": { "mode": "read", "path": "C:/p/.env" }, "expect": "deny", "match": "credential" },

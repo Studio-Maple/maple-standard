@@ -41,7 +41,7 @@ t("unknown severity ranks high, not info", () => {
 // ── allowlist ───────────────────────────────────────────────────────────────
 const today = new Date("2026-10-01T12:00:00Z");
 const al = (entries) => ({ path: "al.json", entries, problems: [], present: true, raw: "" });
-const good = { check: "semgrep", id: "r1", reason: "false positive in generated code", owner: "maayan", expires: "2026-11-01" };
+const good = { check: "semgrep", id: "r1", reason: "false positive in generated code", owner: "alice", expires: "2026-11-01" };
 t("valid entry passes validation and excepts the finding", () => {
   assert.equal(validateEntries(al([good]), { checkIds: ["semgrep"], today }).length, 0);
   const r = applyAllowlist([{ check: "semgrep", id: "r1", location: "a.ts:1" }, { check: "semgrep", id: "r2" }], al([good]), { today, ranChecks: ["semgrep"] });
@@ -153,10 +153,10 @@ t("auth headers: -config replacer rules expanded in-container; secrets never in 
 t("auth headers: each replacer rule matches only its own target's origin, never a foreign one", () => {
   const cfg = ls();
   cfg.targets = [
-    { id: "dash", url: "https://dash.easy-call.co.il/login", headers: [{ name: "CF-Access-Client-Id", credentialRef: "Proj-Dash-Id" }, { name: "CF-Access-Client-Secret", credentialRef: "Proj-Dash-Secret" }] },
-    { id: "admin", url: "https://admin.easy-call.co.il", headers: [{ name: "CF-Access-Client-Id", credentialRef: "Proj-Admin-Id" }] },
+    { id: "dash", url: "https://dash.example.com/login", headers: [{ name: "CF-Access-Client-Id", credentialRef: "Proj-Dash-Id" }, { name: "CF-Access-Client-Secret", credentialRef: "Proj-Dash-Secret" }] },
+    { id: "admin", url: "https://admin.example.com", headers: [{ name: "CF-Access-Client-Id", credentialRef: "Proj-Admin-Id" }] },
     { id: "api", url: "http://api.example:8443/v1", headers: [{ name: "X-T", credentialRef: "Proj-Api" }] },
-    { id: "pub", url: "https://easy-call.co.il" },
+    { id: "pub", url: "https://example.com" },
   ];
   const { envNames } = buildPlan(cfg);
   const sh = containerScript(cfg, envNames);
@@ -168,13 +168,13 @@ t("auth headers: each replacer rule matches only its own target's origin, never 
     return { ...e, re: new RegExp(m[1]) };
   });
   assert.equal(scopes.length, 4);
-  const own = { dash: ["https://dash.easy-call.co.il/", "https://dash.easy-call.co.il", "https://dash.easy-call.co.il/app/x?y=1", "https://dash.easy-call.co.il:443/a", "https://dash.easy-call.co.il?q"],
-    admin: ["https://admin.easy-call.co.il/", "https://admin.easy-call.co.il/users#x"],
+  const own = { dash: ["https://dash.example.com/", "https://dash.example.com", "https://dash.example.com/app/x?y=1", "https://dash.example.com:443/a", "https://dash.example.com?q"],
+    admin: ["https://admin.example.com/", "https://admin.example.com/users#x"],
     api: ["http://api.example:8443/v1/x", "http://api.example:8443/"] };
   const foreign = ["https://fonts.googleapis.com/css2?family=Heebo", "https://fonts.gstatic.com/s/x.woff2", "https://challenges.cloudflare.com/turnstile/v0/api.js",
-    "https://www.googletagmanager.com/gtag/js?id=G-1", "https://cdn.jsdelivr.net/npm/x", "https://easy-call.co.il/", "https://www.easy-call.co.il/",
-    "http://dash.easy-call.co.il/", "https://dash.easy-call.co.il:8443/", "https://dash.easy-call.co.il.evil.example/", "https://dash.easy-call.co.il@evil.example/",
-    "https://evil.example/?u=https://dash.easy-call.co.il/", "https://evil.example/https://admin.easy-call.co.il/", "https://dashXeasy-call.co.il/", "http://api.example/v1", "https://api.example:8443/v1"];
+    "https://www.googletagmanager.com/gtag/js?id=G-1", "https://cdn.jsdelivr.net/npm/x", "https://example.com/", "https://www.example.com/",
+    "http://dash.example.com/", "https://dash.example.com:8443/", "https://dash.example.com.evil.example/", "https://evil.example/dash.example.com/",
+    "https://evil.example/?u=https://dash.example.com/", "https://evil.example/https://admin.example.com/", "https://dashXexample.com/", "http://api.example/v1", "https://api.example:8443/v1"];
   const all = [...Object.values(own).flat(), ...foreign];
   for (const s of scopes) {
     for (const u of all) {
@@ -279,7 +279,7 @@ t("decision entry: why length, unknown scanner, bad id, duplicates, unknown keys
   assert.deepEqual(dval([{ ...dgood, scanner: "nope" }]), ["decision-invalid"]);
   assert.deepEqual(dval([{ ...dgood, decision: "160" }]), ["decision-invalid"]);
   assert.deepEqual(dval([dgood, dgood]), ["decision-invalid"]);
-  assert.deepEqual(dval([{ ...dgood, owner: "maayan" }]), ["decision-invalid"]);
+  assert.deepEqual(dval([{ ...dgood, owner: "alice" }]), ["decision-invalid"]);
 });
 const cf = (extra = {}) => ({ check: "checkov", id: "CKV_AWS_109", location: "infra/aws/kms.tf:12", resource: "aws_kms_key.rec", ...extra });
 t("decision scope: exact file#resource; survives line drift; other resource/rule/file does not match", () => {
@@ -354,7 +354,7 @@ t("osv-scanner -L takes go.mod (not go.sum, which it cannot parse) and the other
 });
 
 t("trivy-images scopes are mode- and run-independent: image-<name>.tar (<os>)#pkg@ver, same native and docker", () => {
-  const native = ["C:", "Projects", "Caller", ".git", "maple", "predeploy", "runs", "0123abcd", "out", "image-freeswitch.tar (debian 12.15)"].join(String.fromCharCode(92));
+  const native = ["C:", "work", "app", ".git", "maple", "predeploy", "runs", "0123abcd", "out", "image-freeswitch.tar (debian 12.15)"].join(String.fromCharCode(92));
   const docker = "/out/image-freeswitch.tar (debian 12.15)";
   assert.equal(imageFindingLocation("freeswitch", native), "image-freeswitch.tar (debian 12.15)");
   assert.equal(imageFindingLocation("freeswitch", docker), "image-freeswitch.tar (debian 12.15)");

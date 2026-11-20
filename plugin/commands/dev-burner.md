@@ -21,7 +21,7 @@ Everything below happens in the STANDING worktree on
 machinery as `/wt-start`, just one long-lived branch instead of an ephemeral
 `agent/<slug>` one, reused cycle over cycle instead of created fresh per
 session. This command NEVER merges that branch into the target branch
-itself and NEVER pushes it anywhere — landing (if any) is Maayan's explicit
+itself and NEVER pushes it anywhere — landing (if any) is the owner's explicit
 call at morning review (docs/loop-pack.md "Morning review"), via a
 `dev-burner`-aware variant of `/wt-land`'s discipline, not this command.
 

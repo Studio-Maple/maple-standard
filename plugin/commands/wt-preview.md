@@ -41,7 +41,7 @@ The dev server starts in the background; report the URL the script prints
 another branch by re-running with a different slug; stop with
 `/wt-preview --stop`. Note: only one branch previews at a time (one server).
 
-## Gap vs. the VeHagita original
+## Gap vs. the original project-specific command
 
 The source command hardcoded `cd frontend && npm run dev -- --port N --host
 127.0.0.1`. This version runs `worktrees.preview.command` (with `{port}`

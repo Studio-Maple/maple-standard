@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # plugin/scripts/agent-wt/maple-lib.sh — shared helpers for the maple-standard
 # parallel-agent worktree workflow (maple-start / maple-land / maple-preview /
-# maple-reap). Ported + generalized from VeHagita's scripts/agent-wt/_lib.sh
+# maple-reap). Ported + generalized from an adopter's project-specific worktree scripts
 # (D085 / #T070 there) — this version reads every project-specific value from
 # maple.config.json instead of hardcoding it, so the same scripts work in any
 # adopting project.

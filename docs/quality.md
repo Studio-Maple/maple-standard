@@ -80,7 +80,7 @@ shared plugin file changed, docs-drift only for `docs/`, the checker or a delete
   `MAPLE_LAND_REFS_RE` (default development|production|main|master).
 - **Reusable toolkit.** `plugin/scripts/prepush/prepush-lib.sh` (tested by `pnpm test:plugin-prepush`) holds the range,
   selection, stamp, cache, lock, slot and sleep logic; other projects vendor it into their own `ci-local.sh`
-  (EasyCaller: `scripts/lib/prepush-lib.sh`). Decisions use bash builtins only, because a fork costs seconds on a
+  (e.g. a project's `scripts/lib/prepush-lib.sh`). Decisions use bash builtins only, because a fork costs seconds on a
   loaded Windows box.
 
 ## One runner
@@ -142,7 +142,7 @@ live tier -> Deno typecheck -> Jev audit (`quality.jevAudit.enabled`, changed fu
 - **Stamp.** Green writes `<git-common-dir>/maple/heavy-pass/<sha>.json` and **pays gate debt** for every commit the
   sha contains. A run with any skipped step writes **no stamp** and pays nothing.
 - **Second, verified path: `gate-cli attest` (D073).** A heavy pass (or a *standard* predeploy pass, `--kind predeploy`; never `--live`) that ran on
-  the office PC's OfficeCI runner is imported with `node <plugin>/scripts/gate/gate-cli.mjs attest [--kind heavy|predeploy] --sha S --officeci-job J`.
+  an OfficeCI runner is imported with `node <plugin>/scripts/gate/gate-cli.mjs attest [--kind heavy|predeploy] --sha S --officeci-job J`.
   It re-checks the coordinator (`OFFICECI_URL`, token from `OFFICECI_TOKEN` or Credential Manager `officeci-attest` / `officeci-owner`): the job is
   `passed`, exit 0, one attempt, ran on this repo's `origin`, the log carries the tier's own success line (heavy: `heavy passed - fast + gate additions + live RLS/pgTAP + audits green.`;
   predeploy: `STAMP ISSUED`, every check `blocking=0`) and every `officeci-sha <40-hex>` line equals `S` (an optional `officeci-tree` line must match too).
@@ -158,7 +158,7 @@ live tier -> Deno typecheck -> Jev audit (`quality.jevAudit.enabled`, changed fu
 ```powershell
 # One-time, run by the owner (this is persistent configuration; agents never register it):
 $a = New-ScheduledTaskAction -Execute 'C:\Program Files\nodejs\node.exe' `
-  -Argument '"C:\Projects\Maple-Standard\plugin\scripts\gate\heavy-run.mjs" --root "C:\Projects\Maple-Standard"'
+  -Argument '"<projects-root>\Maple-Standard\plugin\scripts\gate\heavy-run.mjs" --root "<project-root>"'
 $t = New-ScheduledTaskTrigger -Daily -At 3:30am
 $s = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 3) -MultipleInstances IgnoreNew
 Register-ScheduledTask -TaskName 'Maple heavy gate (Maple-Standard)' -Action $a -Trigger $t -Settings $s
@@ -179,7 +179,7 @@ An unlisted reason fails the run before any work; a reason that is false on this
 valid reason for another step is ignored. Each honoured skip appends one line to `<git-common-dir>/maple/gate-debt.jsonl`:
 
 ```json
-{"sha":"26772a7...","branch":"main","step":"live","reason":"docker-unavailable","at":"2026-10-06T08:00:00.000Z","who":"maayan@host","ref":"#T15"}
+{"sha":"26772a7...","branch":"main","step":"live","reason":"docker-unavailable","at":"2026-10-06T08:00:00.000Z","who":"owner@host","ref":"#T15"}
 ```
 
 A **green heavy run on a sha containing those commits** appends `{"paid":true,"of":...,"by":"<heavy sha>"}`.

@@ -66,7 +66,7 @@ $script:BackupDir    = Join-Path $env:USERPROFILE '.claude\backups\sessions'
 #     "protectSessionIds": ["local_4a7f9e83-..."],
 #     "protectTitles":     ["ביקורת חיוב מלאה"],      // exact match
 #     "protectTitlePatterns": ["^Nightly heal"],        // regex
-#     "protectCwdPatterns":   ["\\\\Maple-Pole$"]       // regex on the session's cwd
+#     "protectCwdPatterns":   ["\\\\my-project$"]       // regex on the session's cwd
 #   }
 # A protected session is never archived, however old it is.
 # ---------------------------------------------------------------------------

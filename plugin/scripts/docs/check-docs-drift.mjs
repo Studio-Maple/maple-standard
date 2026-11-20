@@ -12,7 +12,7 @@
  * (reserved: type/title/description/tags/timestamp; custom: audience/
  * authoritative_for/code/reference_for — see lib/preamble.mjs) OR the
  * legacy prose blockquote. Both are fully validated; a prose-only page
- * gets an extra WARN so migration pressure exists (VeHagita's ~65 pages
+ * gets an extra WARN so migration pressure exists (a large adopter's ~65 pages
  * migrate later, #T5).
  *
  * ERRORS (block):

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * junction-safety.test.mjs — regression test for the gutted-node_modules
- * incident (maple-pole, 2026-07-28..30, D049 there).
+ * incident (a consuming project, 2026-07-28..30).
  *
  * `git worktree remove --force` FOLLOWS NTFS junctions during its recursive
  * delete: it empties the junction TARGET and leaves the dir. Next.js/
@@ -13,7 +13,7 @@
  * must strip every reparse point inside the worktree (the links themselves,
  * never their targets) before any deleter runs.
  *
- * D069 (2026-10-07, EasyCaller): the removal is also FAIL-CLOSED. A plugin
+ * D069 (2026-10-07, a consuming project): the removal is also FAIL-CLOSED. A plugin
  * cache update deleted the lib's own dir mid-reap, the strip silently
  * no-oped, and only luck saved the main node_modules. Scenarios:
  *   (a) strip tool missing  -> refuse loudly, delete nothing

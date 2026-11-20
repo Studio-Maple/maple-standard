@@ -2,7 +2,7 @@
  * exposure.mjs - the `stack-exposure` preset (D072, docs/stack-exposure.md): what a build serves to an
  * anonymous visitor must not name the stack.
  *
- * Origin: EasyCaller's stack exposure audit (2026-10-08). Its login page preloaded 82 app chunks; a crawl from
+ * Origin: a consuming project's stack exposure audit (2026-10-08). Its login page preloaded 82 app chunks; a crawl from
  * /login fetched 220 files / 5.9 MB including exact library versions, the whole `import.meta.env` (commit SHA,
  * internal hostnames, dev-flag names), Tailwind's `/*!` banner, readable chunk names and a dev-only route.
  * Each rule below is one of those findings, so a regression fails the gate instead of waiting for an audit.

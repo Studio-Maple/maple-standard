@@ -1,5 +1,5 @@
 /**
- * attest.mjs - `gate-cli attest` (D073): import a tier pass that was verified on the office PC's CI runner
+ * attest.mjs - `gate-cli attest` (D073): import a tier pass that was verified on a self-hosted CI runner
  * (OfficeCI) instead of locally. The second, verified way to produce a heavy stamp / a standard predeploy stamp;
  * hand-writing either stays blocked by the predeploy-guard.
  *

@@ -2,7 +2,7 @@
 /**
  * Jev (TypeSafe System One) client — direct API, not a gateway.
  *
- * Ported from C:\Projects\MapleLens\tools\jev\client.mjs (same product, same
+ * Ported from MapleLens's jev client (same product, same
  * endpoint/model pin, same question/answer shapes) — this copy generalizes
  * credential-target resolution so any maple-standard project can point at
  * its own stored key, per plugin/README.md's Jev section.

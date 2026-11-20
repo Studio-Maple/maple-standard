@@ -24,7 +24,7 @@ Secrets flow from Credential Manager into a child process's env or a temp file t
 Vulnerability presets re-run weekly against the deployed sha from the deploy ledger with a fresh DB, on the local desk or MapleLens scheduler, not GitHub Actions. A new CVE opens a board task and blocks the next predeploy stamp; no paging, no auto-rollback. Owner approved 2026-11-19.
 
 ## D083 | 2026-11-19 | Security guardrails pilot on MapleLens first
-The guardrail layer pilots in warn mode on MapleLens, then EasyCaller, VeHagita, Maple-Pole, Nekuda and SmartMatzeva a week apart, each project's warn log reviewed before its flip to enforce. Owner approved 2026-11-19. See [[security-guardrails]].
+The guardrail layer pilots in warn mode on one consuming project, then the others a week apart, each project's warn log reviewed before its flip to enforce. Owner approved 2026-11-19. See [[security-guardrails]].
 
 ## D082 | 2026-11-19 | Security controls warn first, then enforce on a date
 With no security block every control warns; maple.config.json security.enforceAfter (default adoption + 7 days, at most 30) flips a project to enforce by itself. Credential-store reads, secret printing and the MCP-tool guard bypass enforce from day one: a PreToolUse warn would already let the secret into context. Owner approved 2026-11-19.
@@ -39,7 +39,7 @@ Adding a package is denied on any OSV vulnerability in the resolved version, and
 Package managers (pnpm minimumReleaseAge 10080, npm min-release-age=7, uv exclude-newer), the add-time guard and Dependabot (weekly, cooldown default-days 7) all use 7 days. Security updates skip the bot cooldown, never the add-time OSV check. Owner approved 2026-11-19. See [[security-guardrails]].
 
 ## D078 | 2026-11-17 | A push to the production branch is not a deploy for live-scan debt when the project says it deploys nothing
-predeploy.deployGuard.prodPushIsDeploy=false (default true) stops the prod-branch-push guard hit from creating a deploy-ledger record, so it creates no live-scan debt; the push is still verified against the stamp and real deploy commands are always recorded. Owner-approved 2026-11-17 for EasyCaller (all Pages projects direct-upload, no git integration). Amends D060/D066.
+predeploy.deployGuard.prodPushIsDeploy=false (default true) stops the prod-branch-push guard hit from creating a deploy-ledger record, so it creates no live-scan debt; the push is still verified against the stamp and real deploy commands are always recorded. Owner-approved 2026-11-17 for a consuming project (all Pages projects direct-upload, no git integration). Amends D060/D066.
 
 ## D077 | 2026-11-17 | Heavy stamp carry-over for data-only commits
 Amends D060/D066. With gate.heavyCarryOver on, gate-cli carry gives HEAD a heavy pass carried from the nearest first-parent ancestor with a real green heavy run, only if the diff is in-place edits of listed top-level .json ledger files plus scalar maple.config.json changes at listed predeploy keys; the gate block must be unchanged. Readers re-verify it from git at every check. Predeploy is never carried; carry pays no debt. Owner approved 2026-11-17.
@@ -57,10 +57,10 @@ After a cloud agent pushed 11 unapproved migrations to prod (2026-10-04), db pus
 Amends D066/D060: besides a green local run, a heavy stamp or a STANDARD predeploy stamp (never --live) may be imported with gate-cli attest --officeci-job, which re-checks the coordinator: job passed exit 0 on attempt 1, same origin repo, tier success line, officeci-sha equal to the sha. Records carry who=officeci:<job>, via=attest. Hand-written stamps and gate-cli stamp/pay stay blocked; plugin 0.16.0.
 
 ## D071 | 2026-10-07 | Heavy tier runs against an isolated throwaway Supabase stack, never a dev stack
-Incident 2026-10-07: heavy used the owner's dev stack (VeHagita types-freshness red from unlanded migrations; EasyCaller data-loss risk on reset). maple.config.json ci.stack {projectId?, portBase} makes plugin/scripts/gate/ci-stack.mjs copy supabase/ to <git-common-dir>/maple/ci-stack, rename project_id to <id>-ci, pin every port into portBase..+9, start fresh, db reset, always tear down (pid lock, orphan sweep). Without ci.stack heavy warns. See [[quality]], [[docker]].
+Incident 2026-10-07: heavy used the owner's dev stack (types-freshness red from unlanded migrations in one project; data-loss risk on reset in another). maple.config.json ci.stack {projectId?, portBase} makes plugin/scripts/gate/ci-stack.mjs copy supabase/ to <git-common-dir>/maple/ci-stack, rename project_id to <id>-ci, pin every port into portBase..+9, start fresh, db reset, always tear down (pid lock, orphan sweep). Without ci.stack heavy warns. See [[quality]], [[docker]].
 
-## D070 | 2026-10-07 | scrub-secrets scans docs/ and carries every EasyCaller pattern
-D065 dropped EasyCaller's project scrubber, which was a superset of the plugin's. The plugin hook now ports all of it (sb_secret_, ASIA, labeled AWS secret/session, Cloudflare token/global key) and no longer skips docs/ reads: a secret pasted into a doc is exactly what must not reach the model, and the skip only protected pattern examples (docs use obviously-fake values). Plugin 0.13.4.
+## D070 | 2026-10-07 | scrub-secrets scans docs/ and carries every pattern of a consuming project's scrubber
+D065 dropped a consuming project's own scrubber, which was a superset of the plugin's. The plugin hook now ports all of it (sb_secret_, ASIA, labeled AWS secret/session, Cloudflare token/global key) and no longer skips docs/ reads: a secret pasted into a doc is exactly what must not reach the model, and the skip only protected pattern examples (docs use obviously-fake values). Plugin 0.13.4.
 
 ## D069 | 2026-10-07 | Worktree removal fails closed; plugin cache never deletes a version in use
 maple_remove_worktree now resolves node tools (strip-links.mjs + verify-no-links.mjs, lstat-only, no PowerShell) at call time and refuses, deleting nothing, if they are missing, fail, or any link survives an independent re-scan; every caller treats that as kept. sync-plugin-cache keeps superseded versions 24h and while a live .in_use pid exists. Incident 2026-10-07: cache update deleted the running lib's dir, the strip no-oped (D012). Supersedes the .ps1 strip.
@@ -69,7 +69,7 @@ maple_remove_worktree now resolves node tools (strip-links.mjs + verify-no-links
 Incident 2026-10-07: unpruned runs/ filled C: with 298 GB. Every gate/live run deletes its scan copy in a finally, keeping run.json and small reports; startup prune + predeploy.runs {keep 5, maxGB 10}; pid-locked dirs of live runs are never touched; links are unlinked, never followed (D012); minFreeGB 20 refuses starts. Agents may run run.mjs prune/doctor. See [[predeploy-gate]].
 
 ## D067 | 2026-10-07 | Supabase MCP listings are answered with refs, not run
-The connector token lists only its default org (VeHagita), yet get_project reaches other orgs by ref (EZcall bibodwvvvjvfnkcnxfgg). Sessions read the partial list as "only VeHagita exists". mcp-guard answers list_projects/list_organizations with this repo refs (maple.config.json supabase.*ProjectRefs, supabase/.temp/project-ref) and says to call tools by ref.
+The connector token lists only its default org, yet get_project reaches other orgs by ref. Sessions read the partial list as "only one project exists". mcp-guard answers list_projects/list_organizations with this repo refs (maple.config.json supabase.*ProjectRefs, supabase/.temp/project-ref) and says to call tools by ref.
 
 ## D066 | 2026-10-06 | Gate v2: light landings, batched heavy runs, production unchanged
 Commit: staged lint only. Landing on dev: affected-only fast tier, no Docker; ready worktrees land as one batch via a queue that never steals a live lock. Heavy checks (live RLS, @smoke on a gate-only port, plugin integration suites, Jev audit - amends D059) run batched: before promotion and on a daily local schedule; dev may be red between runs. Prod keeps D060 plus a green heavy run on that sha and zero gate debt. Gate skips only for listed reasons, recorded as debt. One bash gate runner; ps1 is a shim.
@@ -101,8 +101,8 @@ Default executor is now the cheapest: Pi/gpt-5.6-luna whenever Pi is available; 
 ## D057 | 2026-09-23 | Jev decision-model integration: routing, skill-select, search, sub-agent validation
 Wired TypeSafe's Jev (typed choice/score/probability, ~0.5s, never text) into the plugin: jev-model-routing/jev-skill-select/jev-search skills + a SubagentStop validator hook, shared client/config/redact/log under plugin/scripts/jev/. Fail-open everywhere (no key/timeout/malformed -> allow/fallback); new jev.* schema key. Concept ported from kerpopule/hermes-jev-skills (MIT); client shape from MapleLens tools/jev/client.mjs. See plugin/README.md Jev section.
 
-## D056 | 2026-09-16 | maple-standard lives at C:/Projects/Maple-Standard, not under Studio-Maple
-The standard stopped being a Studio-Maple sub-project once Caller, MapleLens, Nekuda and VeHagita all consumed it; the nested path made it look like website-2's dependency. It is now a top-level sibling of the projects it serves. Studio-Maple never tracked it, so the move is a directory rename plus the marketplace path in ~/.claude/settings.json and known_marketplaces.json — which sync-plugin-cache.mjs (D053) self-heals by basename when it runs from a directory other than the registered one.
+## D056 | 2026-09-16 | maple-standard lives at <projects-root>/Maple-Standard, not under a project's directory
+The standard stopped being a sub-project of one repo once several projects consumed it; the nested path made it look like one project's dependency. It is now a top-level sibling of the projects it serves. The old parent repo never tracked it, so the move is a directory rename plus the marketplace path in ~/.claude/settings.json and known_marketplaces.json — which sync-plugin-cache.mjs (D053) self-heals by basename when it runs from a directory other than the registered one.
 
 ## D055 | 2026-09-16 | Worktrees live inside the repo at .worktrees/, not a sibling dir
 worktrees.root now defaults to $MAPLE_MAIN_ROOT/.worktrees instead of ../<repo>-wt: a project is one filesystem path, nothing outside the checkout. maple_ensure_gitignored (generalized from the .loop-state helper) self-heals the entry on every wt-start/wt-preview/dev-burner; tsconfig/eslint/dep-cruiser exclude it. New hazard the sibling layout lacked: git clean -xffd deletes nested worktrees and follows their node_modules junctions into the main tree (D012) — blocked by bash-guard's clean-guard.
@@ -123,19 +123,19 @@ credential-manager lived in ~/.claude/skills and /todo /project-status /session-
 The #T/D/S allocator scanned only the current worktree's docs file and locked on a per-worktree `docs/tasks.md.lock`, so two parallel agent/<slug> sessions both issued the same id and only collided at /wt-land. Numbers now come from max(a counter in `<git-common-dir>/maple/id-counters.json`, a live `git worktree list` scan of every worktree's docs file) + 1, with the mutex moved to the same shared dir. Fails open to the old behaviour outside git. See [[standard-architecture]] and plugin/scripts/docs/lib/id-store.mjs.
 
 ## D012 | 2026-07-30 | Worktree teardown strips reparse points before deleting
-git worktree remove --force follows NTFS junctions (empties the target, leaves the dir — sandbox-verified); Turbopack leaves .next/node_modules junctions targeting the main checkout's .pnpm dirs, which gutted maple-pole's node_modules 3x in 3 days (its D049). maple_remove_worktree now strips every link inside the worktree first (strip-reparse-points.ps1, a non-link-following walk); _maple_link_dir rmdirs an existing link before rm -rf. Regression: agent-wt/junction-safety.test.mjs, fast tier.
+git worktree remove --force follows NTFS junctions (empties the target, leaves the dir — sandbox-verified); Turbopack leaves .next/node_modules junctions targeting the main checkout's .pnpm dirs, which gutted a consuming project's node_modules 3x in 3 days. maple_remove_worktree now strips every link inside the worktree first (strip-reparse-points.ps1, a non-link-following walk); _maple_link_dir rmdirs an existing link before rm -rf. Regression: agent-wt/junction-safety.test.mjs, fast tier.
 
 ## D011 | 2026-07-25 | MapleLens lives in its own top-level repo, published private
-C:/Projects/MapleLens is a standalone git repo, not a maple-standard package - a deployable product with its own release cadence; per-app instances pin versions of it. Published to github.com/maayanmar/MapleLens as PRIVATE until deployed and hardened; open-sourcing is a deliberate later call. Extraction from VeHagita is read-only on VeHagita and MapleLens stays independent of the plugin for now.
+MapleLens is a standalone git repo, not a maple-standard package - a deployable product with its own release cadence; per-app instances pin versions of it. Published as a PRIVATE repo until deployed and hardened; open-sourcing is a deliberate later call. Extraction is read-only on the source project and MapleLens stays independent of the plugin for now.
 
 ## D010 | 2026-07-25 | Docs system aligns with Google OKF v0.1
-Full alignment: YAML frontmatter replaces the prose preamble (type/title/description/tags/timestamp + custom audience/authoritative_for/code fields), docs tooling reads frontmatter, index.md catalog is generated from description fields. Drift gate validates both wikilinks and markdown links. Scope: plugin docs tooling (#T13), VeHagita page migration (folded into #T5), MapleLens docs OKF-style from day one. Client-handoff use: not adopted for now.
+Full alignment: YAML frontmatter replaces the prose preamble (type/title/description/tags/timestamp + custom audience/authoritative_for/code fields), docs tooling reads frontmatter, index.md catalog is generated from description fields. Drift gate validates both wikilinks and markdown links. Scope: plugin docs tooling (#T13), consuming-project page migration (folded into #T5), MapleLens docs OKF-style from day one. Client-handoff use: not adopted for now.
 
-## D009 | 2026-07-25 | First adoption target: EasyCaller, after plugin v1
-Rollout order: plugin v1 -> EasyCaller (Caller-development) adoption -> VeHagita alignment (keeps /chaos and /heal-security project-local) -> MapleLens VeHagita deploy -> MapleLens EasyCaller deploy -> loops live on both. See [[rollout]] for per-step verification.
+## D009 | 2026-07-25 | First adoption target: the most active consuming project, after plugin v1
+Rollout order: plugin v1 -> first consuming project adoption -> second project alignment (keeps its project-local commands) -> MapleLens first deploy -> MapleLens second deploy -> loops live on both. See [[rollout]] for per-step verification.
 
 ## D008 | 2026-07-25 | Repo layout standard: prod/dev dual checkouts
-Standard assumes two checkouts of the same repo (e.g. Caller = prod, Caller-development = dev). /adopt-standard records this in maple.config.json layout block; the loop pack standing worktree operates against the dev checkout only. Bootstrap and loops must respect this, not assume single-checkout.
+Standard assumes two checkouts of the same repo (e.g. <repo> = prod, <repo>-development = dev). /adopt-standard records this in maple.config.json layout block; the loop pack standing worktree operates against the dev checkout only. Bootstrap and loops must respect this, not assume single-checkout.
 
 ## D007 | 2026-07-25 | Loop-engineering principles baked into every loop
 External verification only - the worker never grades its own homework; hard budget per loop; caught process mistakes become correction candidates queued for review, never self-applied. Loops never edit docs pages except /detect-drift scoped gaps.md append; /burn-backlog defers tasks.md checkoff to morning review.
@@ -144,10 +144,10 @@ External verification only - the worker never grades its own homework; hard budg
 A standing local Claude Code session runs /loop self-paced over /dev-burner. No Telegram reporting. Loops work in an isolated worktree on a standing dev-burner branch; full gate tier before any commit lands on it; never merged without the owner explicit morning review and land.
 
 ## D005 | 2026-07-25 | Loop pack: four mid-development improvement loops
-/sweep-errors (tracker triage + fix), /burn-backlog (small specced tasks), /sweep-quality (one verified improvement per cycle), /detect-drift (docs-vs-code drift to gaps.md proposals only). Target: VeHagita + EasyCaller mid-development work. See [[loop-pack]].
+/sweep-errors (tracker triage + fix), /burn-backlog (small specced tasks), /sweep-quality (one verified improvement per cycle), /detect-drift (docs-vs-code drift to gaps.md proposals only). Target: mid-development work in consuming projects. See [[loop-pack]].
 
 ## D004 | 2026-07-25 | Error tracker generalized as MapleLens
-Per-app deployed instances built from shared code extracted from VeHagita DIY tracker - design unchanged (agent-native, MCP-first, one-fetch issue context, bearer tokens, dual-send alongside free-tier Sentry). VeHagita deploys first; EasyCaller next. See [[maplelens]].
+Per-app deployed instances built from shared code extracted from a DIY tracker first built in one consuming project - design unchanged (agent-native, MCP-first, one-fetch issue context, bearer tokens, dual-send alongside free-tier Sentry). The first consuming project deploys first; the second next. See [[maplelens]].
 
 ## D003 | 2026-07-25 | v1 plugin layers, scope boundary
 v1 ships: worktree lifecycle (wt-*), generic safety hooks (deny-credential-paths, scrub-secrets, bash-guard, dirty-tree-guard, ask-gate, decision-reminder, docs-sync-reminder, parallel-session-warn), docs gate + decision integrity, parameterized /heal. Project-specific hooks (eslint-fix, size-warning, build-counter) stay template/per-project side.

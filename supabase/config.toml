@@ -16,8 +16,8 @@ project_id = "your-project-local"
 # 61035-61134). Every service port the CLI binds is pinned below; keep them
 # in this block. On a Windows box make the block permanent with the owner-run
 # admin command in docs/docker.md ("administered exclusion").
-# Other local projects on the same machine use their own block (Caller 5832x,
-# VeHagita 5532x) - when instantiating, pick an unused one.
+# Other local projects on the same machine use their own block - when
+# instantiating, pick an unused one.
 
 [api]
 enabled = true

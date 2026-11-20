@@ -59,7 +59,7 @@ await t("matchKey: exact whole path, [*] any element, [id=] one element, never a
 
 const CHECKS = () => ({ predeploy: { minSeverity: "info", remote: { timeoutMin: 45 }, checks: [{ id: "knip", command: "k", timeoutSec: 900 }, { id: "semgrep", preset: "semgrep", timeoutSec: 1800, options: { timeout: 30, configs: ["a", "b"] } }] }, ci: { tiers: { heavy: "h" } }, gate: { heavyCarryOver: { enabled: true, paths: ["maple.config.json"], configKeys: ["predeploy.checks[*].timeoutSec"] } } });
 
-await t("config diff: a check timeout edit carries (EasyCaller 10e9b3c08: semgrep 1800 -> 3600)", () => {
+await t("config diff: a check timeout edit carries (semgrep 1800 -> 3600)", () => {
   const a = CHECKS(), b = CHECKS();
   b.predeploy.checks[1].timeoutSec = 3600;
   const j = judgeConfigChange(a, b, ["predeploy.checks[*].timeoutSec"]);

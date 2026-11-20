@@ -2,7 +2,7 @@
 /**
  * preamble.mjs — unified doc-preamble reader. OKF v0.1 frontmatter
  * (docs/decisions.md D010) is the target shape; a legacy prose blockquote
- * preamble is still fully supported as a fallback (VeHagita's ~65 pages
+ * preamble is still fully supported as a fallback (a large adopter's ~65 pages
  * migrate later, #T5) — callers get a normalized shape either way, plus
  * `hasFrontmatter` so the drift gate can warn on legacy pages to keep
  * migration pressure on.
@@ -43,7 +43,7 @@ function firstH1(content) {
 // (`joined` has already had the leading `> ` stripped off each line), in
 // EITHER of the two forms real projects use: bold-wrapped (`**Audience:**
 // value`, this template's own convention) or bare (`Audience: value`, no
-// `**` at all — e.g. EasyCaller's docs/{engineering-standards,mvp-plan,
+// `**` at all — e.g. docs/{engineering-standards,mvp-plan,
 // security,system-map}.md, all four of which use the identical blockquote
 // STRUCTURE without bold). Anchored to the start of a line (the `m` flag)
 // so a label word appearing mid-sentence elsewhere in the block can't

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// link-guard regression (EasyCaller 2026-10-09): a worktree's site/node_modules was a junction to the main
+// link-guard regression (incident 2026-10-09 in a consuming project): a worktree's site/node_modules was a junction to the main
 // checkout's; `(cd site && npm ci)` in the worktree emptied the MAIN install. Real junctions (Windows) /
 // symlinks (Unix) in a temp dir; asserts the dispatcher's verdict and that nothing was touched.
 //   node plugin/scripts/hooks/link-guard.test.mjs
@@ -47,7 +47,7 @@ async function t(name, tool, command, expect, match, cwd = wt) {
   }
 }
 
-// paths are quoted: the temp dir can contain a space (C:/Users/First Last/...)
+// paths are quoted: the temp dir can contain a space (e.g. a home directory with a space in the name)
 const W = (p = "") => `"${wt}${p}"`;
 const M = (p = "") => `"${main}${p}"`;
 const WW = (p = "") => `"${(wt + p).replace(/\//g, "\\")}"`;

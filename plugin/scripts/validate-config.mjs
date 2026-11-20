@@ -49,7 +49,7 @@ function isNonEmptyString(v) {
 // classic shell-dangerous characters outright.
 //
 // M3: the original set here (['"`$;&|<>\n\r]) false-rejected real Windows
-// paths — `C:\Users\O'Brien\wt` (apostrophe in a surname), `C:\R&D\wt`
+// paths — `C:\work\O'Brien\wt` (apostrophe in a surname), `C:\R&D\wt`
 // (ampersand), `\\fileserver\c$\wt` / `D:\Recovery$\wt` (dollar sign, both
 // a UNC admin share and a perfectly normal drive label) — blocking
 // /adopt-standard step 2 for real users. `'`, `&`, and `$` are dropped from

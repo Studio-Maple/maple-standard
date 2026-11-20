@@ -148,19 +148,19 @@ await t("missing tool is a finding, never a skip", async () => {
 const WARN = { id: "lint", command: "node -e \"console.log('warning: x')\"", parse: "lines" };
 const inDays = (d) => new Date(Date.now() + d * 86400000).toISOString().slice(0, 10);
 await t("an exact, valid, committed allowlist entry excepts a finding", async () => {
-  const entry = { check: "lint", id: "line", reason: "tool prints an informational line", owner: "maayan", expires: inDays(30) };
+  const entry = { check: "lint", id: "line", reason: "tool prints an informational line", owner: "alice", expires: inDays(30) };
   commit(cfgOf([WARN]), { "predeploy-allowlist.json": JSON.stringify({ version: 1, entries: [entry] }) });
   assert.equal(await gate(), 0);
 });
 
 await t("expired allowlist entry fails the gate", async () => {
-  const entry = { check: "lint", id: "line", reason: "tool prints an informational line", owner: "maayan", expires: "2020-01-01" };
+  const entry = { check: "lint", id: "line", reason: "tool prints an informational line", owner: "alice", expires: "2020-01-01" };
   commit(cfgOf([WARN]), { "predeploy-allowlist.json": JSON.stringify({ version: 1, entries: [entry] }) });
   assert.equal(await gate(), 1);
 });
 
 await t("uncommitted allowlist edit fails the gate", async () => {
-  const entry = { check: "lint", id: "line", reason: "tool prints an informational line", owner: "maayan", expires: inDays(30) };
+  const entry = { check: "lint", id: "line", reason: "tool prints an informational line", owner: "alice", expires: inDays(30) };
   commit(cfgOf([WARN]), { "predeploy-allowlist.json": JSON.stringify({ version: 1, entries: [] }) });
   writeFileSync(join(repo, "predeploy-allowlist.json"), JSON.stringify({ version: 1, entries: [entry] }));
   assert.equal(await gate("--allow-dirty"), 1);

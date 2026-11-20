@@ -34,11 +34,11 @@ try {
 
   const project = join(base, "app-project"); const state = join(project, ".maplelens", "state"); mkdirSync(state, { recursive: true });
   const appTasks = join(base, "app-ledger.md"); writeFileSync(join(project, "maple.config.json"), JSON.stringify({ docs: { tasks: appTasks } })); writeFileSync(appTasks, "## Inbox\n\n- [ ] **#T1 — App task.** body\n");
-  const desks = join(base, "desks.json"); writeFileSync(desks, JSON.stringify([{ tenant: "EasyCaller", kind: "local", stateDir: state }]));
-  r = run(["--app", "EasyCaller", "list"], { ...env, MAPLE_DESKS_JSON: desks });
+  const desks = join(base, "desks.json"); writeFileSync(desks, JSON.stringify([{ tenant: "DemoApp", kind: "local", stateDir: state }]));
+  r = run(["--app", "DemoApp", "list"], { ...env, MAPLE_DESKS_JSON: desks });
   check("--app resolves project from desks", r.status === 0 && /#T1 \[open\] App task/.test(r.stdout), r.stderr.trim());
   r = run(["--app", "Missing", "list"], { ...env, MAPLE_DESKS_JSON: desks });
-  check("unknown app fails", r.status !== 0 && /Known local tenants: EasyCaller/.test(r.stderr));
+  check("unknown app fails", r.status !== 0 && /Known local tenants: DemoApp/.test(r.stderr));
   r = run(["--root", repo, "done", "999"], env);
   check("unknown ID fails", r.status !== 0 && /task #T999 not found/.test(r.stderr));
 } finally { rmSync(base, { recursive: true, force: true }); }
