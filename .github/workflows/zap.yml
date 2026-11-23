@@ -59,7 +59,7 @@ jobs:
           fi
 
       - name: Checkout (for .zap/rules.tsv)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: ZAP Baseline scan
         uses: zaproxy/action-baseline@v0.15.0
