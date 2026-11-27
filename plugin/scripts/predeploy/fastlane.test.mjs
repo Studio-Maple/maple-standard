@@ -1,7 +1,8 @@
 // Fast lane (deploy first, enforce after): the pure rules - glob dialect, classification, config validation. Hermetic.
 import assert from "node:assert/strict";
 import { configHash, normalize, validatePredeploy } from "./config.mjs";
-import { BASELINE_DENY, classify, globToRegExp, normalizeFastLane, rulesHash, validateFastLane } from "./fastlane-rules.mjs";
+import { BASELINE_DENY, classify, globToRegExp, modeFor, normalizeFastLane, rulesHash, validateFastLane } from "./fastlane-rules.mjs";
+import { deployTarget, effectivePatterns } from "../../hooks/guards/deploy-guard.mjs";
 
 let n = 0;
 const t = (name, fn) => { fn(); n++; console.log("ok - " + name); };
@@ -183,6 +184,55 @@ t("opting in to the fast lane does NOT change the config hash (existing stamps s
   // control: a field a stamp does certify still moves the hash
   const other = base(); other.predeploy.checks.push({ id: "b", command: "node -e 1" });
   assert.notEqual(configHash(normalize(other)), plain);
+});
+
+// ── per-target modes (fastLane.targets) ─────────────────────────────────────
+const stg = { id: "stg", regex: "deploy-staging", target: "staging" };
+const pdT = (targets, patterns = [stg]) => ({ fastLane: { enabled: true, allow: ["src/**"], targets }, deployGuard: { patterns } });
+t("modeFor: absent targets = every target default (legacy); with targets an unlisted target is off", () => {
+  assert.equal(modeFor(normalizeFastLane({ fastLane: { enabled: true, allow: ["src/**"] } }), "production"), "default");
+  assert.equal(modeFor(null, "production"), "default");
+  const fl = normalizeFastLane(pdT({ staging: "default", production: "owner-only" }));
+  assert.equal(modeFor(fl, "staging"), "default");
+  assert.equal(modeFor(fl, "production"), "owner-only");
+  assert.equal(modeFor(fl, "qa"), "off");
+});
+t("targets validate: modes, names, non-empty, and a non-production target must be named by a deployGuard pattern", () => {
+  assert.deepEqual(validateFastLane(pdT({ staging: "default", production: "owner-only" })), []);
+  assert.deepEqual(validateFastLane(pdT({ production: "off" }, [])), [], "production needs no pattern");
+  assert.match(validateFastLane(pdT({ staging: "sometimes" })).join(), /must be one of default \| owner-only \| off/);
+  assert.match(validateFastLane(pdT({})).join(), /non-empty object/);
+  assert.match(validateFastLane(pdT(["staging"])).join(), /non-empty object/);
+  assert.match(validateFastLane(pdT({ Staging: "default" })).join(), /lowercase/);
+  assert.match(validateFastLane(pdT({ qa: "default" })).join(), /no predeploy.deployGuard.patterns entry has target "qa"/);
+  assert.deepEqual(validateFastLane({ fastLane: { enabled: true, allow: ["src/**"] } }), [], "absent targets stay valid");
+});
+t("a deployGuard pattern's target is validated and does not change the config hash; targets/allow lists stay shared", () => {
+  const mk2 = (patterns, targets) => ({ project: { name: "p" }, predeploy: { checks: [{ id: "a", command: "node -e 1" }], deployGuard: { patterns }, fastLane: { enabled: true, allow: ["src/**"], ...(targets ? { targets } : {}) } } });
+  assert.deepEqual(validatePredeploy(mk2([stg], { staging: "default", production: "owner-only" })), []);
+  assert.match(validatePredeploy(mk2([{ id: "x", regex: "y", target: "Bad Name" }])).join(), /patterns\[0\]\.target/);
+  const plain = configHash(normalize(mk2([{ id: "stg", regex: "deploy-staging" }])));
+  assert.equal(configHash(normalize(mk2([stg], { staging: "default" }))), plain, "target label + targets: no stamp is invalidated");
+  assert.equal(rulesHash(pdT({ staging: "default" }), normalizeFastLane(pdT({ staging: "default" }))), rulesHash(pdT(undefined), normalizeFastLane(pdT(undefined))), "rules hash ignores targets: outstanding permits survive");
+});
+
+// ── which target a deploy command is (deploy-guard) ─────────────────────────
+const pats = effectivePatterns([{ id: "dep", regex: "(^|[\\s/\\\\])deploy\\.sh\\b" }, { id: "stg", regex: "wrangler\\b.*--env staging\\b", target: "staging" }, { id: "stg2", regex: "deploy-staging\\.sh\\b", target: "staging" }]);
+t("deployTarget: a labeled pattern refines the built-in match of the same command; everything else is production", () => {
+  assert.equal(deployTarget("wrangler deploy --env staging", pats), "staging");
+  assert.equal(deployTarget("bash deploy-staging.sh", pats), "staging");
+  assert.equal(deployTarget("wrangler deploy", pats), "production", "built-in only");
+  assert.equal(deployTarget("bash deploy.sh", pats), "production", "unlabeled configured pattern");
+  assert.equal(deployTarget("vercel --prod", pats), "production");
+  assert.equal(deployTarget("echo hi", pats), "production", "no deploy at all: strictest");
+});
+t("deployTarget: any production segment makes the whole command production; labels that disagree too", () => {
+  assert.equal(deployTarget("wrangler deploy --env staging && wrangler deploy", pats), "production");
+  assert.equal(deployTarget("wrangler deploy --env staging && bash deploy-staging.sh", pats), "staging");
+  assert.equal(deployTarget("bash deploy-staging.sh; bash deploy.sh", pats), "production");
+  const two = effectivePatterns([{ id: "a", regex: "go", target: "staging" }, { id: "b", regex: "go", target: "qa" }]);
+  assert.equal(deployTarget("go", two), "production", "conflicting labels");
+  assert.equal(deployTarget("wrangler deploy --env staging", pats.map((p) => ({ ...p, target: undefined }))), "production");
 });
 
 console.log(`\n${n} fast-lane unit tests passed`);

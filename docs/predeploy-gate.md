@@ -315,7 +315,7 @@ the guard and `verify.mjs` decide through `verifyDeploy`. Command: `plugin/comma
 
 Config `predeploy.fastLane`: `enabled` (required boolean), `allow` (globs, required non-empty when enabled; a catch-all is rejected),
 `deny` (globs, only adds to the built-in list), `deadlineHours` (1..48, default 12), `permitMinutes` (5..240, default 60; also the window for
-a multi-step deploy under the permit), `gateTiers` (default `["gate"]`; a tree-bound pass stamp of one of these must exist). `fastLane` is excluded
+a multi-step deploy under the permit), `gateTiers` (default `["gate"]`; a tree-bound pass stamp of one of these must exist). `targets` (see Targets below), `fastLane` is excluded
 from the stamp config hash, so opting in invalidates no stamp.
 
 **Eligibility** is a proof from the diff between the nearest fully stamped commit (green heavy + predeploy pass, searched 2000 commits back)
@@ -328,6 +328,8 @@ git plumbing. No stamped base, or HEAD already stamped, means no fast lane.
 eligible diff, no other open debt, and a clean gitleaks scan of base..HEAD (fails closed, no allowlist). It is bound to the sha and the rules hash and
 expires after `permitMinutes`.
 
+**Targets (D087).** `fastLane.targets` gives each deploy target its own mode: `{ "staging": "default", "production": "owner-only" }`. `default` = a routine permit suffices (the lane is the default route for that target); `owner-only` = the permit must record the owner's explicit approval for this run (`permit --target production --owner-approved "<owner's words>"`; ask the owner first, it is per run, sha-bound and spent by the deploy); `off` = no fast lane. A target not listed is `off`; `targets` absent = today's single lane (one debt blocks every deploy, `permit.json`, no `--target`). The deploy target comes from the deploy guard: an extra `deployGuard.patterns` entry may carry `target: "staging"`. It refines the built-in match of the same command (`wrangler deploy --env staging`); an unlabeled deploy, a built-in-only match, a push to `repo.prodBranch`, labels that disagree, or any production segment in a chained command is `production`. Each target has its own permit file (`permit.json` for production, `permit-<target>.json`), debt and rollback record. A staging debt never blocks a production deploy, and never vouches for one: production still needs the full heavy + predeploy stamp for its own exact HEAD, unless an owner-approved production permit exists. A staging debt still blocks further staging fast lanes until paid and shows in `status` (`debts[]`; `debt`/`action` are the most urgent; exit 10/11 if any is open). The allow/deny lists and the rules hash are shared by all targets, so migrations stay denied everywhere (a staging that shares the production DB is safe). Owner-only is procedural against agents, like the permit itself: nothing but the CLI writes the permit, and it records the approval text.
+
 **Debt.** The first allowed deploy under a permit makes the guard record one debt: heavy + predeploy owed on that commit within `deadlineHours`. While it is
 open, other production deploys are refused except (1) a fully stamped commit containing the indebted one (pays it) and (2) a rollback to the debt's
 fully stamped base (closes it as rolled back). Stamps on the commit or any descendant pay it. Past the deadline nothing is rolled back
@@ -335,7 +337,7 @@ automatically: deploys stay blocked and both ways out are printed. State lives i
 `debt.jsonl`), guarded like other gate state.
 
 ```
-node plugin/scripts/predeploy/fastlane-cli.mjs check|permit|status [--root DIR] [--json]
+node plugin/scripts/predeploy/fastlane-cli.mjs check|permit|status [--target T] [--owner-approved TEXT] [--root DIR] [--json]
 ```
 
 `check` and `permit` exit 0 eligible / issued, 1 refused (reasons printed); `check` writes nothing and skips the secret scan. `status` exits 0 clear,

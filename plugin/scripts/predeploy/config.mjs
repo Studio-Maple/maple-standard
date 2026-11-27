@@ -62,7 +62,11 @@ export function configHash(pd) {
   // `runs` and `minFreeGB` only govern disk hygiene of the run workspaces; they change nothing a stamp certifies, so
   // retuning them must not invalidate stamps.
   // `fastLane` decides WHEN the full run happens relative to a deploy, never what a stamp certifies: same rule.
+  // A deployGuard pattern's `target` only names which fast-lane target a deploy is (the pattern matches the same commands), so it is not hashed.
   const { runs: _runs, minFreeGB: _minFreeGB, fastLane: _fastLane, ...certified } = pd;
+  if (Array.isArray(certified.deployGuard?.patterns)) {
+    certified.deployGuard = { ...certified.deployGuard, patterns: certified.deployGuard.patterns.map(({ target: _t, ...pt }) => pt) };
+  }
   return sha256(canonicalJson(certified));
 }
 
@@ -169,6 +173,7 @@ export function validatePredeploy(cfg) {
         const at = `predeploy.deployGuard.patterns[${i}]`;
         if (!isObj(pt) || !isStr(pt.id) || !isStr(pt.regex)) return e.push(`${at}: { id, regex } required`);
         try { new RegExp(pt.regex, "i"); } catch (x) { e.push(`${at}.regex: ${x.message}`); }
+        if (pt.target !== undefined && !(isStr(pt.target) && /^[a-z][a-z0-9-]*$/.test(pt.target))) e.push(`${at}.target: lowercase name (letters, digits, hyphens) of the deploy target this pattern deploys to; an unlabeled pattern counts as "production"`);
       });
     }
   }

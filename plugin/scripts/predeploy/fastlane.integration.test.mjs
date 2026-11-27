@@ -21,11 +21,11 @@ const HOUR = 3600000;
 const dirs = [];
 const stub = { secretScan: () => ({ ok: true, reason: "stub" }) };
 const FIXTURE_LEDGER = "# Decisions\n\n## D161 | 2026-10-01 | Test exception decision\nbody\n";
-const cfgOf = (fastLane) => ({
+const cfgOf = (fastLane, extraPatterns = []) => ({
   project: { name: "t", slug: "t" },
   predeploy: {
     checks: [{ id: "ok", command: 'node -e "process.exit(0)"' }],
-    deployGuard: { patterns: [{ id: "dep", regex: "(^|[\\s/\\\\])deploy\\.sh\\b" }] },
+    deployGuard: { patterns: [{ id: "dep", regex: "(^|[\\s/\\\\])deploy\\.sh\\b" }, ...extraPatterns] },
     exposure: { optOut: { bundle: { decision: "D161", why: "fixture repo: no web build to scan (the D072 opt-out path)" } } },
     ...(fastLane ? { fastLane } : {}),
   },
@@ -35,6 +35,7 @@ const FL = { enabled: true, allow: ["src/**", "docs/**"] };
 /** A fresh repo + bare origin whose first commit is "fully stamped" (heavy + predeploy) and pushed. */
 function mk(opts = {}) {
   const fastLane = "fastLane" in opts ? opts.fastLane : FL; // `fastLane: undefined` means "no block at all"
+  const extraPatterns = opts.patterns || [];
   const dir = mkdtempSync(join(tmpdir(), "fastlane-it-"));
   dirs.push(dir);
   const origin = join(dir, "origin.git");
@@ -86,7 +87,7 @@ function mk(opts = {}) {
       writeHeavyStamp(repo, fx.head());
     },
   };
-  fx.commit({ "maple.config.json": JSON.stringify(cfgOf(fastLane), null, 2), "docs/decisions.md": FIXTURE_LEDGER, "src/a.ts": "export const v = 0;\n" });
+  fx.commit({ "maple.config.json": JSON.stringify(cfgOf(fastLane, extraPatterns), null, 2), "docs/decisions.md": FIXTURE_LEDGER, "src/a.ts": "export const v = 0;\n" });
   fx.stamp();
   fx.base = fx.head();
   return fx;
@@ -409,6 +410,192 @@ await t(which("gitleaks") ? "l. real gitleaks: a clean diff passes, a diff addin
   assert.match(p.failures.join("\n"), /secret finding/);
   assert.ok(!existsSync(permitFile(fx.repo)));
   assert.equal(fx.hook("bash deploy.sh").status, 2);
+});
+
+// ── m. per-target lanes (predeploy.fastLane.targets) ────────────────────────
+const STG = [{ id: "dep-stg", regex: "(^|[\\s/\\\\])deploy-staging\\.sh\\b", target: "staging" }];
+const TARGETS = { ...FL, targets: { staging: "default", production: "owner-only" } };
+const mkT = (targets = TARGETS.targets) => mk({ fastLane: { ...FL, targets }, patterns: STG });
+const OWNER = "owner said go in chat";
+const STAGE = "bash deploy-staging.sh", PROD = "bash deploy.sh";
+
+function deployStaging(fx, file) {
+  fx.change(file);
+  assert.equal(fx.permit({ target: "staging" }).ok, true);
+  const r = fx.hook(STAGE);
+  assert.equal(r.status, 0, out(r));
+}
+
+await t("m1. no targets (legacy): one lane, a debt blocks every target, behaviour unchanged, permit.json as before", () => {
+  const fx = mk({ patterns: STG });
+  fx.change("src/a.ts");
+  assert.equal(fx.permit().ok, true, "no --target needed without targets");
+  assert.ok(existsSync(permitFile(fx.repo)));
+  assert.equal(fx.hook(STAGE).status, 0, "a labeled pattern still deploys on the one lane");
+  assert.equal(fx.debts().length, 1);
+  fx.change("src/b.ts");
+  assert.equal(fx.permit().ok, false);
+  assert.equal(fx.hook(PROD).status, 2); assert.match(out(fx.hook(PROD)), /fast-lane debt is open/);
+  assert.equal(fx.hook(STAGE).status, 2);
+  // a debt line written before targets existed (no target field) behaves the same
+  const lines = readFileSync(fx.debtFile(), "utf8").split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l));
+  writeFileSync(fx.debtFile(), lines.map((l) => { const { target: _t, ...rest } = l; return JSON.stringify(rest); }).join("\n") + "\n");
+  assert.equal(fx.hook(PROD).status, 2);
+  assert.equal(status(fx.repo).targets, null);
+});
+
+await t("m2. with targets the CLI/permit must name the target; an unlisted target is off", () => {
+  const fx = mkT();
+  fx.change("src/a.ts");
+  const bare = fx.permit();
+  assert.equal(bare.ok, false); assert.match(bare.failures[0], /name the deploy target/);
+  const cli = fx.cli("permit");
+  assert.equal(cli.status, 1); assert.match(out(cli), /--target/);
+  const unlisted = fx.permit({ target: "qa" });
+  assert.equal(unlisted.ok, false); assert.match(unlisted.failures.join(), /off for target "qa"/);
+  const off = mkT({ staging: "off", production: "default" });
+  off.change("src/a.ts");
+  const p = off.permit({ target: "staging" });
+  assert.equal(p.ok, false); assert.match(p.failures.join(), /off for target "staging"/);
+  const r = off.hook(STAGE);
+  assert.equal(r.status, 2); assert.match(out(r), /off for target "staging"/);
+});
+
+await t("m3. staging default: permit + deploy records a staging-tagged debt, spends only the staging permit", () => {
+  const fx = mkT();
+  const sha = fx.change("src/a.ts");
+  const p = fx.permit({ target: "staging" });
+  assert.equal(p.ok, true, JSON.stringify(p)); assert.equal(p.permit.target, "staging");
+  assert.ok(existsSync(permitFile(fx.repo, "staging"))); assert.ok(!existsSync(permitFile(fx.repo)), "production permit file untouched");
+  const r = fx.hook(STAGE);
+  assert.equal(r.status, 0, out(r)); assert.match(out(r), /FAST LANE/);
+  assert.ok(!existsSync(permitFile(fx.repo, "staging")), "spent");
+  const d = fx.debts();
+  assert.equal(d.length, 1); assert.equal(d[0].target, "staging"); assert.equal(d[0].sha, sha);
+  assert.equal(readLedger(fx.repo).pop().lane, "fast");
+});
+
+await t("m4. INVARIANT: a staging debt (or permit) never lets an unverified build into production, and never blocks it", async () => {
+  const fx = mkT();
+  const sha = fx.change("src/a.ts");
+  assert.equal(fx.permit({ target: "staging" }).ok, true);
+  // a staging PERMIT for this exact HEAD is no production permit
+  const r0 = fx.hook(PROD);
+  assert.equal(r0.status, 2, out(r0));
+  assert.equal(fx.hook(STAGE).status, 0);
+  // staging debt open on sha: production deploy of the very same commit is refused (not a "continuation")
+  const r1 = fx.hook(PROD);
+  assert.equal(r1.status, 2, out(r1));
+  assert.doesNotMatch(out(r1), /continuing the deploy/);
+  assert.equal(verifyDeploy(fx.repo, { target: "production" }).ok, false);
+  assert.equal(verifyDeploy(fx.repo, { target: "staging" }).lane, "fast", "staging itself may keep going with its own debt");
+  // production with the full stamp for its exact HEAD deploys although a staging debt is open
+  const sha2 = fx.commit({ "src/e.ts": "export const e = 1;\n" });
+  await fx.realStamp();
+  assert.equal(fx.head(), sha2);
+  const r2 = fx.hook(PROD);
+  assert.equal(r2.status, 0, out(r2));
+  assert.equal(readLedger(fx.repo).pop().lane, "full");
+  assert.equal(fx.debts()[0].sha, sha);
+});
+
+await t("m4b. a staging rollback does not vouch for production", async () => {
+  const fx = mkT();
+  deployStaging(fx, "src/a.ts");
+  fx.sh("checkout", "-q", fx.base);
+  assert.equal(fx.hook(STAGE).status, 0, "staging rollback to the stamped base");
+  assert.equal(fx.debts()[0].closed.how, "rolled-back");
+  // the staging rollback record must not stand in for production's own verification of this commit
+  assert.equal(fx.hook(PROD).status, 2, "no production rollback / full stamp for the base");
+  await fx.realStamp();
+  const r = fx.hook(PROD);
+  assert.equal(r.status, 0, out(r));
+  assert.equal(readLedger(fx.repo).pop().lane, "full");
+});
+
+await t("m5. a staging debt still blocks further staging fast lanes and shows in status (exit 10, debts[], action)", () => {
+  const fx = mkT();
+  deployStaging(fx, "src/a.ts");
+  fx.change("src/b.ts");
+  const p = fx.permit({ target: "staging" });
+  assert.equal(p.ok, false); assert.match(p.failures.join(), /already open/);
+  const r = fx.hook(STAGE);
+  assert.equal(r.status, 2); assert.match(out(r), /fast-lane debt is open \[target staging\]/);
+  const s = fx.cli("status", "--json");
+  assert.equal(s.status, 10, out(s));
+  const j = JSON.parse(s.stdout);
+  assert.equal(j.debts.length, 1); assert.equal(j.debts[0].target, "staging"); assert.equal(j.debt.target, "staging"); assert.ok(j.action.run.length);
+  assert.match(out(fx.cli("status")), /\[target staging\]/);
+});
+
+await t("m6. production owner-only: refused without the owner's approval, issued with it and recorded; staging and production debts coexist", () => {
+  const fx = mkT();
+  deployStaging(fx, "src/a.ts");
+  fx.change("src/b.ts");
+  const no = fx.permit({ target: "production" });
+  assert.equal(no.ok, false); assert.match(no.failures.join(), /owner-only/);
+  assert.equal(fx.cli("permit", "--target", "production").status, 1);
+  const ok = fx.permit({ target: "production", ownerApproved: OWNER });
+  assert.equal(ok.ok, true, JSON.stringify(ok)); assert.equal(ok.permit.ownerApproved, OWNER); assert.equal(ok.permit.target, "production");
+  assert.ok(existsSync(permitFile(fx.repo)));
+  const r = fx.hook(PROD);
+  assert.equal(r.status, 0, out(r)); assert.match(out(r), /FAST LANE/);
+  assert.deepEqual(fx.debts().map((x) => x.target).sort(), ["production", "staging"]);
+  assert.equal(status(fx.repo).debts.length, 2);
+  assert.equal(fx.hook(PROD).status, 0, "more steps of the same production deploy");
+  fx.change("src/c.ts");
+  assert.equal(fx.hook(PROD).status, 2, "a second production deploy is blocked by the production debt");
+});
+
+await t("m7. an owner-only permit without a recorded owner approval (hand-edited), or for another target, is refused at deploy time", () => {
+  const fx = mkT();
+  fx.change("src/a.ts");
+  assert.equal(fx.permit({ target: "production", ownerApproved: OWNER }).ok, true);
+  const f = permitFile(fx.repo);
+  const p = JSON.parse(readFileSync(f, "utf8")); delete p.ownerApproved; writeFileSync(f, JSON.stringify(p));
+  const v = verifyDeploy(fx.repo, { target: "production" });
+  assert.equal(v.ok, false); assert.match(v.reason, /owner-only and this permit carries no owner approval/);
+  writeFileSync(f, JSON.stringify({ ...p, target: "staging", ownerApproved: OWNER }));
+  assert.equal(verifyDeploy(fx.repo, { target: "production" }).ok, false);
+});
+
+await t("m8. production in default mode needs no owner approval", () => {
+  const fx = mkT({ staging: "off", production: "default" });
+  fx.change("src/a.ts");
+  assert.equal(fx.permit({ target: "production" }).ok, true);
+  assert.equal(fx.hook(PROD).status, 0);
+});
+
+await t("m9. the deny list is shared: a migration is refused for staging and for production, with or without approval", () => {
+  const fx = mkT();
+  const s = fx.commit({ "supabase/migrations/001_x.sql": "select 1;\n" });
+  fx.gatePass(s);
+  for (const o of [{ target: "staging" }, { target: "production", ownerApproved: OWNER }]) {
+    const p = fx.permit(o);
+    assert.equal(p.ok, false, JSON.stringify(o)); assert.ok(p.denied.some((d) => /migration/.test(d.reason)));
+  }
+  assert.equal(fx.hook(STAGE).status, 2);
+});
+
+await t("m10. a command mixing staging and production deploys is production; so is an unlabeled deploy", () => {
+  const fx = mkT();
+  fx.change("src/a.ts");
+  assert.equal(fx.permit({ target: "staging" }).ok, true);
+  const r = fx.hook(`${STAGE} && ${PROD}`);
+  assert.equal(r.status, 2, "the staging permit does not cover the production part: " + out(r));
+  assert.equal(fx.hook(PROD).status, 2, "an unlabeled deploy is production");
+  assert.equal(fx.hook(STAGE).status, 0);
+});
+
+await t("m11. a production debt does not block a staging fast lane", () => {
+  const fx = mkT();
+  fx.change("src/a.ts");
+  assert.equal(fx.permit({ target: "production", ownerApproved: OWNER }).ok, true);
+  assert.equal(fx.hook(PROD).status, 0);
+  fx.change("src/b.ts");
+  assert.equal(fx.permit({ target: "staging" }).ok, true);
+  assert.equal(fx.hook(STAGE).status, 0);
+  assert.equal(fx.debts().length, 2);
 });
 
 console.log(`\n${n} fast-lane integration tests passed`);

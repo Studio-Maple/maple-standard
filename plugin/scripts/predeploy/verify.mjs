@@ -3,10 +3,11 @@
  * verify.mjs — "is there a valid predeploy stamp for HEAD?" For deploy
  * scripts (PowerShell/bash) and the guard hook. Exit 0 = yes, 1 = no.
  *
- *   node verify.mjs [--root DIR] [--quiet] [--json] [--check]
+ *   node verify.mjs [--root DIR] [--quiet] [--json] [--check] [--target NAME]
  *
  * Also honours the fast lane (fastlane.mjs): a valid permit answers yes and records the fast-lane debt, unless
- * --check is given (look only).
+ * --check is given (look only). --target names the deploy target (default "production", the strictest): with
+ * predeploy.fastLane.targets each target has its own mode, permit and debt.
  *
  * Fails CLOSED: any error reading state is a "no".
  */
@@ -19,7 +20,8 @@ const rootArg = argv.includes("--root") ? argv[argv.indexOf("--root") + 1] : nul
 let res;
 try {
   const root = findProjectRoot(rootArg || process.env.CLAUDE_PROJECT_DIR || process.cwd());
-  res = root ? verifyDeploy(root) : { ok: false, reason: "no maple.config.json found" };
+  const target = argv.includes("--target") ? argv[argv.indexOf("--target") + 1] : "production";
+  res = root ? verifyDeploy(root, { target }) : { ok: false, reason: "no maple.config.json found" };
   // A deploy script asking is a deploy happening: a fast-lane permit becomes a debt here too (the guard hook is not
   // the only caller). `--check` only looks.
   if (res.ok && res.action && !flag("--check")) applyDeploy(root, res);

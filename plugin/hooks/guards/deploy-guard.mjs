@@ -15,6 +15,8 @@
 //     low-risk may deploy on a permit BEFORE its heavy + predeploy run. That records one fast-lane debt; while it is
 //     open every other deploy is refused except a fully stamped commit containing it, or a rollback to its base.
 //     The decision lives in scripts/predeploy/fastlane.mjs (verifyDeploy); its state sits under maple/predeploy too.
+//     With predeploy.fastLane.targets the lane is per deploy target (a pattern's `target`, see deployTarget): each target has its
+//     own mode, permit and debt, so a staging debt never blocks (or vouches for) a production deploy.
 //
 // No bypass flag. The only override is the owner's interactive emergency override (needs a TTY and a typed
 // phrase; default off; logged). Fails open only on malformed hook input; a missing/invalid stamp, and an
@@ -67,6 +69,32 @@ export function matchDeploy(command, patterns, shell = "bash") {
     }
   }
   return null;
+}
+
+/**
+ * Which deploy target a deploy command goes to (the fast lane's per-target modes and debts key on it). Reuses the deploy patterns:
+ * an extra pattern in `predeploy.deployGuard.patterns` may carry `target: "<name>"`. Per executing segment, the configured
+ * patterns that match it decide: if they all name the same target, that is the segment's target (a labeled pattern refines the
+ * unlabeled built-in match of the same segment, e.g. `wrangler deploy --env staging`). Anything else is "production": a
+ * built-in-only match, an unlabeled configured pattern, labels that disagree. The command is non-production only when EVERY
+ * deploy segment resolves to the same non-production target, so `wrangler deploy --env staging && wrangler deploy` is production.
+ * A deploy nobody labeled is production, the strictest lane: the target never defaults to something weaker.
+ */
+export function deployTarget(command, patterns, shell = "bash") {
+  const targets = new Set();
+  for (const seg of parseShell(command, shell)) {
+    if (isDataOnly(seg) || READ_ONLY_VERBS.has(seg.verb)) continue;
+    const isGit = seg.verb === "git";
+    const text = segText(seg);
+    const hits = patterns.filter((p) => {
+      if (isGit && !/git/i.test(p.regex)) return false;
+      try { return new RegExp(p.regex, "i").test(text); } catch { return false; }
+    });
+    if (!hits.length) continue;
+    const labels = new Set(hits.filter((p) => !BASELINE_PATTERNS.includes(p)).map((p) => p.target || "production"));
+    targets.add(labels.size === 1 ? [...labels][0] : "production");
+  }
+  return targets.size === 1 ? [...targets][0] : "production";
 }
 
 // D066 adds the promotion inputs: heavy-pass stamps, heavy-run reports, the gate-debt ledger, the gate tier's
@@ -227,12 +255,16 @@ export async function check(ctx) {
     return { deny: "BLOCKED (predeploy-guard): `gate-cli attest` reads the coordinator URL and token from the environment / Credential Manager; setting OFFICECI_URL or OFFICECI_TOKEN inline would point it at a fake coordinator (D073)." };
   }
 
-  const hit = matchDeploy(ctx.command, effectivePatterns(pd.deployGuard?.patterns), ctx.shell) || prodPushHit(ctx, root, cfg, pd);
+  const patterns = effectivePatterns(pd.deployGuard?.patterns);
+  const pushHit = prodPushHit(ctx, root, cfg, pd);
+  const hit = matchDeploy(ctx.command, patterns, ctx.shell) || pushHit;
   if (!hit) return undefined;
+  // A push to the production branch in the same command makes the whole command production, whatever else it deploys.
+  const target = pushHit ? "production" : deployTarget(ctx.command, patterns, ctx.shell);
 
   const { appendLedger } = await import(pathToFileURL(join(PD, "state.mjs")).href);
   const { verifyDeploy, applyDeploy } = await import(pathToFileURL(join(PD, "fastlane.mjs")).href);
-  const v = verifyDeploy(root);
+  const v = verifyDeploy(root, { target });
   if (!v.ok) {
     return {
       deny:

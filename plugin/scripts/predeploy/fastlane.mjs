@@ -10,7 +10,7 @@
  *   before  - the gate tier green on this tree, tree clean, commit pushed, no unpaid gate debt, a secret scan of the
  *             diff, and a proof from the diff that every changed path is eligible (fastlane-rules.mjs)
  *   deploy  - the guard records ONE debt: heavy + predeploy are owed on that commit within the deadline
- *   after   - while the debt is open every other production deploy is refused, except a fully stamped commit that
+ *   after   - while the debt is open every other deploy is refused, except a fully stamped commit that
  *             contains the indebted one (which pays it) or a rollback to the debt's fully stamped base
  * Past the deadline nothing is rolled back automatically: deploys stay blocked and the two ways out are printed.
  */
@@ -19,7 +19,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSyn
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { normalize } from "./config.mjs";
-import { classify, normalizeFastLane, rulesHash } from "./fastlane-rules.mjs";
+import { classify, modeFor, normalizeFastLane, PRODUCTION, rulesHash } from "./fastlane-rules.mjs";
 import { git, headSha, loadMapleConfig, stateDir, trackedDirty, which } from "./lib.mjs";
 import { readJson, stampPath, verifyStamp, writeJson } from "./state.mjs";
 import { heavyPassFor, isAncestorOrSame, sub as gateSub, unpaidDebt, who } from "../gate/gate-state.mjs";
@@ -32,7 +32,8 @@ export function flDir(root) {
   mkdirSync(d, { recursive: true });
   return d;
 }
-export const permitFile = (root) => join(flDir(root), "permit.json");
+/** One permit file per target (production, or no target at all = the legacy single lane, keeps `permit.json`). */
+export const permitFile = (root, target = null) => join(flDir(root), !target || target === PRODUCTION ? "permit.json" : `permit-${target}.json`);
 const debtFile = (root) => join(flDir(root), "debt.jsonl");
 
 function readLines(file) {
@@ -66,6 +67,14 @@ export function debtPayment(root, debt) {
 }
 
 // ── debt ledger ─────────────────────────────────────────────────────────────
+// ── targets ─────────────────────────────────────────────────────────────────
+// `predeploy.fastLane.targets` (e.g. { staging: "default", production: "owner-only" }) gives each deploy target its own mode,
+// permit and debt. Absent = the legacy single lane: one debt blocks every deploy, whatever its target. The scope below is
+// what every lookup keys on: a target name in per-target mode, null in the legacy lane.
+const scopeOf = (fl, target) => (fl?.targets ? target || PRODUCTION : null);
+/** A debt is in a scope when the lane is legacy, or it was recorded for that target. A debt with no target (written before targets existed) is in every scope. */
+const inScope = (d, scope) => scope === null || !d.target || d.target === scope;
+
 export function readDebts(root) {
   const lines = readLines(debtFile(root));
   const closed = new Map(lines.filter((l) => l.type === "closed").map((l) => [l.of, l]));
@@ -78,23 +87,30 @@ function closeDebt(root, debt, how, extra, now) {
   return rec;
 }
 
-/** The one unpaid debt, after settling it if its stamps have arrived. @returns {object|null} */
-export function openDebt(root, now = new Date()) {
-  const debt = readDebts(root).find((d) => !d.closed);
-  if (!debt) return null;
-  const pay = debtPayment(root, debt);
-  if (pay.owes.length === 0) { closeDebt(root, debt, "paid", { heavy: pay.heavy, predeploy: pay.predeploy }, now); return null; }
-  return { ...debt, owes: pay.owes, overdue: now > new Date(debt.deadline) };
+/** Every unpaid debt (one per target at most), after settling the ones whose stamps have arrived. */
+export function openDebts(root, now = new Date()) {
+  const out = [];
+  for (const debt of readDebts(root).filter((d) => !d.closed)) {
+    const pay = debtPayment(root, debt);
+    if (pay.owes.length === 0) closeDebt(root, debt, "paid", { heavy: pay.heavy, predeploy: pay.predeploy }, now);
+    else out.push({ ...debt, owes: pay.owes, overdue: now > new Date(debt.deadline) });
+  }
+  return out;
 }
 
-function recordDebt(root, { sha, base, deadlineHours, permitExpiresAt }, now) {
-  if (readDebts(root).some((d) => !d.closed)) throw new Error("a fast-lane debt is already open");
-  const rec = { type: "debt", id: `${short(sha)}-${now.getTime()}`, sha, base, at: iso(now), deadline: iso(now.getTime() + deadlineHours * 3600000), permitExpiresAt, who: who() };
+/** The unpaid debt that applies to `target` (null = any: the legacy lane). @returns {object|null} */
+export function openDebt(root, now = new Date(), target = null) {
+  return openDebts(root, now).find((d) => inScope(d, target)) || null;
+}
+
+function recordDebt(root, { sha, base, deadlineHours, permitExpiresAt, target, scope }, now) {
+  if (readDebts(root).some((d) => !d.closed && inScope(d, scope))) throw new Error("a fast-lane debt is already open");
+  const rec = { type: "debt", id: `${short(sha)}-${now.getTime()}`, sha, base, target: target || PRODUCTION, at: iso(now), deadline: iso(now.getTime() + deadlineHours * 3600000), permitExpiresAt, who: who() };
   appendFileSync(debtFile(root), JSON.stringify(rec) + "\n");
   return rec;
 }
 
-const lastRollback = (root) => readDebts(root).filter((d) => d.closed?.how === "rolled-back").pop() || null;
+const lastRollback = (root, scope = null) => readDebts(root).filter((d) => d.closed?.how === "rolled-back" && inScope(d, scope)).pop() || null;
 
 // ── eligibility ─────────────────────────────────────────────────────────────
 /** Changed paths between two commits; renames are reported as a delete + an add so BOTH names are judged. */
@@ -171,14 +187,20 @@ function context(root) {
  * Judge HEAD for the fast lane. `write: true` issues the permit when every condition holds.
  * @returns {{ok:boolean, sha?:string, base?:string, files?:number, failures:string[], denied:object[], permit?:object}}
  */
-export function permit(root, { write = true, now = new Date(), deps = {} } = {}) {
+export function permit(root, { write = true, now = new Date(), deps = {}, target = null, ownerApproved = null } = {}) {
   const { pd, fl } = context(root);
   if (!fl) return { ok: false, failures: ["the fast lane is not enabled for this project (predeploy.fastLane.enabled)"], denied: [] };
   const sha = headSha(root);
   if (!sha) return { ok: false, failures: ["cannot determine HEAD"], denied: [] };
   const failures = [];
-  const debt = openDebt(root, now);
-  if (debt) failures.push(`a fast-lane debt is already open on ${short(debt.sha)} (${debt.overdue ? "OVERDUE since" : "due"} ${debt.deadline}; owes ${debt.owes.join(" + ")}) - only one at a time`);
+  // With `fastLane.targets` the lane is per target and never guesses which one: the caller must name it.
+  if (fl.targets && !target) return { ok: false, sha, failures: [`this project configures fastLane.targets (${Object.keys(fl.targets).join(", ")}): name the deploy target with --target <name>`], denied: [] };
+  const scope = scopeOf(fl, target);
+  const mode = modeFor(fl, scope);
+  if (mode === "off") failures.push(`the fast lane is off for target "${scope}" (predeploy.fastLane.targets)`);
+  else if (mode === "owner-only" && !String(ownerApproved || "").trim()) failures.push(`target "${scope}" is owner-only: the fast lane needs the owner's explicit approval for this run - ask the owner, then re-run with --owner-approved "<what the owner said>"`);
+  const debt = openDebt(root, now, scope);
+  if (debt) failures.push(`a fast-lane debt is already open on ${short(debt.sha)}${debt.target && scope ? ` (target ${debt.target})` : ""} (${debt.overdue ? "OVERDUE since" : "due"} ${debt.deadline}; owes ${debt.owes.join(" + ")}) - only one at a time`);
   if (trackedDirty(root)) failures.push("tracked files differ from HEAD - commit first");
   if (!(deps.isPushed ?? isPushed)(root, sha)) failures.push(`HEAD ${short(sha)} is not on any remote branch - push it first`);
   if (!(deps.gateStampFor ?? gateStampFor)(root, sha, fl.gateTiers)) failures.push(`no green gate-tier pass stamp (${fl.gateTiers.join(" | ")}) for this tree - run the project's gate tier on this commit`);
@@ -189,17 +211,20 @@ export function permit(root, { write = true, now = new Date(), deps = {} } = {})
   if (!el.ok) failures.push(el.reason);
   // The scan is the only slow step: skip it once the lane is already refused.
   if (!failures.length) { const s = (deps.secretScan ?? secretScan)(root, el.base, sha); if (!s.ok) failures.push(s.reason); }
-  const res = { ok: failures.length === 0, sha, base: el.base, files: el.files, failures, denied: el.denied || [] };
+  const res = { ok: failures.length === 0, sha, base: el.base, files: el.files, failures, denied: el.denied || [], ...(scope ? { target: scope } : {}) };
   if (!res.ok || !write) return res;
-  res.permit = { sha, base: el.base, tree: git(root, ["rev-parse", `${sha}^{tree}`]), files: el.files, rulesHash: rulesHash(pd, fl), at: iso(now), expiresAt: iso(now.getTime() + fl.permitMinutes * 60000), deadlineHours: fl.deadlineHours, who: who() };
-  writeJson(permitFile(root), res.permit);
+  res.permit = { sha, base: el.base, tree: git(root, ["rev-parse", `${sha}^{tree}`]), files: el.files, rulesHash: rulesHash(pd, fl), ...(scope ? { target: scope, mode, ...(mode === "owner-only" ? { ownerApproved: String(ownerApproved).trim().slice(0, 300) } : {}) } : {}), at: iso(now), expiresAt: iso(now.getTime() + fl.permitMinutes * 60000), deadlineHours: fl.deadlineHours, who: who() };
+  writeJson(permitFile(root, scope), res.permit);
   return res;
 }
 
 /** A permit that still stands for `sha`: unexpired, same rules, and the diff still proves eligible. */
-function permitFor(root, pd, fl, sha, now) {
-  const p = readJson(permitFile(root));
-  if (!p || p.sha !== sha) return { reason: `no fast-lane permit for HEAD ${short(sha)}` };
+function permitFor(root, pd, fl, sha, now, scope = null) {
+  const p = readJson(permitFile(root, scope));
+  if (!p || p.sha !== sha) return { reason: `no fast-lane permit for HEAD ${short(sha)}${scope ? ` and target "${scope}"` : ""}` };
+  // A permit is bound to the target it was issued for (the file name already separates them; this is the second lock).
+  if (scope && (p.target || PRODUCTION) !== scope) return { reason: `the fast-lane permit is for target "${p.target}", not "${scope}"` };
+  if (scope && modeFor(fl, scope) === "owner-only" && !String(p.ownerApproved || "").trim()) return { reason: `target "${scope}" is owner-only and this permit carries no owner approval` };
   if (now > new Date(p.expiresAt)) return { reason: `the fast-lane permit for ${short(sha)} expired ${p.expiresAt}` };
   if (p.rulesHash !== rulesHash(pd, fl)) return { reason: "the fast-lane rules changed since the permit was issued" };
   if (trackedDirty(root)) return { reason: "tracked files differ from HEAD - the permit covers the committed tree only" };
@@ -215,10 +240,11 @@ const wayOut = (d) =>
   `    1. FIX FORWARD: get a green heavy run AND a predeploy stamp on ${short(d.sha)} or a commit that contains it (that pays the debt; a fully stamped descendant may also be deployed).\n` +
   `    2. ROLL BACK: check out ${short(d.base)} (the last fully stamped commit) and deploy it.`;
 
-function debtDenial(d, sha, why) {
+function debtDenial(d, sha, why, scope = null) {
+  const tag = scope && d.target ? ` [target ${d.target}]` : "";
   const head = d.overdue
-    ? `FAST-LANE DEBT OVERDUE: ${short(d.sha)} was deployed ahead of its full verification at ${d.at} and the deadline ${d.deadline} HAS PASSED. Production is running a commit that still owes ${d.owes.join(" + ")}`
-    : `a fast-lane debt is open: ${short(d.sha)} was deployed ahead of its full verification and still owes ${d.owes.join(" + ")} by ${d.deadline}`;
+    ? `FAST-LANE DEBT OVERDUE${tag}: ${short(d.sha)} was deployed ahead of its full verification at ${d.at} and the deadline ${d.deadline} HAS PASSED. Production is running a commit that still owes ${d.owes.join(" + ")}`
+    : `a fast-lane debt is open${tag}: ${short(d.sha)} was deployed ahead of its full verification and still owes ${d.owes.join(" + ")} by ${d.deadline}`;
   return `${head}. HEAD ${short(sha)} may not deploy: ${why}.\n${wayOut(d)}`;
 }
 
@@ -227,47 +253,52 @@ function debtDenial(d, sha, why) {
  * the caller that actually lets a deploy through must call `applyDeploy` with the result.
  * @returns {{ok:boolean, reason:string, sha?:string, lane:"full"|"fast"|"rollback"|"emergency"|"none", action?:string, debt?:object, permit?:object, emergency?:object}}
  */
-export function verifyDeploy(root, { now = new Date() } = {}) {
+export function verifyDeploy(root, { now = new Date(), target = PRODUCTION } = {}) {
   const full = verifyStamp(root);
   const { pd, fl } = context(root);
+  // Per-target lane (`fastLane.targets`): only this target's debt, permit and rollback count. A debt on another target never
+  // blocks this deploy, and never lets it through either: without its own debt a deploy needs the full stamp for its exact HEAD
+  // (or a permit for this very target). `scope` is null in the legacy single lane, where any debt blocks everything.
+  const scope = scopeOf(fl, target);
   if (!pd || pd.enabled === false) return { ...full, lane: "full" };
   const sha = full.sha || headSha(root);
   if (!sha) return { ...full, lane: "none" };
   if (full.emergency) return { ...full, lane: "emergency" };
 
-  const debt = openDebt(root, now);
+  const debt = openDebt(root, now, scope);
   if (debt) {
     if (sha === debt.base) {
-      if (!fullyStamped(root, sha)) return { ok: false, sha, lane: "none", debt, reason: debtDenial(debt, sha, "the rollback target has lost its stamps") };
-      if (trackedDirty(root)) return { ok: false, sha, lane: "none", debt, reason: debtDenial(debt, sha, "tracked files differ from the rollback commit") };
+      if (!fullyStamped(root, sha)) return { ok: false, sha, lane: "none", debt, reason: debtDenial(debt, sha, "the rollback target has lost its stamps", scope) };
+      if (trackedDirty(root)) return { ok: false, sha, lane: "none", debt, reason: debtDenial(debt, sha, "tracked files differ from the rollback commit", scope) };
       return { ok: true, sha, lane: "rollback", action: "close-rollback", debt, reason: `ROLLBACK to ${short(sha)}, the fully stamped base of the open fast-lane debt on ${short(debt.sha)}; the debt closes as rolled back` };
     }
     if (sha === debt.sha) {
-      if (debt.overdue) return { ok: false, sha, lane: "none", debt, reason: debtDenial(debt, sha, "it is the indebted commit and its deadline has passed") };
-      if (now > new Date(debt.permitExpiresAt)) return { ok: false, sha, lane: "none", debt, reason: debtDenial(debt, sha, `the deploy window for this commit closed ${debt.permitExpiresAt}`) };
-      if (trackedDirty(root)) return { ok: false, sha, lane: "none", debt, reason: debtDenial(debt, sha, "tracked files differ from HEAD") };
+      if (debt.overdue) return { ok: false, sha, lane: "none", debt, reason: debtDenial(debt, sha, "it is the indebted commit and its deadline has passed", scope) };
+      if (now > new Date(debt.permitExpiresAt)) return { ok: false, sha, lane: "none", debt, reason: debtDenial(debt, sha, `the deploy window for this commit closed ${debt.permitExpiresAt}`, scope) };
+      if (trackedDirty(root)) return { ok: false, sha, lane: "none", debt, reason: debtDenial(debt, sha, "tracked files differ from HEAD", scope) };
       return { ok: true, sha, lane: "fast", debt, reason: `fast lane: continuing the deploy of ${short(sha)} (full heavy + predeploy owed by ${debt.deadline})` };
     }
     const why = full.ok ? "it does not contain the indebted commit" : isAncestorOrSame(root, debt.sha, sha) ? `it is not fully stamped (${full.reason})` : "it neither contains the indebted commit with full stamps nor is the rollback target";
-    return { ok: false, sha, lane: "none", debt, reason: debtDenial(debt, sha, why) };
+    return { ok: false, sha, lane: "none", debt, reason: debtDenial(debt, sha, why, scope) };
   }
 
   if (full.ok) return { ...full, lane: "full" };
-  const rb = lastRollback(root);
+  const rb = lastRollback(root, scope);
   if (rb && rb.base === sha && now - new Date(rb.closed.at) < (fl?.permitMinutes ?? 60) * 60000 && fullyStamped(root, sha) && !trackedDirty(root)) {
     return { ok: true, sha, lane: "rollback", reason: `continuing the rollback to ${short(sha)}` };
   }
   if (!fl) return { ...full, lane: "none" };
-  const p = permitFor(root, pd, fl, sha, now);
+  if (modeFor(fl, scope) === "off") return { ...full, lane: "none", reason: `${full.reason}. Fast lane: off for target "${scope}" (predeploy.fastLane.targets)` };
+  const p = permitFor(root, pd, fl, sha, now, scope);
   if (!p.permit) return { ...full, lane: "none", reason: `${full.reason}. Fast lane: ${p.reason} - \`node <plugin>/scripts/predeploy/fastlane-cli.mjs permit\` says whether this change qualifies` };
-  return { ok: true, sha, lane: "fast", action: "record-debt", permit: p.permit, reason: `FAST LANE: ${short(sha)} deploys ahead of its full verification (${p.permit.files} eligible path(s) since ${short(p.permit.base)}); full heavy + predeploy are owed on it within ${p.permit.deadlineHours}h` };
+  return { ok: true, sha, lane: "fast", action: "record-debt", target, scope, permit: p.permit, reason: `FAST LANE: ${short(sha)} deploys ahead of its full verification (${p.permit.files} eligible path(s) since ${short(p.permit.base)}); full heavy + predeploy are owed on it within ${p.permit.deadlineHours}h` };
 }
 
 /** Persist what an allowed deploy changes. Throws when it cannot: the caller must then refuse the deploy. */
 export function applyDeploy(root, v, { now = new Date() } = {}) {
   if (v.action === "record-debt") {
-    const rec = recordDebt(root, { sha: v.sha, base: v.permit.base, deadlineHours: v.permit.deadlineHours, permitExpiresAt: v.permit.expiresAt }, now);
-    rmSync(permitFile(root), { force: true }); // spent: the debt carries the deploy window from here on
+    const rec = recordDebt(root, { sha: v.sha, base: v.permit.base, deadlineHours: v.permit.deadlineHours, permitExpiresAt: v.permit.expiresAt, target: v.target, scope: v.scope }, now);
+    rmSync(permitFile(root, v.scope), { force: true }); // spent: the debt carries the deploy window from here on
     return rec;
   }
   if (v.action === "close-rollback") return closeDebt(root, v.debt, "rolled-back", { base: v.debt.base }, now);
@@ -277,12 +308,15 @@ export function applyDeploy(root, v, { now = new Date() } = {}) {
 // ── status (people and the scheduled runner) ────────────────────────────────
 export function status(root, { now = new Date() } = {}) {
   const { pd, fl } = context(root);
-  const debt = openDebt(root, now);
-  const p = readJson(permitFile(root));
-  const out = { enabled: Boolean(fl), state: debt ? (debt.overdue ? "overdue" : "owed") : "clear", debt: null, permit: p && now <= new Date(p.expiresAt) && !debt ? p : null, deadlineHours: fl?.deadlineHours ?? null, predeployEnabled: Boolean(pd && pd.enabled !== false) };
+  // One debt per target at most; `debt` / `action` (what a scheduled runner reads) are the most urgent one, `debts` is all of them.
+  const all = openDebts(root, now).sort((a, b) => (b.overdue - a.overdue) || (new Date(a.deadline) - new Date(b.deadline)));
+  const view = (d) => ({ sha: d.sha, base: d.base, target: d.target || null, at: d.at, deadline: d.deadline, overdue: d.overdue, owes: d.owes, minutesLeft: Math.round((new Date(d.deadline) - now) / 60000) });
+  const debt = all[0] || null;
+  const scopes = fl?.targets ? Object.keys(fl.targets) : [null];
+  const permits = scopes.map((sc) => ({ sc, p: readJson(permitFile(root, sc)) })).filter(({ sc, p }) => p && now <= new Date(p.expiresAt) && !all.some((d) => inScope(d, sc))).map(({ p }) => p);
+  const out = { enabled: Boolean(fl), state: debt ? (debt.overdue ? "overdue" : "owed") : "clear", debt: null, debts: all.map(view), permit: permits[0] || null, permits, targets: fl?.targets || null, deadlineHours: fl?.deadlineHours ?? null, predeployEnabled: Boolean(pd && pd.enabled !== false) };
   if (debt) {
-    const ms = new Date(debt.deadline) - now;
-    out.debt = { sha: debt.sha, base: debt.base, at: debt.at, deadline: debt.deadline, overdue: debt.overdue, owes: debt.owes, minutesLeft: Math.round(ms / 60000) };
+    out.debt = view(debt);
     out.action = { run: debt.owes, on: debt.sha, text: `run ${debt.owes.join(" + ")} on ${debt.sha} (or a commit that contains it) now`, rollbackTo: debt.base };
   }
   return out;

@@ -12,7 +12,10 @@ Turn it on in `maple.config.json`: `predeploy.fastLane: { "enabled": true, "allo
 `deny`, `deadlineHours` default 12, `permitMinutes` default 60, `gateTiers` default `["gate"]`).
 It does not change the stamp's config hash, so existing stamps stay valid.
 
+**Per deploy target (optional, D087).** Add `"targets": { "staging": "default", "production": "owner-only" }` to `fastLane` and label the staging deploy command in `deployGuard.patterns` with `"target": "staging"`. `default` = a routine permit; `owner-only` = the owner must approve this run (`permit --target production --owner-approved "<owner's words>"`; ask him first, never invent the text); `off` = no fast lane; unlisted = off. Each target has its own permit and debt: a staging debt never blocks production and never vouches for it (production still needs the full stamp for its exact HEAD). Without `targets` nothing changes. The path allow/deny lists are shared; migrations stay denied everywhere.
+
 `$ARGUMENTS`:
+- `check` / `permit` / `status` accept `--target <name>` (required with `targets`; `permit` also takes `--owner-approved` for owner-only targets).
 - `check` - would HEAD qualify? Looks only: writes nothing and does not run the secret scan.
 - `permit` - run every pre-deploy condition and, if all hold, issue a short-lived permit for HEAD.
 - `status` - show the open debt, its deadline and what pays it. Exit 0 = clear, 10 = owed, 11 = overdue. Add `--json` for a scheduler.
@@ -29,7 +32,7 @@ node "$CLAUDE_PLUGIN_ROOT/scripts/predeploy/fastlane-cli.mjs" $ARGUMENTS
   `allow`. Anything matching the built-in deny list (migrations, infra/deploy, auth/RLS, edge functions, dependency
   manifests and lockfiles, CI and gate config, env/secret files) or `deny` is refused, and so is any path that matches
   no `allow` pattern. Deny always wins.
-- No other fast-lane debt is open: only one at a time.
+- No other fast-lane debt is open on that target: only one at a time per target (one overall without `targets`).
 
 If anything fails, the command prints every reason and the change takes the normal full path (`/predeploy-gate`).
 
@@ -37,7 +40,7 @@ If anything fails, the command prints every reason and the change takes the norm
 
 Deploying under a permit makes the deploy guard record one **debt** on that commit: a green heavy run **and** a
 predeploy stamp are owed on it within the deadline. More steps of the same deploy are fine. While the debt is open,
-every other production deploy is refused. A permit does not survive a new commit, its expiry, or a change to the
+every other deploy to that target is refused (other targets are unaffected when `targets` is set). A permit does not survive a new commit, its expiry, or a change to the
 allow/deny rules. Past the deadline nothing is rolled back for you; deploys simply stay blocked.
 
 ## The two ways out

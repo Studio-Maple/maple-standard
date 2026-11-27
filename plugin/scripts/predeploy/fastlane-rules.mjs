@@ -38,6 +38,20 @@ export const BASELINE_DENY = [
   { class: "git plumbing", globs: [".gitmodules", ".gitattributes"] },
 ];
 
+/** Per-target modes: `default` = a routine permit suffices, `owner-only` = the permit must record the owner's explicit approval, `off` = no fast lane. */
+export const TARGET_MODES = ["default", "owner-only", "off"];
+export const PRODUCTION = "production";
+export const TARGET_NAME = /^[a-z][a-z0-9-]*$/;
+
+/**
+ * The fast-lane mode for a deploy target. `fastLane.targets` absent = the legacy single lane: every target is `default`.
+ * With `targets` present, a target that is not listed is `off` (the lane never guesses).
+ */
+export function modeFor(fl, target) {
+  if (!fl?.targets) return "default";
+  return fl.targets[target] ?? "off";
+}
+
 const isObj = (v) => v && typeof v === "object" && !Array.isArray(v);
 const isStr = (v) => typeof v === "string" && v.trim().length > 0;
 const posix = (p) => String(p).replace(/\\/g, "/").replace(/^\.\//, "");
@@ -113,7 +127,7 @@ export function validateFastLane(p) {
   const f = p?.fastLane;
   if (f === undefined) return e;
   if (!isObj(f)) return ["predeploy.fastLane: must be an object { enabled, allow, deny?, deadlineHours?, permitMinutes?, gateTiers? }"];
-  for (const k of Object.keys(f)) if (!["enabled", "allow", "deny", "deadlineHours", "permitMinutes", "gateTiers"].includes(k)) e.push(`predeploy.fastLane.${k}: unknown key`);
+  for (const k of Object.keys(f)) if (!["enabled", "allow", "deny", "deadlineHours", "permitMinutes", "gateTiers", "targets"].includes(k)) e.push(`predeploy.fastLane.${k}: unknown key`);
   if (typeof f.enabled !== "boolean") e.push("predeploy.fastLane.enabled: required boolean (the lane is off unless a project switches it on)");
   if (f.deadlineHours !== undefined && !(Number.isInteger(f.deadlineHours) && f.deadlineHours >= 1 && f.deadlineHours <= 48)) e.push("predeploy.fastLane.deadlineHours: integer 1..48 (hours the full heavy + predeploy run may trail a fast deploy; default 12)");
   if (f.permitMinutes !== undefined && !(Number.isInteger(f.permitMinutes) && f.permitMinutes >= 5 && f.permitMinutes <= 240)) e.push("predeploy.fastLane.permitMinutes: integer 5..240 (how long a permit, and a multi-step deploy under it, stays open; default 60)");
@@ -125,6 +139,17 @@ export function validateFastLane(p) {
       try { globToRegExp(g); } catch (x) { e.push(`predeploy.fastLane.${k}[${i}]: ${x.message}`); }
       if (k === "allow" && /^(\*\*\/?)?\*?\*?$/.test(posix(g).trim())) e.push(`predeploy.fastLane.allow[${i}]: "${g}" allows everything - list the specific source areas that may ship ahead of the full run`);
     });
+  }
+  if (f.targets !== undefined) {
+    if (!isObj(f.targets) || Object.keys(f.targets).length === 0) e.push('predeploy.fastLane.targets: non-empty object { "<target>": "default" | "owner-only" | "off" }, e.g. { "staging": "default", "production": "owner-only" }');
+    else {
+      const declared = new Set((p.deployGuard?.patterns || []).map((pt) => pt?.target).filter(isStr));
+      for (const [t, mode] of Object.entries(f.targets)) {
+        if (!TARGET_NAME.test(t)) e.push(`predeploy.fastLane.targets.${t}: target names are lowercase letters, digits and hyphens`);
+        else if (t !== PRODUCTION && !declared.has(t)) e.push(`predeploy.fastLane.targets.${t}: no predeploy.deployGuard.patterns entry has target "${t}", so no deploy would ever be identified as this target`);
+        if (!TARGET_MODES.includes(mode)) e.push(`predeploy.fastLane.targets.${t}: must be one of ${TARGET_MODES.join(" | ")}`);
+      }
+    }
   }
   if (f.enabled === true && !(Array.isArray(f.allow) && f.allow.length > 0)) e.push("predeploy.fastLane.allow: required non-empty array when the lane is enabled (a path that matches no allow pattern is never eligible)");
   return e;

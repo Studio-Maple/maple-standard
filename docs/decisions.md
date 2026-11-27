@@ -14,6 +14,9 @@ Each entry: `## D### | YYYY-MM-DD | title` + 1-2 sentences (≤600 chars,
 gate-enforced). The call and its pointers only — detail lives in the
 affected doc/code/CHANGELOG.
 
+## D087 | 2026-11-27 | Fast lane is per deploy target: staging by default, production owner-only
+Amends D076. predeploy.fastLane.targets maps each deploy target (a deployGuard pattern's target label; unlabeled = production) to default | owner-only | off. Debts, permits and rollbacks are per target, so a staging debt never blocks or vouches for production, which still needs the full stamp for its exact HEAD unless an owner-approved production permit exists. Allow/deny lists stay shared (migrations denied everywhere). Absent targets = today's single lane. Owner policy 2026-11-27.
+
 ## D086 | 2026-11-19 | New direct dependencies need a written necessity note
 Adding a direct dependency is blocked until deps-ledger.json has its entry: why it is needed, which existing dependency or platform/stdlib API was considered, and which more reliable alternative was considered (dev deps: why only). The hook lists existing direct deps and detected overlap; no model call. Warn first, then enforce, per the warn-to-enforce decision. Owner approved 2026-11-19.
 
